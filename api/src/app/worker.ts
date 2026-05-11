@@ -257,11 +257,10 @@ export const worker = {
           event = "request.unauthorized";
           return respond({ ok: false, error: "Unauthorized" }, 401);
         }
-        const flags = await getPrincipalAccountFlags(env, principal).catch(() => null);
-        if (!flags?.isSuperuser) {
+        if (!principal.roles.includes("admin")) {
           statusCode = 403;
           event = "request.forbidden";
-          return respond({ ok: false, error: "Super admin access required." }, 403);
+          return respond({ ok: false, error: "Admin access required." }, 403);
         }
         const data = await getAdminDashboard(env);
         statusCode = 200;
@@ -297,7 +296,14 @@ export const worker = {
           return respond({ ok: false, error: "Admin access required." }, 403);
         }
         const url = new URL(request.url);
-        const data = await readUsers(env, url.searchParams.get("limit"), url.searchParams.get("cursor"));
+        const data = await readUsers(env, {
+          limitParam: url.searchParams.get("limit"),
+          cursorParam: url.searchParams.get("cursor"),
+          searchParam: url.searchParams.get("q"),
+          activeParam: url.searchParams.get("active"),
+          roleParam: url.searchParams.get("roles"),
+          neverLoggedInParam: url.searchParams.get("neverLoggedIn"),
+        });
         statusCode = 200;
         return respond({ ok: true, ...data });
       }
@@ -340,9 +346,10 @@ export const worker = {
         const username = isObject(body) ? String(body.username ?? "") : "";
         const password = isObject(body) ? String(body.password ?? "") : "";
         const role = isObject(body) ? String(body.role ?? "") : "";
+        const roles = isObject(body) && Array.isArray(body.roles) ? body.roles : [];
         const fullName = isObject(body) ? String(body.fullName ?? "") : "";
         const email = isObject(body) ? String(body.email ?? "") : "";
-        await createLocalUserByAdmin(env, principal, { username, password, role, fullName, email });
+        await createLocalUserByAdmin(env, principal, { username, password, role, roles, fullName, email });
         statusCode = 200;
         event = "admin.user.created";
         return respond({ ok: true, message: "User created." });
@@ -362,8 +369,8 @@ export const worker = {
         const body = await request.json();
         const subject = isObject(body) ? String(body.subject ?? "") : "";
         const fullName = isObject(body) ? String(body.fullName ?? "") : "";
-        const role = isObject(body) ? String(body.role ?? "") : "";
-        await updateUserByAdmin(env, principal, { subject, fullName, role });
+        const roles = isObject(body) && Array.isArray(body.roles) ? body.roles : [];
+        await updateUserByAdmin(env, principal, { subject, fullName, roles });
         statusCode = 200;
         event = "admin.user.updated";
         return respond({ ok: true, message: "User updated." });
@@ -603,11 +610,6 @@ export const worker = {
           statusCode = 401;
           event = "request.unauthorized";
           return respond({ ok: false, error: "Unauthorized" }, 401);
-        }
-        if (principal.roles.includes("guest")) {
-          statusCode = 403;
-          event = "request.forbidden";
-          return respond({ ok: false, error: "Guest users cannot edit local account profile." }, 403);
         }
         const body = await request.json();
         const fullName = isObject(body) ? String(body.fullName ?? "") : "";

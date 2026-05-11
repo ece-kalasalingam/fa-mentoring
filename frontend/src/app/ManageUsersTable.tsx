@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { MaterialReactTable, type MRT_ColumnDef, type MRT_ColumnFiltersState } from "material-react-table";
-import { Box, Button, Checkbox, Chip } from "@mui/material";
+import { useMemo } from "react";
+import { MaterialReactTable, type MRT_ColumnDef } from "material-react-table";
+import { Box, Button, TextField } from "@mui/material";
 import KeyIcon from "@mui/icons-material/Key";
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
@@ -25,17 +25,17 @@ type Props = {
   rows: UserRow[];
   busy: boolean;
   onResetPassword: (row: UserRow) => void;
-  onUpdateRow: (row: UserRow, patch: Partial<{ fullName: string; role: string; active: boolean }>) => Promise<void>;
+  onUpdateRow: (row: UserRow, patch: Partial<{ fullName: string; roles: string[]; active: boolean }>) => Promise<void>;
   formatIst: (value: string | null | undefined) => string;
-  quickFilters?: Array<"active" | "disabled" | "neverLoggedIn">;
-  roleFilters?: string[];
+  globalFilter: string;
+  onGlobalFilterChange: (value: string) => void;
 };
 
 type TableRow = {
   id: string;
   user: string;
   username: string;
-  role: string;
+  roles: string[];
   active: boolean;
   provider: string;
   lastLogin: string;
@@ -43,7 +43,6 @@ type TableRow = {
 };
 
 export default function ManageUsersTable(props: Props) {
-  const [columnFilters, setColumnFilters] = useState<MRT_ColumnFiltersState>([]);
   const csvConfig = useMemo(
     () =>
       mkConfig({
@@ -55,59 +54,13 @@ export default function ManageUsersTable(props: Props) {
     []
   );
 
-  const saveEditedCell = async (row: TableRow, columnId: string, value: unknown) => {
-    if (columnId === "user") {
-      const next = String(value ?? "").trim();
-      const current = String(row.user ?? "").trim();
-      if (next && next !== current) {
-        await props.onUpdateRow(row.source, { fullName: next });
-      }
-      return;
-    }
-
-    if (columnId === "role") {
-      const nextRole = String(value ?? "").trim();
-      if (nextRole && nextRole !== row.role) {
-        await props.onUpdateRow(row.source, { role: nextRole });
-      }
-    }
-  };
-
-  useEffect(() => {
-    setColumnFilters((prev) => {
-      const rest = prev.filter((f) => f.id !== "active" && f.id !== "lastLogin" && f.id !== "role");
-      const selected = props.quickFilters ?? [];
-      const hasActive = selected.includes("active");
-      const hasDisabled = selected.includes("disabled");
-      const hasNeverLoggedIn = selected.includes("neverLoggedIn");
-      let next = rest;
-      if (hasActive && hasDisabled) {
-        // OR semantics on the same column: true OR false => no active filter needed.
-      } else if (hasActive) {
-        next = [...next, { id: "active", value: "true" }];
-      } else if (hasDisabled) {
-        next = [...next, { id: "active", value: "false" }];
-      }
-      if (hasNeverLoggedIn) {
-        next = [...next, { id: "lastLogin", value: "--" }];
-      }
-      const normalizedRoleFilters = (props.roleFilters ?? [])
-        .map((role) => String(role ?? "").trim().toLowerCase())
-        .filter((role) => role.length > 0);
-      if (normalizedRoleFilters.length > 0) {
-        next = [...next, { id: "role", value: normalizedRoleFilters }];
-      }
-      return next;
-    });
-  }, [props.quickFilters, props.roleFilters]);
-
   const tableRows = useMemo<TableRow[]>(
     () =>
       props.rows.map((row) => ({
         id: row.subject,
         user: row.fullName || row.email || row.subject,
         username: row.username || "—",
-        role: row.roles[0] || "guest",
+        roles: row.roles.length > 0 ? row.roles : ["guest"],
         active: row.active,
         provider: row.provider,
         lastLogin: row.lastLoginAt && row.createdAt !== row.lastLoginAt ? props.formatIst(row.lastLoginAt) : "--",
@@ -122,16 +75,6 @@ export default function ManageUsersTable(props: Props) {
         accessorKey: "user",
         header: "User",
         enableEditing: true,
-        muiEditTextFieldProps: ({ row, column }) => ({
-          onBlur: (event) => {
-            void saveEditedCell(row.original, column.id, event.target.value);
-          },
-          onKeyDown: (event) => {
-            if (event.key === "Enter") {
-              void saveEditedCell(row.original, column.id, (event.target as HTMLInputElement).value);
-            }
-          },
-        }),
       },
       {
         accessorKey: "username",
@@ -139,55 +82,49 @@ export default function ManageUsersTable(props: Props) {
         enableEditing: false,
       },
       {
-        accessorKey: "role",
-        header: "Role",
+        accessorKey: "roles",
+        header: "Roles",
         editVariant: "select",
         editSelectOptions: ["admin", "moderator", "head", "faculty", "student", "guest"],
-        muiEditTextFieldProps: ({ row, column }) => ({
-          onChange: (event) => {
-            void saveEditedCell(row.original, column.id, event.target.value);
+        muiEditTextFieldProps: {
+          select: true,
+          SelectProps: {
+            multiple: true,
+            displayEmpty: true,
+            renderValue: (selected: unknown) => {
+              const roles = Array.isArray(selected) ? selected.map((role) => String(role ?? "")) : [];
+              return roles.length > 0 ? roles.join(", ") : "Select roles";
+            },
           },
-        }),
+        },
+        Cell: ({ row }) => {
+          const roles = Array.isArray(row.original.roles) ? row.original.roles : [];
+          return roles.length > 0 ? roles.join(", ") : "guest";
+        },
         filterFn: (row, _id, filterValue) => {
           if (!Array.isArray(filterValue) || filterValue.length === 0) return true;
           const rowRoles = (row.original.source.roles ?? []).map((role) => String(role ?? "").trim().toLowerCase());
           // OR semantics among selected role chips.
           return filterValue.some((selectedRole) => rowRoles.includes(String(selectedRole).trim().toLowerCase()));
         },
-        Cell: ({ cell }) => {
-          const role = String(cell.getValue() ?? "guest");
-          return (
-            <Chip
-              size="small"
-              label={role.toUpperCase()}
-              color={role === "admin" ? "error" : role === "moderator" ? "warning" : "default"}
-              sx={{ height: 20, fontSize: "0.65rem", fontWeight: 700 }}
-            />
-          );
-        },
       },
       {
         accessorKey: "active",
         header: "Active",
-        enableEditing: false,
+        editVariant: "select",
+        editSelectOptions: [
+          { value: true, label: "Active" },
+          { value: false, label: "Disabled" },
+        ],
         filterVariant: "select",
         filterSelectOptions: [
-          { text: "Active", value: "true" },
-          { text: "Disabled", value: "false" },
+          { label: "Active", value: "true" },
+          { label: "Disabled", value: "false" },
         ],
         filterFn: (row, id, filterValue) => {
           if (filterValue === undefined || filterValue === null || filterValue === "") return true;
           return String(row.getValue(id)) === String(filterValue);
         },
-        Cell: ({ row }) => (
-          <Checkbox
-            checked={Boolean(row.original.active)}
-            disabled={props.busy}
-            onChange={(_e, checked) => {
-              void props.onUpdateRow(row.original.source, { active: checked });
-            }}
-          />
-        ),
       },
       {
         accessorKey: "provider",
@@ -229,7 +166,8 @@ export default function ManageUsersTable(props: Props) {
       columns={columns}
       data={tableRows}
       enableEditing
-      editDisplayMode="cell"
+      editDisplayMode="row"
+      enableRowActions
       enableRowSelection
       enableRowNumbers
       rowNumberDisplayMode="static"
@@ -239,31 +177,44 @@ export default function ManageUsersTable(props: Props) {
       enableColumnFilters
       enableGlobalFilter
       enablePagination
-      displayColumnDefOptions={{
-        "mrt-row-select": {
-          size: 56,
-        },
-        "mrt-row-numbers": {
-          header: "#",
-          size: 56,
-        },
+      state={{ isLoading: props.busy, globalFilter: props.globalFilter, showGlobalFilter: true }}
+      manualFiltering
+      onGlobalFilterChange={(updater) => {
+        const next = typeof updater === "function" ? updater(props.globalFilter) : updater;
+        props.onGlobalFilterChange(String(next ?? ""));
       }}
-      state={{ isLoading: props.busy, columnFilters }}
-      onColumnFiltersChange={setColumnFilters}
-      muiTablePaperProps={{
-        sx: {
-          border: "none",
-        },
-      }}
-      muiTableContainerProps={{
-        sx: {
-          border: "none",
-        },
-      }}
-      muiTableProps={{
-        sx: {
-          border: "none",
-        },
+      onEditingRowSave={async ({ row, values, exitEditingMode }) => {
+        const patch: Partial<{ fullName: string; roles: string[]; active: boolean }> = {};
+
+        const nextName = String(values.user ?? "").trim();
+        const currentName = String(row.original.user ?? "").trim();
+        if (nextName && nextName !== currentName) {
+          patch.fullName = nextName;
+        }
+
+        const nextRolesRaw = Array.isArray(values.roles) ? values.roles : [values.roles];
+        const nextRoles = nextRolesRaw
+          .map((role) => String(role ?? "").trim().toLowerCase())
+          .filter((role): role is string => role.length > 0);
+        const uniqueNextRoles = Array.from(new Set(nextRoles));
+        const normalizedNextRoles = uniqueNextRoles.length > 0 ? uniqueNextRoles : ["guest"];
+        const currentRoles = (Array.isArray(row.original.roles) ? row.original.roles : [])
+          .map((role) => String(role ?? "").trim().toLowerCase())
+          .filter((role): role is string => role.length > 0);
+        if (normalizedNextRoles.join("|") !== currentRoles.join("|")) {
+          patch.roles = normalizedNextRoles;
+        }
+
+        const nextActiveRaw = values.active;
+        const nextActive = typeof nextActiveRaw === "boolean" ? nextActiveRaw : String(nextActiveRaw) === "true";
+        if (nextActive !== row.original.active) {
+          patch.active = nextActive;
+        }
+
+        if (Object.keys(patch).length > 0) {
+          await props.onUpdateRow(row.original.source, patch);
+        }
+        exitEditingMode();
       }}
       renderTopToolbarCustomActions={({ table }) => (
         <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
@@ -278,7 +229,7 @@ export default function ManageUsersTable(props: Props) {
               const csvRows = rows.map((row) => ({
                 user: row.original.user,
                 username: row.original.username,
-                role: row.original.role,
+                role: Array.isArray(row.original.roles) ? row.original.roles.join(", ") : "",
                 active: row.original.active ? "Active" : "Disabled",
                 provider: row.original.provider,
                 lastLogin: row.original.lastLogin,
@@ -301,7 +252,7 @@ export default function ManageUsersTable(props: Props) {
               const body = rows.map((row) => [
                 row.original.user,
                 row.original.username,
-                row.original.role,
+                Array.isArray(row.original.roles) ? row.original.roles.join(", ") : "",
                 row.original.active ? "Active" : "Disabled",
                 row.original.provider,
                 row.original.lastLogin,

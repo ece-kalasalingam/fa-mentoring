@@ -638,10 +638,18 @@ function normalizeRole(input: string): string {
   return role;
 }
 
+function normalizeRoles(input: unknown): string[] {
+  const list = Array.isArray(input) ? input : [];
+  const normalized = list
+    .map((role) => normalizeRole(String(role ?? "")))
+    .filter((role, index, arr) => arr.indexOf(role) === index);
+  return normalized.length > 0 ? normalized : ["guest"];
+}
+
 export async function createLocalUserByAdmin(
   env: Env,
   principal: AuthPrincipal,
-  payload: { username: string; password: string; role: string; fullName: string; email?: string }
+  payload: { username: string; password: string; role?: string; roles?: unknown[]; fullName: string; email?: string }
 ): Promise<void> {
   if (!principal.roles.includes("admin")) {
     throw new Error("Admin access required.");
@@ -649,7 +657,10 @@ export async function createLocalUserByAdmin(
 
   const username = String(payload.username ?? "").trim().toLowerCase();
   const password = String(payload.password ?? "");
-  const role = normalizeRole(payload.role);
+  const normalizedRoles = Array.isArray(payload.roles) && payload.roles.length > 0
+    ? normalizeRoles(payload.roles)
+    : [normalizeRole(String(payload.role ?? ""))];
+  const isAdmin = normalizedRoles.includes("admin");
   const fullName = String(payload.fullName ?? "").trim();
   const emailRaw = String(payload.email ?? "").trim().toLowerCase();
   const email = emailRaw || null;
@@ -681,7 +692,7 @@ export async function createLocalUserByAdmin(
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const passwordHash = await hashPassword(password, salt);
   const saltEncoded = toBase64Url(salt);
-  const permissions = role === "admin" ? ["*"] : [];
+  const permissions = isAdmin ? ["*"] : [];
 
   await db.execute("BEGIN");
   try {
@@ -695,17 +706,17 @@ export async function createLocalUserByAdmin(
         await db.execute({
           sql: `insert into user_accounts(id, provider, provider_subject, subject, email, full_name, roles_json, permissions_json, is_admin, is_superuser, active, updated_at, last_login_at)
                 values(?, 'local', ?, ?, ?, ?, ?, ?, ?, 0, 1, current_timestamp, current_timestamp)`,
-          args: [userAccountId, `local:${username}`, `local:${username}`, email, fullName, JSON.stringify([role]), JSON.stringify(permissions), role === "admin" ? 1 : 0]
+          args: [userAccountId, `local:${username}`, `local:${username}`, email, fullName, JSON.stringify(normalizedRoles), JSON.stringify(permissions), isAdmin ? 1 : 0]
         });
       } else {
         await db.execute({
           sql: `insert into user_accounts(id, provider, subject, email, full_name, roles_json, permissions_json, is_admin, is_superuser, active, updated_at, last_login_at)
                 values(?, 'local', ?, ?, ?, ?, ?, ?, 0, 1, current_timestamp, current_timestamp)`,
-          args: [userAccountId, `local-${username}`, email, fullName, JSON.stringify([role]), JSON.stringify(permissions), role === "admin" ? 1 : 0]
+          args: [userAccountId, `local-${username}`, email, fullName, JSON.stringify(normalizedRoles), JSON.stringify(permissions), isAdmin ? 1 : 0]
         });
       }
     } else {
-      if (Number(existingByEmail.rows[0]?.is_superuser ?? 0) === 1 && role !== "admin") {
+      if (Number(existingByEmail.rows[0]?.is_superuser ?? 0) === 1 && !isAdmin) {
         throw new Error("Cannot downgrade super admin role.");
       }
       if (supportsProviderSubject) {
@@ -721,7 +732,7 @@ export async function createLocalUserByAdmin(
                     active = 1,
                     updated_at = current_timestamp
                 where id = ?`,
-          args: [`local:${username}`, `local:${username}`, fullName, JSON.stringify([role]), JSON.stringify(permissions), role === "admin" ? 1 : 0, userAccountId]
+          args: [`local:${username}`, `local:${username}`, fullName, JSON.stringify(normalizedRoles), JSON.stringify(permissions), isAdmin ? 1 : 0, userAccountId]
         });
       } else {
         await db.execute({
@@ -735,7 +746,7 @@ export async function createLocalUserByAdmin(
                     active = 1,
                     updated_at = current_timestamp
                 where id = ?`,
-          args: [`local-${username}`, fullName, JSON.stringify([role]), JSON.stringify(permissions), role === "admin" ? 1 : 0, userAccountId]
+          args: [`local-${username}`, fullName, JSON.stringify(normalizedRoles), JSON.stringify(permissions), isAdmin ? 1 : 0, userAccountId]
         });
       }
     }

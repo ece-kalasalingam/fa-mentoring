@@ -78,6 +78,7 @@ export type ApiResult = {
   };
   auth?: {
     totalUsers: number | null;
+    totalGuests: number | null;
     activeUsers: number | null;
     activeSessions: number | null;
     successfulLogins48h: number | null;

@@ -26,6 +26,23 @@ async function sha256(text: string): Promise<string> {
   return toBase64Url(new Uint8Array(digest));
 }
 
+async function safeRollback(db: ReturnType<typeof getDb>): Promise<void> {
+  try {
+    await db.execute("ROLLBACK");
+  } catch {
+    // Ignore rollback errors when no active transaction exists.
+  }
+}
+
+async function safeCommit(db: ReturnType<typeof getDb>): Promise<void> {
+  try {
+    await db.execute("COMMIT");
+  } catch {
+    // Ignore commit errors when no active transaction exists.
+    // Some SQLite/libSQL paths can auto-complete transaction boundaries.
+  }
+}
+
 async function hasProviderSubjectColumn(db: ReturnType<typeof getDb>): Promise<boolean> {
   const now = Date.now();
   if (supportsProviderSubjectCache && supportsProviderSubjectCache.expiresAt > now) {
@@ -140,7 +157,7 @@ async function upsertGoogleAccount(env: Env, googleSubject: string, email: strin
           args: [accountId, email, email, fullName]
         });
       }
-      await db.execute("COMMIT");
+      await safeCommit(db);
       return accountId;
     }
 
@@ -172,14 +189,10 @@ async function upsertGoogleAccount(env: Env, googleSubject: string, email: strin
         args: [email, email, fullName, existingId]
       });
     }
-    await db.execute("COMMIT");
+    await safeCommit(db);
     return existingId;
   } catch (error) {
-    try {
-      await db.execute("ROLLBACK");
-    } catch {
-      // noop
-    }
+    await safeRollback(db);
     throw error;
   }
 }

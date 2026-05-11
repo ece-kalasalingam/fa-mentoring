@@ -21,30 +21,82 @@ function encodeCursor(value: string): string {
   return btoa(value).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 }
 
-export async function readUsers(env: Env, limitParam: string | null, cursorParam: string | null) {
+type ReadUsersOptions = {
+  limitParam: string | null;
+  cursorParam: string | null;
+  searchParam?: string | null;
+  activeParam?: string | null;
+  roleParam?: string | null;
+  neverLoggedInParam?: string | null;
+};
+
+export async function readUsers(env: Env, options: ReadUsersOptions) {
   const db = getDb(env);
-  const limit = Math.min(100, Math.max(1, parsePositiveInt(limitParam, 20)));
-  const subjectCursor = decodeCursor(cursorParam);
+  const limit = Math.min(100, Math.max(1, parsePositiveInt(options.limitParam, 20)));
+  const subjectCursor = decodeCursor(options.cursorParam);
+  const searchText = String(options.searchParam ?? "").trim().toLowerCase();
+  const searchLike = searchText ? `%${searchText}%` : "";
+  const activeParam = String(options.activeParam ?? "").trim().toLowerCase();
+  const neverLoggedIn = String(options.neverLoggedInParam ?? "").trim() === "1";
+  const roleFilters = String(options.roleParam ?? "")
+    .split(",")
+    .map((role) => role.trim().toLowerCase())
+    .filter(Boolean);
+  const sqlParts: string[] = [
+    `select
+      ua.subject as subject,
+      ua.provider as provider,
+      ua.email as email,
+      ua.full_name as full_name,
+      ua.roles_json as roles_json,
+      ua.active as active,
+      ua.is_superuser as is_superuser,
+      ua.created_at as created_at,
+      ua.last_login_at as last_login_at,
+      ac.username as username
+    from user_accounts ua
+    left join auth_credentials ac on ac.user_account_id = ua.id and ac.active = 1
+    where ua.is_superuser = 0
+      and (? = '' or ua.subject > ?)`
+  ];
+  const args: unknown[] = [subjectCursor, subjectCursor];
+
+  if (searchLike) {
+    sqlParts.push(
+      `and (
+        lower(coalesce(ua.full_name, '')) like ?
+        or lower(coalesce(ua.email, '')) like ?
+        or lower(coalesce(ac.username, '')) like ?
+        or lower(coalesce(ua.subject, '')) like ?
+      )`
+    );
+    args.push(searchLike, searchLike, searchLike, searchLike);
+  }
+  if (activeParam === "true" || activeParam === "false") {
+    sqlParts.push("and ua.active = ?");
+    args.push(activeParam === "true" ? 1 : 0);
+  }
+  if (neverLoggedIn) {
+    sqlParts.push("and (ua.last_login_at is null or ua.last_login_at = ua.created_at)");
+  }
+  if (roleFilters.length > 0) {
+    const rolePlaceholders = roleFilters.map(() => "?").join(", ");
+    sqlParts.push(
+      `and exists (
+        select 1
+        from json_each(ua.roles_json) jr
+        where lower(trim(cast(jr.value as text))) in (${rolePlaceholders})
+      )`
+    );
+    args.push(...roleFilters);
+  }
+  sqlParts.push("order by ua.subject asc");
+  sqlParts.push("limit ?");
+  args.push(limit + 1);
 
   const rowsRes = await db.execute({
-    sql: `select
-            ua.subject as subject,
-            ua.provider as provider,
-            ua.email as email,
-            ua.full_name as full_name,
-            ua.roles_json as roles_json,
-            ua.active as active,
-            ua.is_superuser as is_superuser,
-            ua.created_at as created_at,
-            ua.last_login_at as last_login_at,
-            ac.username as username
-          from user_accounts ua
-          left join auth_credentials ac on ac.user_account_id = ua.id and ac.active = 1
-          where ua.is_superuser = 0
-            and (? = '' or ua.subject > ?)
-          order by ua.subject asc
-          limit ?`,
-    args: [subjectCursor, subjectCursor, limit + 1]
+    sql: sqlParts.join("\n"),
+    args
   });
 
   const rows = rowsRes.rows.slice(0, limit).map((row) => ({

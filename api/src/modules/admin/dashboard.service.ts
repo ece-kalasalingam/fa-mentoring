@@ -63,6 +63,19 @@ export async function getAdminDashboard(env: Env) {
   const hasLogs = tableNames.has("app_logs");
 
   const totalUsers = hasUserAccounts ? await safeSingleNumber(env, "select count(*) from user_accounts where is_superuser = 0") : null;
+  const totalGuests = hasUserAccounts
+    ? await safeSingleNumber(
+        env,
+        `select count(*)
+         from user_accounts ua
+         where ua.is_superuser = 0
+           and exists (
+             select 1
+             from json_each(case when json_valid(ua.roles_json) then ua.roles_json else '[]' end) r
+             where lower(trim(cast(r.value as text))) = 'guest'
+           )`
+      )
+    : null;
   const activeUsers =
     hasUserAccounts && hasSessions
       ? await safeSingleNumber(
@@ -123,6 +136,7 @@ export async function getAdminDashboard(env: Env) {
     },
     auth: {
       totalUsers,
+      totalGuests,
       activeUsers,
       activeSessions,
       successfulLogins48h,

@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, ReactElement } from "react";
-import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Divider, Drawer, FormControl, IconButton, InputBase, InputLabel, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import type { ChangeEvent, FormEvent, ReactElement } from "react";
+import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Checkbox, Chip, Collapse, Divider, Drawer, FormControl, IconButton, InputBase, InputLabel, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -73,6 +73,7 @@ type AdminDashboard = {
   };
   auth?: {
     totalUsers: number | null;
+    totalGuests: number | null;
     activeUsers: number | null;
     activeSessions: number | null;
     successfulLogins48h: number | null;
@@ -188,6 +189,65 @@ function formatIst(value: string | null | undefined): string {
   }).format(date);
 }
 
+function formatIstHourMinute(value: string | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const utcText = normalized.endsWith("Z") ? normalized : `${normalized}Z`;
+  const date = new Date(utcText);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(date);
+}
+
+function parseCsvRecords(csvText: string): string[][] {
+  const rows: string[][] = [];
+  let currentField = "";
+  let currentRow: string[] = [];
+  let inQuotes = false;
+  for (let i = 0; i < csvText.length; i += 1) {
+    const ch = csvText[i];
+    const next = csvText[i + 1];
+    if (ch === "\"") {
+      if (inQuotes && next === "\"") {
+        currentField += "\"";
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      currentRow.push(currentField);
+      currentField = "";
+      continue;
+    }
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") {
+        i += 1;
+      }
+      currentRow.push(currentField);
+      rows.push(currentRow);
+      currentField = "";
+      currentRow = [];
+      continue;
+    }
+    currentField += ch;
+  }
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField);
+    rows.push(currentRow);
+  }
+  return rows;
+}
+
 function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Loading...");
@@ -252,9 +312,11 @@ function App() {
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserUsername, setNewUserUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
-  const [newUserRole, setNewUserRole] = useState("student");
+  const [newUserRoles, setNewUserRoles] = useState<string[]>(["student"]);
+  const [bulkCsvFileName, setBulkCsvFileName] = useState("");
   const [userQuickFilters, setUserQuickFilters] = useState<UserQuickFilter[]>([]);
   const [userRoleFilters, setUserRoleFilters] = useState<string[]>([]);
+  const [userGlobalFilter, setUserGlobalFilter] = useState("");
   const [loginActivityQuickFilter, setLoginActivityQuickFilter] = useState<LoginActivityQuickFilter>("all");
   const sessionCheckRef = useRef<{ checkedAt: number; ok: boolean }>({ checkedAt: 0, ok: false });
   const strictRevalidateRef = useRef(0);
@@ -418,9 +480,7 @@ function App() {
   const dashboardLoginTotal = dashboardLoginSuccess + dashboardLoginFailed;
   const dashboardLoginTimeline = dashboard?.auth?.loginTimeline48h ?? [];
   const dashboardLoginTimelineLabelsRaw = dashboardLoginTimeline.map((point) => {
-    const raw = String(point.hourTs ?? "");
-    const hhmm = raw.length >= 16 ? raw.slice(11, 16) : raw;
-    return hhmm || "—";
+    return formatIstHourMinute(String(point.hourTs ?? ""));
   });
   const dashboardLoginTimelineSuccessRaw = dashboardLoginTimeline.map((point) => Number(point.successCount ?? 0));
   const dashboardLoginTimelineFailedRaw = dashboardLoginTimeline.map((point) => Number(point.failedCount ?? 0));
@@ -1015,8 +1075,23 @@ function App() {
         return;
       }
     }
-    const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
-    const res = await callApi(`/api/admin/users?limit=20${cursorQuery}`, "GET");
+    const hasActive = userQuickFilters.includes("active");
+    const hasDisabled = userQuickFilters.includes("disabled");
+    const activeParam = hasActive && !hasDisabled ? "true" : !hasActive && hasDisabled ? "false" : "";
+    const neverLoggedInParam = userQuickFilters.includes("neverLoggedIn") ? "1" : "";
+    const rolesParam = userRoleFilters
+      .map((role) => String(role ?? "").trim().toLowerCase())
+      .filter(Boolean)
+      .join(",");
+    const searchParam = userGlobalFilter.trim();
+    const query = new URLSearchParams();
+    query.set("limit", "100");
+    if (cursor) query.set("cursor", cursor);
+    if (activeParam) query.set("active", activeParam);
+    if (neverLoggedInParam) query.set("neverLoggedIn", neverLoggedInParam);
+    if (rolesParam) query.set("roles", rolesParam);
+    if (searchParam) query.set("q", searchParam);
+    const res = await callApi(`/api/admin/users?${query.toString()}`, "GET");
     if (!res.ok) {
       setStatus(`Unable to load users: ${res.error ?? "Unknown error"}`);
       return;
@@ -1034,17 +1109,33 @@ function App() {
     }
   }
 
+  useEffect(() => {
+    if (!principal || !isAdmin || superView !== "all-users") return;
+    const timeoutId = window.setTimeout(() => {
+      void loadUsers(undefined, { force: true });
+    }, 250);
+    return () => window.clearTimeout(timeoutId);
+  }, [userQuickFilters, userRoleFilters, userGlobalFilter, principal, isAdmin, superView]);
+
   async function createUser(e: FormEvent) {
     e.preventDefault();
+    const normalizedRoles = Array.from(
+      new Set(
+        newUserRoles
+          .map((role) => String(role ?? "").trim().toLowerCase())
+          .filter((role): role is string => role.length > 0)
+      )
+    );
+    const payloadRoles = normalizedRoles.length > 0 ? normalizedRoles : ["guest"];
     const payload = {
       fullName: newUserFullName.trim(),
       email: newUserEmail.trim(),
       username: newUserUsername.trim(),
       password: newUserPassword,
-      role: newUserRole
+      roles: payloadRoles
     };
-    if (!payload.fullName || !payload.username || !payload.password || !payload.role) {
-      setStatus("Fill full name, username, password, and role.");
+    if (!payload.fullName || !payload.username || !payload.password || payload.roles.length === 0) {
+      setStatus("Fill full name, username, password, and at least one role.");
       return;
     }
     if (!(await ensureActiveServerSession())) {
@@ -1063,10 +1154,73 @@ function App() {
       setNewUserEmail("");
       setNewUserUsername("");
       setNewUserPassword("");
-      setNewUserRole("student");
+      setNewUserRoles(["student"]);
       setShowAddUserForm(false);
       invalidateAdminCache(["users:first", "dashboard"]);
       await loadUsers(undefined, { force: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createUsersFromCsvFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!(await ensureActiveServerSession())) {
+      return;
+    }
+    setBulkCsvFileName(file.name);
+    const csvText = await file.text();
+    const parsedRows = parseCsvRecords(csvText).filter((row) => row.some((cell) => String(cell ?? "").trim() !== ""));
+    if (parsedRows.length < 2) {
+      setStatus("CSV must contain a header row and at least one user row.");
+      return;
+    }
+    const headers = parsedRows[0].map((header) => String(header ?? "").trim().toLowerCase().replace(/\s+/g, ""));
+    const headerIndex = new Map<string, number>();
+    headers.forEach((header, index) => headerIndex.set(header, index));
+    const requiredHeaders = ["fullname", "username", "password"];
+    for (const requiredHeader of requiredHeaders) {
+      if (!headerIndex.has(requiredHeader)) {
+        setStatus(`CSV is missing required column: ${requiredHeader}`);
+        return;
+      }
+    }
+
+    let createdCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+    setBusy(true);
+    setStatus("Creating users from CSV...");
+    try {
+      for (let i = 1; i < parsedRows.length; i += 1) {
+        const row = parsedRows[i];
+        const fullName = String(row[headerIndex.get("fullname") ?? -1] ?? "").trim();
+        const username = String(row[headerIndex.get("username") ?? -1] ?? "").trim();
+        const password = String(row[headerIndex.get("password") ?? -1] ?? "");
+        const email = String(row[headerIndex.get("email") ?? -1] ?? "").trim();
+        const role = String(row[headerIndex.get("role") ?? -1] ?? "student").trim() || "student";
+        if (!fullName || !username || !password) {
+          failedCount += 1;
+          errors.push(`Row ${i + 1}: missing fullName/username/password`);
+          continue;
+        }
+        const payload = { fullName, username, password, email, role };
+        const res = await callApi("/api/admin/users", "POST", undefined, payload);
+        if (!res.ok) {
+          failedCount += 1;
+          errors.push(`Row ${i + 1}: ${res.error ?? "Unknown error"}`);
+          continue;
+        }
+        createdCount += 1;
+      }
+      if (createdCount > 0) {
+        invalidateAdminCache(["users:first", "dashboard"]);
+        await loadUsers(undefined, { force: true });
+      }
+      const errorSuffix = errors.length > 0 ? ` First error: ${errors[0]}` : "";
+      setStatus(`CSV import complete. Created: ${createdCount}, Failed: ${failedCount}.${errorSuffix}`);
     } finally {
       setBusy(false);
     }
@@ -1112,16 +1266,24 @@ function App() {
     }
     const nextFullName = String(newRow.fullName ?? "").trim();
     const currentFullName = String(source.fullName ?? source.email ?? source.subject).trim();
-    const nextRole = String(newRow.role ?? source.roles[0] ?? "guest").trim();
-    const currentRole = String(source.roles[0] ?? "guest").trim();
+    const normalizeRoles = (input: unknown): string[] => {
+      const roles = Array.isArray(input) ? input : [];
+      const normalized = roles
+        .map((role) => String(role ?? "").trim().toLowerCase())
+        .filter((role): role is string => role.length > 0);
+      const unique = Array.from(new Set(normalized));
+      return unique.length > 0 ? unique : ["guest"];
+    };
+    const nextRoles = normalizeRoles(newRow.roles ?? source.roles);
+    const currentRoles = normalizeRoles(source.roles);
     const nextActive = Boolean(newRow.active);
     const currentActive = Boolean(source.active);
 
-    if (nextFullName !== currentFullName || nextRole !== currentRole) {
+    if (nextFullName !== currentFullName || nextRoles.join("|") !== currentRoles.join("|")) {
       const res = await callApi("/api/admin/users/update", "POST", undefined, {
         subject,
         fullName: nextFullName,
-        role: nextRole
+        roles: nextRoles
       });
       if (!res.ok) {
         throw new Error(res.error ?? "User update failed");
@@ -1144,17 +1306,17 @@ function App() {
     return newRow;
   }
 
-  async function updateUserRow(row: UserRow, patch: Partial<{ fullName: string; role: string; active: boolean }>) {
+  async function updateUserRow(row: UserRow, patch: Partial<{ fullName: string; roles: string[]; active: boolean }>) {
     const nextRow = {
       subject: row.subject,
       fullName: patch.fullName ?? (row.fullName || row.email || row.subject),
-      role: patch.role ?? (row.roles[0] || "guest"),
+      roles: patch.roles ?? (row.roles.length > 0 ? row.roles : ["guest"]),
       active: patch.active ?? row.active,
     };
     const oldRow = {
       subject: row.subject,
       fullName: row.fullName || row.email || row.subject,
-      role: row.roles[0] || "guest",
+      roles: row.roles.length > 0 ? row.roles : ["guest"],
       active: row.active,
     };
     try {
@@ -2183,7 +2345,14 @@ function App() {
               dashboard ? (
                 <>
                   {/* Live platform metrics — not time-limited */}
-                  <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(3, minmax(0, 1fr))" }, gap: 2, mb: 3 }}>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr", md: dashboard.auth?.totalGuests !== 0 ? "repeat(4, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))" },
+                      gap: 2,
+                      mb: 3
+                    }}
+                  >
                     <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
                       <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
                         Total Users
@@ -2200,6 +2369,33 @@ function App() {
                         View all accounts
                       </Button>
                     </Paper>
+                    {dashboard.auth?.totalGuests !== 0 ? (
+                      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                          Total Guests
+                        </Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                          {(dashboard.auth?.totalGuests ?? 0).toLocaleString()}
+                        </Typography>
+                        <Button
+                          type="button"
+                          size="small"
+                          sx={{ p: 0, mt: 0.5 }}
+                          onClick={() => {
+                            void (async () => {
+                              if (await ensureActiveServerSession()) {
+                                setUserQuickFilters([]);
+                                setUserRoleFilters(["guest"]);
+                                setUserGlobalFilter("");
+                                setSuperView("all-users");
+                              }
+                            })();
+                          }}
+                        >
+                          View guest accounts
+                        </Button>
+                      </Paper>
+                    ) : null}
                     <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
                       <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
                         Active Users
@@ -2351,7 +2547,7 @@ function App() {
 
                     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                       <Typography variant="subtitle2">Login Activity Timeline</Typography>
-                      <Typography variant="caption" color="text.secondary">Click a data point to jump to that filter</Typography>
+                      <Typography variant="caption" color="text.secondary">X-axis in IST (UTC+05:30). Click a data point to jump to that filter.</Typography>
                       <Box sx={{ height: 220, mt: 1 }}>
                         <ReactECharts
                           theme={echartsTheme}
@@ -3172,7 +3368,7 @@ function App() {
                 {showAddUserForm ? (
                   <Paper variant="outlined" sx={{ p: 2 }}>
                     <form onSubmit={createUser}>
-                      <Stack spacing={1.5}>
+                        <Stack spacing={1.5}>
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
                           <TextField fullWidth type="text" label="Full name" value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} />
                           <TextField fullWidth type="text" label="Email (optional)" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
@@ -3181,14 +3377,24 @@ function App() {
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
                           <TextField fullWidth type="password" label="Password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
                           <FormControl fullWidth>
-                            <InputLabel id="new-user-role-label">Role</InputLabel>
-                            <Select labelId="new-user-role-label" label="Role" value={newUserRole} onChange={(e) => setNewUserRole(String(e.target.value))}>
-                              <MenuItem value="student">Student</MenuItem>
-                              <MenuItem value="faculty">Faculty</MenuItem>
-                              <MenuItem value="head">Head</MenuItem>
-                              <MenuItem value="moderator">Moderator</MenuItem>
-                              <MenuItem value="guest">Guest</MenuItem>
-                              <MenuItem value="admin">Admin</MenuItem>
+                            <InputLabel id="new-user-roles-label">Roles</InputLabel>
+                            <Select
+                              labelId="new-user-roles-label"
+                              label="Roles"
+                              multiple
+                              value={newUserRoles}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const nextRoles = (Array.isArray(raw) ? raw : [raw]).map((role) => String(role ?? ""));
+                                setNewUserRoles(nextRoles);
+                              }}
+                            >
+                              <MenuItem value="student"><Checkbox checked={newUserRoles.includes("student")} size="small" /><ListItemText primary="Student" /></MenuItem>
+                              <MenuItem value="faculty"><Checkbox checked={newUserRoles.includes("faculty")} size="small" /><ListItemText primary="Faculty" /></MenuItem>
+                              <MenuItem value="head"><Checkbox checked={newUserRoles.includes("head")} size="small" /><ListItemText primary="Head" /></MenuItem>
+                              <MenuItem value="moderator"><Checkbox checked={newUserRoles.includes("moderator")} size="small" /><ListItemText primary="Moderator" /></MenuItem>
+                              <MenuItem value="guest"><Checkbox checked={newUserRoles.includes("guest")} size="small" /><ListItemText primary="Guest" /></MenuItem>
+                              <MenuItem value="admin"><Checkbox checked={newUserRoles.includes("admin")} size="small" /><ListItemText primary="Admin" /></MenuItem>
                             </Select>
                           </FormControl>
                         </Stack>
@@ -3197,6 +3403,21 @@ function App() {
                             Create User
                           </Button>
                         </Stack>
+                        <Divider />
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "center" } }}>
+                          <Typography variant="body2" color="text.secondary">
+                            Bulk create via CSV. Required columns: `fullName`, `username`, `password`. Optional: `email`, `role`.
+                          </Typography>
+                          <Button component="label" variant="outlined" disabled={busy}>
+                            Upload CSV
+                            <input hidden accept=".csv,text/csv" type="file" onChange={createUsersFromCsvFile} />
+                          </Button>
+                        </Stack>
+                        {bulkCsvFileName ? (
+                          <Typography variant="caption" color="text.secondary">
+                            Last selected file: {bulkCsvFileName}
+                          </Typography>
+                        ) : null}
                       </Stack>
                     </form>
                   </Paper>
@@ -3207,8 +3428,8 @@ function App() {
                     <ManageUsersTable
                       rows={userRows}
                       busy={busy}
-                      quickFilters={userQuickFilters}
-                      roleFilters={userRoleFilters}
+                      globalFilter={userGlobalFilter}
+                      onGlobalFilterChange={(value) => setUserGlobalFilter(value)}
                       onResetPassword={(row) => {
                         void resetUserPassword(row);
                       }}
@@ -3440,3 +3661,4 @@ function App() {
 }
 
 export default App;
+

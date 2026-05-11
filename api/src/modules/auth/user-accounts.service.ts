@@ -406,17 +406,29 @@ function normalizeRole(input: string): string {
   return role;
 }
 
+function normalizeRoles(inputs: unknown): string[] {
+  const rawRoles = Array.isArray(inputs) ? inputs : [];
+  const normalized = rawRoles
+    .map((role) => normalizeRole(String(role ?? "")))
+    .filter(Boolean);
+  const unique = Array.from(new Set(normalized));
+  if (unique.length === 0) {
+    throw new Error("At least one role is required.");
+  }
+  return unique;
+}
+
 export async function updateUserByAdmin(
   env: Env,
   principal: AuthPrincipal,
-  payload: { subject: string; fullName: string; role: string }
+  payload: { subject: string; fullName: string; roles: string[] }
 ): Promise<void> {
   if (!principal.roles.includes("admin")) {
     throw new Error("Admin access required.");
   }
   const subject = String(payload.subject ?? "").trim();
   const fullName = truncate(String(payload.fullName ?? "").trim(), 160);
-  const role = normalizeRole(payload.role);
+  const roles = normalizeRoles(payload.roles);
   if (!subject) {
     throw new Error("Target user is required.");
   }
@@ -435,11 +447,11 @@ export async function updateUserByAdmin(
     throw new Error("Super admin cannot be modified through this action.");
   }
 
-  const permissions = role === "admin" ? ["*"] : [];
+  const permissions = roles.includes("admin") ? ["*"] : [];
   await db.execute({
     sql: `update user_accounts
           set full_name = ?, roles_json = ?, permissions_json = ?, is_admin = ?, updated_at = current_timestamp
           where id = ?`,
-    args: [fullName, JSON.stringify([role]), JSON.stringify(permissions), role === "admin" ? 1 : 0, String(target.rows[0]?.id ?? "")]
+    args: [fullName, JSON.stringify(roles), JSON.stringify(permissions), roles.includes("admin") ? 1 : 0, String(target.rows[0]?.id ?? "")]
   });
 }

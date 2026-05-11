@@ -151,7 +151,12 @@ export default function FailedLoginsTable(props: Props) {
         showColumnFilters: false,
       }}
       muiPaginationProps={{
-        rowsPerPageOptions: [10, 25, 50, { label: "All", value: tableRows.length || 10 }],
+        rowsPerPageOptions: [
+          { label: "10", value: 10 },
+          { label: "25", value: 25 },
+          { label: "50", value: 50 },
+          { label: "All", value: tableRows.length || 10 },
+        ],
       }}
       renderEmptyRowsFallback={() => "No login activity matches current filters."}
     />
