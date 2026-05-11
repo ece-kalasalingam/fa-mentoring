@@ -14,6 +14,7 @@ import { canPerformAction, resolveStudentScope } from "../modules/auth/authoriza
 import { buildClearSessionCookie, buildSessionCookie, getAuthCookieName, getSameSite, getSessionHours, shouldUseSecureCookie } from "../modules/auth/cookie-config";
 import { buildCsrfCookie, issueCsrfToken, validateCsrf } from "../modules/auth/csrf.service";
 import { getAccessPolicy, isAuthorized } from "../modules/auth/policy";
+import { loginWithGoogleIdToken } from "../modules/auth/google-auth.service";
 import {
   changeOwnPassword,
   adminResetLocalUserPassword,
@@ -56,6 +57,7 @@ const ROOT_ENDPOINTS = [
   "/api/logs",
   "/api/logs/clear",
   "/api/auth/login",
+  "/api/auth/google",
   "/api/auth/logout",
   "/api/auth/logout-other-sessions",
   "/api/auth/other-sessions-count",
@@ -205,7 +207,7 @@ export const worker = {
         }
       }
 
-      if (requiresCsrfCheck(request, principal?.provider ?? null) && pathname !== "/api/auth/login") {
+      if (requiresCsrfCheck(request, principal?.provider ?? null) && pathname !== "/api/auth/login" && pathname !== "/api/auth/google") {
         if (!validateCsrf(request)) {
           statusCode = 403;
           event = "request.csrf_failed";
@@ -633,6 +635,29 @@ export const worker = {
         }
         const ipAddress = resolveClientIp(request);
         const loginResult = await loginWithPassword(env, username, password, ipAddress);
+        statusCode = 200;
+        event = "auth.login_success";
+        const cookie = buildSessionCookie(env, request, loginResult.token);
+        return respond(
+          {
+            ok: true,
+            expiresInHours: loginResult.expiresInHours,
+            principal: loginResult.principal
+          },
+          200,
+          { "set-cookie": cookie }
+        );
+      }
+
+      if (pathname === "/api/auth/google" && request.method === "POST") {
+        const body = await request.json();
+        const idToken = isObject(body) ? String(body.idToken ?? "") : "";
+        if (!idToken) {
+          statusCode = 400;
+          event = "request.validation_failed";
+          return respond({ ok: false, error: "idToken is required" }, 400);
+        }
+        const loginResult = await loginWithGoogleIdToken(env, idToken);
         statusCode = 200;
         event = "auth.login_success";
         const cookie = buildSessionCookie(env, request, loginResult.token);

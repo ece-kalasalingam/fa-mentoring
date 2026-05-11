@@ -26,6 +26,8 @@ import { callApi, setCsrfToken } from "../shared/api/client";
 import { APP_NAME_FULL, APP_NAME_SHORT, ORG_NAME } from "../shared/branding";
 
 const TAB_SESSION_MARKER_KEY = "fa_tab_session_active";
+const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
+const GOOGLE_IDP_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 const ManageUsersTable = lazy(() => import("./ManageUsersTable"));
 const ActiveUsersTable = lazy(() => import("./ActiveUsersTable"));
 const FailedLoginsTable = lazy(() => import("./FailedLoginsTable"));
@@ -139,6 +141,8 @@ type NavLeaf = { id: string; label: string; icon: ReactElement; active: boolean;
 type NavGroup = { id: string; label: string; icon: ReactElement; children: NavLeaf[] };
 type NavItem = NavLeaf | NavGroup;
 type NavSection = { label: string; items: NavItem[] };
+
+type GoogleCredentialResponse = { credential?: string };
 
 const ACTIVITY_LOGS_PAGE_SIZE = 25;
 const ADMIN_DRAWER_WIDTH = 240;
@@ -357,6 +361,43 @@ function App() {
     const availableRoles = new Set(userRoleSummary.map(([role]) => role));
     setUserRoleFilters((prev) => prev.filter((role) => availableRoles.has(role)));
   }, [userRoleSummary]);
+  useEffect(() => {
+    if (!hasSuperAdmin || principal || !GOOGLE_CLIENT_ID) {
+      return;
+    }
+    const setupGoogleButton = () => {
+      const googleApi = (window as unknown as { google?: any }).google;
+      const container = document.getElementById("google-signin-button");
+      if (!googleApi?.accounts?.id || !container) {
+        return;
+      }
+      googleApi.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response: GoogleCredentialResponse) => {
+          void onGoogleCredential(response);
+        },
+      });
+      container.innerHTML = "";
+      googleApi.accounts.id.renderButton(container, {
+        theme: "outline",
+        size: "large",
+        width: 320,
+        text: "signin_with",
+      });
+    };
+
+    const existing = document.querySelector(`script[src="${GOOGLE_IDP_SCRIPT_SRC}"]`) as HTMLScriptElement | null;
+    if (existing) {
+      setupGoogleButton();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = GOOGLE_IDP_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.onload = setupGoogleButton;
+    document.head.appendChild(script);
+  }, [hasSuperAdmin, principal]);
   const loginActivitySummary = useMemo(() => {
     const total = loginActivityRows.length;
     const success = loginActivityRows.filter((row) => row.success).length;
@@ -1280,13 +1321,37 @@ function App() {
         setStatus(`Login failed: ${res.error ?? "Unknown error"}`);
         return;
       }
-      sessionStorage.setItem(TAB_SESSION_MARKER_KEY, "1");
-      localStorage.setItem("fa_last_login_tab", tabIdRef.current || crypto.randomUUID());
-      setSessionTakenOver(false);
-      await loadSessionPrincipal();
-      await loadMyAccount();
-      await loadOtherSessionsCount();
-      await loadMySessions();
+      await finalizeSuccessfulLogin();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function finalizeSuccessfulLogin() {
+    sessionStorage.setItem(TAB_SESSION_MARKER_KEY, "1");
+    localStorage.setItem("fa_last_login_tab", tabIdRef.current || crypto.randomUUID());
+    setSessionTakenOver(false);
+    await loadSessionPrincipal();
+    await loadMyAccount();
+    await loadOtherSessionsCount();
+    await loadMySessions();
+  }
+
+  async function onGoogleCredential(response: GoogleCredentialResponse) {
+    const idToken = String(response?.credential ?? "");
+    if (!idToken) {
+      setStatus("Google sign-in failed: missing credential.");
+      return;
+    }
+    setBusy(true);
+    setStatus("Signing in with Google...");
+    try {
+      const res = await callApi("/api/auth/google", "POST", undefined, { idToken });
+      if (!res.ok) {
+        setStatus(`Google login failed: ${res.error ?? "Unknown error"}`);
+        return;
+      }
+      await finalizeSuccessfulLogin();
     } finally {
       setBusy(false);
     }
@@ -2065,6 +2130,14 @@ function App() {
                     <Button fullWidth variant="contained" size="large" disabled={busy} type="submit">
                       Sign In
                     </Button>
+                    {GOOGLE_CLIENT_ID ? (
+                      <>
+                        <Divider>or</Divider>
+                        <Box sx={{ display: "flex", justifyContent: "center" }}>
+                          <Box id="google-signin-button" />
+                        </Box>
+                      </>
+                    ) : null}
                   </Stack>
                 </form>
               </CardContent>

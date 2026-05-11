@@ -12,6 +12,7 @@ export type Env = {
   AUTH_COOKIE_SECURE?: string;
   AUTH_COOKIE_SAMESITE?: string;
   AUTH_SESSION_HOURS?: string;
+  GOOGLE_CLIENT_ID?: string;
   LOG_DISABLE_SUCCESS_REQUESTS?: string;
   LOG_INFO_SAMPLE_RATE?: string;
   LOG_PRUNE_EVERY_N_WRITES?: string;

@@ -62,3 +62,23 @@ Allowed `<type>` values:
   - Replaced `Paper variant="outlined"` wrappers around `ActiveUsersTable` and `FailedLoginsTable` with borderless `Paper` styling.
   - Applied the same shell tweak as Manage Users: `border: "none"` and `boxShadow: "none"` while preserving spacing and radius.
 - Revert: none
+
+## 2026-05-11 06:21 IST | codex | chore
+- Summary: Added a proper repository-level `.gitignore` for Node/TypeScript monorepo workflows.
+- Files: .gitignore, CHANGELOG.md
+- Details:
+  - Added ignore rules for dependency folders, build artifacts, coverage outputs, TypeScript build info, and common cache/temp directories.
+  - Added ignore patterns for environment/secret files, local logs, Cloudflare Wrangler state, OS artifacts, and IDE/editor metadata.
+  - Included safe exceptions for example env files (`.env.example`, `.env.sample`) so template config can still be committed.
+- Revert: none
+
+## 2026-05-11 12:05 IST | codex | add
+- Summary: Added Google Login with server-side token verification and session cookie sign-in.
+- Files: api/src/core/types.ts, api/src/modules/auth/google-auth.service.ts, api/src/app/worker.ts, api/.dev.vars, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `POST /api/auth/google` in the API worker and integrated it with existing cookie-based session handling.
+  - Implemented Google ID token verification against Google tokeninfo endpoint, including issuer, audience, expiry, and verified-email checks.
+  - Added deterministic Google account linking/upsert into `user_accounts` by `(provider_subject)` first, then normalized email, while preserving existing role/super-admin flags on linked accounts.
+  - Added Google sign-in UI on the login card (shown when `VITE_GOOGLE_CLIENT_ID` is configured) and wired successful Google auth into the same post-login app bootstrap flow.
+  - Added `GOOGLE_CLIENT_ID` env support in API types and local `.dev.vars` template.
+- Revert: none
