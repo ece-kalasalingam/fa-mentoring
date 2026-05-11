@@ -1,0 +1,12 @@
+{
+  "name": "fa-mentoring-workspace",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c cyan,magenta \"npm --prefix api run dev\" \"npm --prefix frontend run dev\"",
+    "build": "npm --prefix api run test && npm --prefix frontend run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

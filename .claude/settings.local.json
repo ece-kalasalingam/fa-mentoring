@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/jprak/.claude/**)",
+      "Bash(grep -o '\"frontend\\\\\\\\\\\\\\\\[^\"]*\":{\"backupFileName\":\"[^\"]*\"' /c/Users/jprak/.claude/projects/g--JP-coding-fa-mentoring/dd46ce1f-9f7a-4366-bcb7-06b4f89d82c6.jsonl)",
+      "Bash(Get-ChildItem -Path 'g:\\\\JP\\\\coding\\\\fa-mentoring' -Depth 2)",
+      "Bash(Format-Table -Property Name, FullName)",
+      "Bash(npx tsc *)",
+      "Bash(Select-String -Pattern \"^Error|^Warning\")",
+      "Bash(node_modules\\\\.bin\\\\tsc --noEmit)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "PowerShell(Get-ChildItem \"g:\\\\JP\\\\coding\\\\fa-mentoring\\\\api\\\\node_modules\" | Select-Object -First 5 Name; \\(Get-ChildItem \"g:\\\\JP\\\\coding\\\\fa-mentoring\\\\api\\\\node_modules\" -Directory\\).Count)",
+      "PowerShell(\\(Get-ChildItem \"g:\\\\JP\\\\coding\\\\fa-mentoring\\\\api\\\\node_modules\" -Force\\).Count)",
+      "PowerShell(Get-Process | Where-Object { $_.Name -match \"node|wrangler\" } | Select-Object Id, Name, CommandLine 2>&1 | Select-Object -First 20)"
+    ]
+  }
+}
