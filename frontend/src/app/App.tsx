@@ -1,7 +1,7 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent, FormEvent, ReactElement } from "react";
-import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Checkbox, Chip, Collapse, Divider, Drawer, FormControl, IconButton, InputBase, InputLabel, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import type { ChangeEvent, FormEvent } from "react";
+import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Divider, Drawer, FormControl, IconButton, InputAdornment, InputLabel, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { alpha, useTheme } from "@mui/material/styles";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -20,233 +20,57 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import ErrorIcon from "@mui/icons-material/Error";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
+import AccountCircleIcon from "@mui/icons-material/AccountCircle";
+import ComputerIcon from "@mui/icons-material/Computer";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
+import SchoolIcon from "@mui/icons-material/School";
+import EditIcon from "@mui/icons-material/Edit";
+import EmailIcon from "@mui/icons-material/Email";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import { callApi, setCsrfToken } from "../shared/api/client";
 import { APP_NAME_FULL, APP_NAME_SHORT, ORG_NAME } from "../shared/branding";
+import {
+  ACTIVITY_LOGS_PAGE_SIZE,
+  ADMIN_CACHE_TTL_MS,
+  ADMIN_DRAWER_WIDTH,
+  STATUS_AUTO_HIDE_MS,
+  GOOGLE_CLIENT_ID,
+  GOOGLE_IDP_SCRIPT_SRC,
+  TAB_SESSION_MARKER_KEY,
+  SESSION_REGULATIONS_CACHE_KEY,
+  SESSION_PLAN_OF_STUDY_CACHE_KEY,
+  SESSION_PLAN_VALIDATION_CACHE_KEY,
+  SESSION_PROGRAMMES_CACHE_KEY
+} from "./constants";
+import { formatIst, formatIstHourMinute } from "./dateTime";
+import { parseCsvRecords } from "./csv";
+import { getInitials } from "./utils";
+import type {
+  ActiveUserRow,
+  AdminCacheEntry,
+  AdminCacheKey,
+  AdminDashboard,
+  FailedLoginRow,
+  GoogleCredentialResponse,
+  LogRow,
+  LogTypeFilter,
+  MyAccount,
+  MySession,
+  NavLeaf,
+  NavSection,
+  PlanOfStudy,
+  PlansValidationReport,
+  Regulation,
+  StudentDirectoryRow,
+  Principal,
+  UserRow
+} from "./types";
 
-const TAB_SESSION_MARKER_KEY = "fa_tab_session_active";
-const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
-const GOOGLE_IDP_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 const ManageUsersTable = lazy(() => import("./ManageUsersTable"));
 const ActiveUsersTable = lazy(() => import("./ActiveUsersTable"));
 const FailedLoginsTable = lazy(() => import("./FailedLoginsTable"));
-
-type Principal = {
-  subject: string;
-  email?: string;
-  fullName?: string;
-  isSuperuser?: boolean;
-  roles: string[];
-  provider: string;
-};
-
-type MyAccount = {
-  subject: string;
-  email: string | null;
-  fullName: string | null;
-  roles: string[];
-  provider: string;
-  username: string | null;
-};
-
-type MySession = {
-  id: string;
-  createdAt: string | null;
-  lastSeenAt: string | null;
-  expiresAt: string | null;
-  isCurrent: boolean;
-};
-
-type AdminDashboard = {
-  generatedAt?: string;
-  mitigations?: {
-    needsMitigations: boolean;
-    pendingCount: number;
-    pendingMigrations: string[];
-    message: string;
-  };
-  system?: {
-    hasTables: boolean;
-    tableCount: number;
-    currentSchemaVersion: string | null;
-  };
-  auth?: {
-    totalUsers: number | null;
-    totalGuests: number | null;
-    activeUsers: number | null;
-    activeSessions: number | null;
-    successfulLogins48h: number | null;
-    failedLogins48h: number | null;
-    loginTimeline48h?: Array<{
-      hourTs: string;
-      successCount: number;
-      failedCount: number;
-    }> | null;
-  };
-  logging?: {
-    errorLogs48h: number | null;
-    warnLogs48h: number | null;
-  };
-};
-
-type LogRow = {
-  ts: string;
-  level: string;
-  requestId: string;
-  method: string;
-  path: string;
-  statusCode: number;
-  durationMs: number;
-  principalSubject: string | null;
-  authProvider: string | null;
-  event: string;
-  meta: Record<string, unknown> | null;
-};
-
-type ActiveUserRow = {
-  subject: string;
-  email: string | null;
-  fullName: string | null;
-  username: string | null;
-  roles: string[];
-  sessionCount: number;
-  lastSeenAt: string;
-  latestExpiry: string;
-};
-
-type UserRow = {
-  subject: string;
-  provider: string;
-  email: string | null;
-  fullName: string | null;
-  username: string | null;
-  roles: string[];
-  active: boolean;
-  isSuperuser: boolean;
-  createdAt: string | null;
-  lastLoginAt: string | null;
-};
-
-type FailedLoginRow = {
-  attemptRef: number;
-  username: string;
-  ipAddress: string;
-  success: boolean;
-  attemptedAt: string;
-};
-type LogTypeFilter = "status5xx" | "status4xx" | "slow";
-type UserQuickFilter = "active" | "disabled" | "neverLoggedIn";
-type LoginActivityQuickFilter = "all" | "success" | "failed";
-type NavLeaf = { id: string; label: string; icon: ReactElement; active: boolean; disabled?: boolean; onClick: () => void };
-type NavGroup = { id: string; label: string; icon: ReactElement; children: NavLeaf[] };
-type NavItem = NavLeaf | NavGroup;
-type NavSection = { label: string; items: NavItem[] };
-
-type GoogleCredentialResponse = { credential?: string };
-
-const ACTIVITY_LOGS_PAGE_SIZE = 25;
-const ADMIN_DRAWER_WIDTH = 240;
-const ADMIN_CACHE_TTL_MS = {
-  dashboard: 60_000,
-  logs: 20_000,
-  activityLogs: 20_000,
-  activeUsers: 20_000,
-  failedLogins: 30_000,
-  users: 30_000,
-} as const;
-
-type AdminCacheKey =
-  | "dashboard"
-  | "logs:error:first"
-  | "logs:warn:first"
-  | "activity:first"
-  | "active-users:first"
-  | "login-activity:first"
-  | "users:first";
-
-type AdminCacheEntry = { cachedAt: number; payload: unknown };
-
-function formatIst(value: string | null | undefined): string {
-  if (!value) {
-    return "—";
-  }
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const utcText = normalized.endsWith("Z") ? normalized : `${normalized}Z`;
-  const date = new Date(utcText);
-  if (Number.isNaN(date.getTime())) {
-    return "—";
-  }
-  return new Intl.DateTimeFormat("en-IN", {
-    timeZone: "Asia/Kolkata",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true
-  }).format(date);
-}
-
-function formatIstHourMinute(value: string | null | undefined): string {
-  if (!value) {
-    return "--";
-  }
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const utcText = normalized.endsWith("Z") ? normalized : `${normalized}Z`;
-  const date = new Date(utcText);
-  if (Number.isNaN(date.getTime())) {
-    return "--";
-  }
-  return new Intl.DateTimeFormat("en-IN", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(date);
-}
-
-function parseCsvRecords(csvText: string): string[][] {
-  const rows: string[][] = [];
-  let currentField = "";
-  let currentRow: string[] = [];
-  let inQuotes = false;
-  for (let i = 0; i < csvText.length; i += 1) {
-    const ch = csvText[i];
-    const next = csvText[i + 1];
-    if (ch === "\"") {
-      if (inQuotes && next === "\"") {
-        currentField += "\"";
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (ch === "," && !inQuotes) {
-      currentRow.push(currentField);
-      currentField = "";
-      continue;
-    }
-    if ((ch === "\n" || ch === "\r") && !inQuotes) {
-      if (ch === "\r" && next === "\n") {
-        i += 1;
-      }
-      currentRow.push(currentField);
-      rows.push(currentRow);
-      currentField = "";
-      currentRow = [];
-      continue;
-    }
-    currentField += ch;
-  }
-  if (currentField.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentField);
-    rows.push(currentRow);
-  }
-  return rows;
-}
+const StudentsDirectoryTable = lazy(() => import("./StudentsDirectoryTable"));
 
 function App() {
   const [busy, setBusy] = useState(false);
@@ -264,6 +88,7 @@ function App() {
 
   const [loginUser, setLoginUser] = useState("");
   const [loginPass, setLoginPass] = useState("");
+  const [showLocalLogin, setShowLocalLogin] = useState(!GOOGLE_CLIENT_ID);
 
   const [bootstrapKey, setBootstrapKey] = useState("");
   const [adminUser, setAdminUser] = useState("admin");
@@ -273,7 +98,6 @@ function App() {
   const [sessionTakenOver, setSessionTakenOver] = useState(false);
   const [fullNameInput, setFullNameInput] = useState("");
   const [editingMyName, setEditingMyName] = useState(false);
-  const [editingMyNameWidth, setEditingMyNameWidth] = useState<number | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [profileAnchorEl, setProfileAnchorEl] = useState<HTMLElement | null>(null);
@@ -281,7 +105,7 @@ function App() {
   const [menuAnchors, setMenuAnchors] = useState<Record<string, HTMLElement | null>>({});
   const [accountView, setAccountView] = useState<"profile" | "password" | "sessions">("profile");
   const [mySessions, setMySessions] = useState<MySession[]>([]);
-  const [superView, setSuperView] = useState<"dashboard" | "account" | "session-admin" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
+  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "account" | "session-admin" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [sessionTarget, setSessionTarget] = useState("");
@@ -305,8 +129,18 @@ function App() {
   const [loginActivityCursor, setLoginActivityCursor] = useState<string | null>(null);
   const [loginActivityHasMore, setLoginActivityHasMore] = useState(false);
   const [userRows, setUserRows] = useState<UserRow[]>([]);
+  const [studentDirectoryRows, setStudentDirectoryRows] = useState<StudentDirectoryRow[]>([]);
+  const [mentorNameOptions, setMentorNameOptions] = useState<string[]>([]);
+  const [programmeOptions, setProgrammeOptions] = useState<Array<{ id: number; name: string }>>([]);
+  const [regulations, setRegulations] = useState<Regulation[]>([]);
+  const [regulationTab, setRegulationTab] = useState(0);
+  const [plansOfStudy, setPlansOfStudy] = useState<PlanOfStudy[]>([]);
+  const [plansValidationReport, setPlansValidationReport] = useState<PlansValidationReport | null>(null);
+  const [planOfStudyTab, setPlanOfStudyTab] = useState(0);
   const [userCursor, setUserCursor] = useState<string | null>(null);
   const [userHasMore, setUserHasMore] = useState(false);
+  const [studentsDirectoryCursor, setStudentsDirectoryCursor] = useState<string | null>(null);
+  const [studentsDirectoryHasMore, setStudentsDirectoryHasMore] = useState(false);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [newUserFullName, setNewUserFullName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -314,14 +148,13 @@ function App() {
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRoles, setNewUserRoles] = useState<string[]>(["student"]);
   const [bulkCsvFileName, setBulkCsvFileName] = useState("");
-  const [userQuickFilters, setUserQuickFilters] = useState<UserQuickFilter[]>([]);
-  const [userRoleFilters, setUserRoleFilters] = useState<string[]>([]);
+  const [studentsCsvFileName, setStudentsCsvFileName] = useState("");
   const [userGlobalFilter, setUserGlobalFilter] = useState("");
-  const [loginActivityQuickFilter, setLoginActivityQuickFilter] = useState<LoginActivityQuickFilter>("all");
   const sessionCheckRef = useRef<{ checkedAt: number; ok: boolean }>({ checkedAt: 0, ok: false });
   const strictRevalidateRef = useRef(0);
   const tabIdRef = useRef("");
   const authSyncInFlightRef = useRef(false);
+  const googleIdpInitializedRef = useRef(false);
   const adminReadCacheRef = useRef<Partial<Record<AdminCacheKey, AdminCacheEntry>>>({});
   const adminCacheSessionKeyRef = useRef<string | null>(null);
 
@@ -352,6 +185,14 @@ function App() {
     return !principal.roles.includes("guest") && !principal.roles.includes("student");
   }, [principal]);
   const canChangeOwnPassword = canEditOwnProfile;
+
+  useEffect(() => {
+    if (!status || status === "Loading...") return;
+    const timeoutId = window.setTimeout(() => {
+      setStatus((current) => (current === status ? "" : current));
+    }, STATUS_AUTO_HIDE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [status]);
 
   function getCachedAdminPayload<T>(key: AdminCacheKey, ttlMs: number): T | null {
     const entry = adminReadCacheRef.current[key];
@@ -387,6 +228,31 @@ function App() {
     }
   }
 
+  function readSessionJson<T>(key: string): T | null {
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return null;
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeSessionJson<T>(key: string, payload: T) {
+    try {
+      sessionStorage.setItem(key, JSON.stringify(payload));
+    } catch {
+      // Best-effort cache write; ignore storage quota or availability errors.
+    }
+  }
+
+  function clearSessionDataCaches() {
+    sessionStorage.removeItem(SESSION_REGULATIONS_CACHE_KEY);
+    sessionStorage.removeItem(SESSION_PLAN_OF_STUDY_CACHE_KEY);
+    sessionStorage.removeItem(SESSION_PLAN_VALIDATION_CACHE_KEY);
+    sessionStorage.removeItem(SESSION_PROGRAMMES_CACHE_KEY);
+  }
+
   const userSummary = useMemo(() => {
     const total = userRows.length;
     const active = userRows.filter((row) => row.active).length;
@@ -395,55 +261,39 @@ function App() {
     const neverLoggedIn = userRows.filter((row) => !row.lastLoginAt || row.lastLoginAt === row.createdAt).length;
     return { total, active, disabled, loaded, neverLoggedIn };
   }, [userRows]);
-  const userRoleSummary = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const row of userRows) {
-      const normalizedRoles = (row.roles ?? []).map((role) => String(role ?? "").trim().toLowerCase()).filter(Boolean);
-      if (normalizedRoles.length === 0) {
-        counts.set("guest", (counts.get("guest") ?? 0) + 1);
-        continue;
-      }
-      for (const role of normalizedRoles) {
-        counts.set(role, (counts.get(role) ?? 0) + 1);
-      }
-    }
-    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-  }, [userRows]);
-  useEffect(() => {
-    setUserQuickFilters((prev) =>
-      prev.filter((filter) => {
-        if (filter === "active") return userSummary.active > 0;
-        if (filter === "disabled") return userSummary.disabled > 0;
-        if (filter === "neverLoggedIn") return userSummary.neverLoggedIn > 0;
-        return false;
-      })
-    );
-  }, [userSummary.active, userSummary.disabled, userSummary.neverLoggedIn]);
-  useEffect(() => {
-    const availableRoles = new Set(userRoleSummary.map(([role]) => role));
-    setUserRoleFilters((prev) => prev.filter((role) => availableRoles.has(role)));
-  }, [userRoleSummary]);
   useEffect(() => {
     if (!hasSuperAdmin || principal || !GOOGLE_CLIENT_ID) {
       return;
     }
     const setupGoogleButton = () => {
-      const googleApi = (window as unknown as { google?: any }).google;
+      const googleApi = (window as unknown as {
+        google?: {
+          accounts?: {
+            id?: {
+              initialize: (config: { client_id: string; callback: (response: GoogleCredentialResponse) => void }) => void;
+              renderButton: (container: HTMLElement, options: Record<string, unknown>) => void;
+            };
+          };
+        };
+      }).google;
       const container = document.getElementById("google-signin-button");
       if (!googleApi?.accounts?.id || !container) {
         return;
       }
-      googleApi.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response: GoogleCredentialResponse) => {
-          void onGoogleCredential(response);
-        },
-      });
+      if (!googleIdpInitializedRef.current) {
+        googleApi.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: (response: GoogleCredentialResponse) => {
+            void onGoogleCredential(response);
+          },
+        });
+        googleIdpInitializedRef.current = true;
+      }
       container.innerHTML = "";
       googleApi.accounts.id.renderButton(container, {
         theme: "outline",
         size: "large",
-        width: 320,
+        width: 360,
         text: "signin_with",
       });
     };
@@ -460,21 +310,6 @@ function App() {
     script.onload = setupGoogleButton;
     document.head.appendChild(script);
   }, [hasSuperAdmin, principal]);
-  const loginActivitySummary = useMemo(() => {
-    const total = loginActivityRows.length;
-    const success = loginActivityRows.filter((row) => row.success).length;
-    const failed = total - success;
-    return { total, success, failed };
-  }, [loginActivityRows]);
-  const visibleLoginActivityRows = useMemo(() => {
-    if (loginActivityQuickFilter === "success") {
-      return loginActivityRows.filter((row) => row.success);
-    }
-    if (loginActivityQuickFilter === "failed") {
-      return loginActivityRows.filter((row) => !row.success);
-    }
-    return loginActivityRows;
-  }, [loginActivityRows, loginActivityQuickFilter]);
   const dashboardLoginSuccess = Number(dashboard?.auth?.successfulLogins48h ?? 0);
   const dashboardLoginFailed = Number(dashboard?.auth?.failedLogins48h ?? 0);
   const dashboardLoginTotal = dashboardLoginSuccess + dashboardLoginFailed;
@@ -510,7 +345,24 @@ function App() {
     .map((value) => (value > 0 ? value : null));
   const dashboardErrorLogs = Number(dashboard?.logging?.errorLogs48h ?? 0);
   const dashboardWarnLogs = Number(dashboard?.logging?.warnLogs48h ?? 0);
-  const dashboardTotalLogs = dashboardErrorLogs + dashboardWarnLogs;
+  const selectedRegulationCode = useMemo(() => {
+    if (regulations.length === 0) return null;
+    const activeIndex = Math.min(regulationTab, regulations.length - 1);
+    const active = regulations[activeIndex];
+    return active?.code ?? null;
+  }, [regulations, regulationTab]);
+  const filteredPlansOfStudy = useMemo(() => {
+    if (!selectedRegulationCode) return [];
+    return plansOfStudy.filter((plan) => plan.regulationCode === selectedRegulationCode);
+  }, [plansOfStudy, selectedRegulationCode]);
+  const planOfStudyOptions = useMemo(
+    () =>
+      plansOfStudy
+        .map((plan) => ({ code: Number(plan.planCode), name: String(plan.planName ?? "").trim() || `Plan ${plan.planCode}` }))
+        .filter((item) => Number.isInteger(item.code))
+        .sort((a, b) => a.code - b.code),
+    [plansOfStudy]
+  );
   const loginActivityChartOption = useMemo<EChartsOption>(() => {
     return {
       tooltip: { trigger: "axis" },
@@ -551,66 +403,11 @@ function App() {
         const value = Number(params?.value ?? 0);
         if (value <= 0) return;
         if (normalizedSeries === "success") {
-          void openLoginActivity("success");
+          void openLoginActivity();
           return;
         }
         if (normalizedSeries === "failed") {
-          void openLoginActivity("failed");
-        }
-      },
-    }),
-    []
-  );
-  const systemLogsChartOption = useMemo<EChartsOption>(() => {
-    return {
-      tooltip: {},
-      legend: {},
-      xAxis: {
-        type: "category",
-        data: ["Warning", "Error"],
-      },
-      yAxis: {
-        type: "value",
-        minInterval: 1,
-      },
-      series: [
-        {
-          name: "Logs",
-          type: "bar",
-          data: [
-            { value: dashboardWarnLogs, itemStyle: { color: "#ed6c02" } },
-            { value: dashboardErrorLogs, itemStyle: { color: "#d32f2f" } },
-          ],
-          label: { show: true },
-        },
-      ],
-    };
-  }, [dashboardWarnLogs, dashboardErrorLogs]);
-  const systemLogsChartEvents = useMemo(
-    () => ({
-      click: (params: { name?: string; dataIndex?: number; value?: number }) => {
-        const normalizedName = String(params?.name ?? "").toLowerCase();
-        const dataIndex = Number(params?.dataIndex ?? -1);
-        const value = Number(params?.value ?? 0);
-        if (value <= 0) return;
-        if (normalizedName === "warning" || dataIndex === 0) {
-          void (async () => {
-            if (await ensureActiveServerSession()) {
-              setSuperView("logs");
-              setLogLevel("warn");
-              await loadLogs("warn");
-            }
-          })();
-          return;
-        }
-        if (normalizedName === "error" || dataIndex === 1) {
-          void (async () => {
-            if (await ensureActiveServerSession()) {
-              setSuperView("logs");
-              setLogLevel("error");
-              await loadLogs("error");
-            }
-          })();
+          void openLoginActivity();
         }
       },
     }),
@@ -749,12 +546,14 @@ function App() {
     } else {
       bindAdminCacheToSession(null);
       sessionCheckRef.current = { checkedAt: Date.now(), ok: false };
+      clearSessionDataCaches();
     }
   }
 
   async function ensureActiveServerSession(): Promise<boolean> {
     if (sessionStorage.getItem(TAB_SESSION_MARKER_KEY) !== "1") {
       bindAdminCacheToSession(null);
+      clearSessionDataCaches();
       setPrincipal(null);
       setMyAccount(null);
       setOtherSessionsCount(0);
@@ -779,6 +578,7 @@ function App() {
     }
     sessionCheckRef.current = { checkedAt: now, ok: false };
     bindAdminCacheToSession(null);
+    clearSessionDataCaches();
     setPrincipal(null);
     setMyAccount(null);
     setOtherSessionsCount(0);
@@ -806,6 +606,7 @@ function App() {
     if (sessionStorage.getItem(TAB_SESSION_MARKER_KEY) !== "1") {
       sessionCheckRef.current = { checkedAt: Date.now(), ok: false };
       bindAdminCacheToSession(null);
+      clearSessionDataCaches();
       setPrincipal(null);
       setMyAccount(null);
       setOtherSessionsCount(0);
@@ -829,6 +630,7 @@ function App() {
       }
       sessionCheckRef.current = { checkedAt: Date.now(), ok: false };
       bindAdminCacheToSession(null);
+      clearSessionDataCaches();
       setPrincipal(null);
       setMyAccount(null);
       setOtherSessionsCount(0);
@@ -875,7 +677,8 @@ function App() {
         mitigations: res.mitigations,
         system: res.system,
         auth: res.auth,
-        logging: res.logging
+        logging: res.logging,
+        curriculumValidation: res.curriculumValidation as PlansValidationReport | undefined,
       };
       setDashboard(nextDashboard);
       setCachedAdminPayload(cacheKey, nextDashboard);
@@ -1054,11 +857,10 @@ function App() {
     }
   }
 
-  async function openLoginActivity(filter: LoginActivityQuickFilter) {
+  async function openLoginActivity() {
     if (!(await ensureActiveServerSession())) {
       return;
     }
-    setLoginActivityQuickFilter(filter);
     setSuperView("login-activity");
     await loadLoginActivity();
   }
@@ -1075,21 +877,10 @@ function App() {
         return;
       }
     }
-    const hasActive = userQuickFilters.includes("active");
-    const hasDisabled = userQuickFilters.includes("disabled");
-    const activeParam = hasActive && !hasDisabled ? "true" : !hasActive && hasDisabled ? "false" : "";
-    const neverLoggedInParam = userQuickFilters.includes("neverLoggedIn") ? "1" : "";
-    const rolesParam = userRoleFilters
-      .map((role) => String(role ?? "").trim().toLowerCase())
-      .filter(Boolean)
-      .join(",");
     const searchParam = userGlobalFilter.trim();
     const query = new URLSearchParams();
     query.set("limit", "100");
     if (cursor) query.set("cursor", cursor);
-    if (activeParam) query.set("active", activeParam);
-    if (neverLoggedInParam) query.set("neverLoggedIn", neverLoggedInParam);
-    if (rolesParam) query.set("roles", rolesParam);
     if (searchParam) query.set("q", searchParam);
     const res = await callApi(`/api/admin/users?${query.toString()}`, "GET");
     if (!res.ok) {
@@ -1109,13 +900,242 @@ function App() {
     }
   }
 
+  async function loadRegulations(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    if (!force) {
+      const cached = readSessionJson<Regulation[]>(SESSION_REGULATIONS_CACHE_KEY);
+      if (Array.isArray(cached) && cached.length > 0) {
+        setRegulations(cached);
+        return;
+      }
+    }
+    const res = await callApi("/api/regulations", "GET");
+    if (!res.ok) {
+      setStatus(`Unable to load regulations: ${res.error ?? "Unknown error"}`);
+      return;
+    }
+    const nextRegulations = (res.regulations ?? []) as Regulation[];
+    setRegulations(nextRegulations);
+    writeSessionJson(SESSION_REGULATIONS_CACHE_KEY, nextRegulations);
+  }
+
+  async function loadPlansOfStudy(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    if (!force) {
+      const cached = readSessionJson<PlanOfStudy[]>(SESSION_PLAN_OF_STUDY_CACHE_KEY);
+      const cachedValidation = readSessionJson<PlansValidationReport>(SESSION_PLAN_VALIDATION_CACHE_KEY);
+      if (Array.isArray(cached) && cached.length > 0) {
+        setPlansOfStudy(cached);
+        setPlansValidationReport(cachedValidation ?? null);
+        return;
+      }
+    }
+    const res = await callApi("/api/plans-of-study", "GET");
+    if (!res.ok) {
+      setStatus(`Unable to load plans of study: ${res.error ?? "Unknown error"}`);
+      return;
+    }
+    const nextPlans = (res.plansOfStudy ?? []) as PlanOfStudy[];
+    const nextValidation = (res.validation ?? null) as PlansValidationReport | null;
+    setPlansOfStudy(nextPlans);
+    setPlansValidationReport(nextValidation);
+    writeSessionJson(SESSION_PLAN_OF_STUDY_CACHE_KEY, nextPlans);
+    if (nextValidation) {
+      writeSessionJson(SESSION_PLAN_VALIDATION_CACHE_KEY, nextValidation);
+    } else {
+      sessionStorage.removeItem(SESSION_PLAN_VALIDATION_CACHE_KEY);
+    }
+  }
+
+  async function loadStudentsDirectory(cursor?: string | null, options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    if (!cursor && programmeOptions.length === 0) {
+      await loadProgrammes();
+    }
+    const cacheKey: AdminCacheKey = "students-directory:first";
+    if (!cursor && !force) {
+      const cached = getCachedAdminPayload<{ rows: StudentDirectoryRow[]; nextCursor: string | null; hasMore: boolean; mentorNameOptions: string[] }>(cacheKey, ADMIN_CACHE_TTL_MS.users);
+      if (cached) {
+        setStudentDirectoryRows(cached.rows);
+        setStudentsDirectoryCursor(cached.nextCursor);
+        setStudentsDirectoryHasMore(cached.hasMore);
+        setMentorNameOptions(Array.isArray(cached.mentorNameOptions) ? cached.mentorNameOptions : []);
+        return;
+      }
+    }
+    const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+    const res = await callApi(`/api/students-directory?limit=100${cursorQuery}`, "GET");
+    if (!res.ok) {
+      setStatus(`Unable to load students directory: ${res.error ?? "Unknown error"}`);
+      return;
+    }
+    const rows = (res.rows ?? []) as unknown as StudentDirectoryRow[];
+    const nextMentorOptions = Array.isArray(res.mentorNameOptions) ? res.mentorNameOptions.map((value) => String(value)).filter((value) => value.trim().length > 0) : [];
+    setStudentDirectoryRows((prev) => (cursor ? [...prev, ...rows] : rows));
+    setStudentsDirectoryCursor(res.page?.nextCursor ?? null);
+    setStudentsDirectoryHasMore(Boolean(res.page?.hasMore));
+    setMentorNameOptions(nextMentorOptions);
+    if (!cursor) {
+      setCachedAdminPayload(cacheKey, {
+        rows,
+        nextCursor: res.page?.nextCursor ?? null,
+        hasMore: Boolean(res.page?.hasMore),
+        mentorNameOptions: nextMentorOptions,
+      });
+    }
+  }
+
+  async function loadProgrammes(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    if (!force) {
+      const cached = readSessionJson<Array<{ id: number; name: string }>>(SESSION_PROGRAMMES_CACHE_KEY);
+      if (Array.isArray(cached) && cached.length > 0) {
+        setProgrammeOptions(cached);
+        return;
+      }
+    }
+    const res = await callApi("/api/programmes", "GET");
+    if (!res.ok) {
+      setStatus(`Unable to load programmes: ${res.error ?? "Unknown error"}`);
+      return;
+    }
+    const next = Array.isArray(res.programmes)
+      ? res.programmes
+          .map((item) => ({
+            id: Number((item as { id?: unknown }).id),
+            name: String((item as { name?: unknown }).name ?? "").trim(),
+          }))
+          .filter((item) => Number.isInteger(item.id) && item.name.length > 0)
+          .sort((a, b) => a.id - b.id)
+      : [];
+    setProgrammeOptions(next);
+    writeSessionJson(SESSION_PROGRAMMES_CACHE_KEY, next);
+  }
+
+  async function updateStudentsDirectoryRow(
+    row: StudentDirectoryRow,
+    patch: Pick<StudentDirectoryRow, "registrationNumber" | "planOfStudyCode" | "batch" | "programme" | "duration" | "mentorName">
+  ) {
+    if (!(await ensureActiveServerSession())) return;
+    const registrationNumber = String(patch.registrationNumber ?? "").trim() || "Not Allotted";
+    const planOfStudyCode =
+      typeof patch.planOfStudyCode === "number" && Number.isInteger(patch.planOfStudyCode)
+        ? patch.planOfStudyCode
+        : null;
+    const batch = typeof patch.batch === "number" && Number.isFinite(patch.batch) ? patch.batch : 2010;
+    const programme =
+      typeof patch.programme === "number" && Number.isInteger(patch.programme)
+        ? patch.programme
+        : 0;
+    const duration = typeof patch.duration === "number" && Number.isFinite(patch.duration) ? patch.duration : 0;
+    const mentorName = String(patch.mentorName ?? "").trim();
+    try {
+      setBusy(true);
+      const res = await callApi("/api/students-directory/update", "POST", undefined, {
+        userId: row.userId,
+        registrationNumber,
+        planOfStudyCode,
+        batch,
+        programme,
+        duration,
+        mentorName,
+      });
+      if (!res.ok) {
+        throw new Error(res.error ?? "Student update failed");
+      }
+      setStatus("Student updated.");
+      invalidateAdminCache(["students-directory:first", "dashboard"]);
+      await loadStudentsDirectory(undefined, { force: true });
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Inline student update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importStudentsFromCsvFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!(await ensureActiveServerSession())) return;
+    setStudentsCsvFileName(file.name);
+    const csvText = await file.text();
+    const parsedRows = parseCsvRecords(csvText).filter((row) => row.some((cell) => String(cell ?? "").trim() !== ""));
+    if (parsedRows.length < 2) {
+      setStatus("CSV must contain a header row and at least one student row.");
+      return;
+    }
+    const headers = parsedRows[0].map((h) => String(h ?? "").trim().toLowerCase().replace(/\s+/g, "_"));
+    const headerIndex = new Map<string, number>();
+    headers.forEach((h, i) => headerIndex.set(h, i));
+    if (!headerIndex.has("email")) {
+      setStatus("CSV is missing required column: email");
+      return;
+    }
+    const optionalHeaderGroups = [
+      ["registration_number"],
+      ["plan_of_study_code"],
+      ["programme"],
+      ["batch"],
+      ["programme_duration"],
+      ["mentorEmail"],
+    ];
+    const hasAtLeastOneOptionalHeader = optionalHeaderGroups.some((group) => group.some((key) => headerIndex.has(key)));
+    if (!hasAtLeastOneOptionalHeader) {
+      setStatus(
+        "CSV must include at least one optional student column header: registration_number, plan_of_study_code, programme, batch, programme_duration, or mentorEmail."
+      );
+      return;
+    }
+
+    const rows = parsedRows.slice(1).map((cells) => {
+      const get = (key: string) => String(cells[headerIndex.get(key) ?? -1] ?? "").trim();
+      return {
+        email: get("email"),
+        registration_number: get("registration_number"),
+        plan_of_study_code: (() => {
+          const raw = get("plan_of_study_code");
+          return raw ? Number(raw) : "";
+        })(),
+        programme: (() => {
+          const raw = get("programme");
+          return raw ? Number(raw) : 0;
+        })(),
+        batch: get("batch"),
+        programme_duration: get("programme_duration"),
+        mentorEmail: get("mentorEmail"),
+      };
+    }).filter((row) => row.email);
+
+    if (rows.length === 0) {
+      setStatus("No valid student rows found in CSV.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Importing students from CSV...");
+    try {
+      const res = await callApi("/api/import/students", "POST", undefined, { rows });
+      if (!res.ok) {
+        setStatus(`Student CSV import failed: ${res.error ?? "Unknown error"}`);
+        return;
+      }
+      setStatus(`Student CSV import complete. Updated: ${rows.length}.`);
+      invalidateAdminCache(["students-directory:first", "dashboard"]);
+      await loadStudentsDirectory(undefined, { force: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+
   useEffect(() => {
     if (!principal || !isAdmin || superView !== "all-users") return;
     const timeoutId = window.setTimeout(() => {
       void loadUsers(undefined, { force: true });
     }, 250);
     return () => window.clearTimeout(timeoutId);
-  }, [userQuickFilters, userRoleFilters, userGlobalFilter, principal, isAdmin, superView]);
+  }, [userGlobalFilter, principal, isAdmin, superView]);
 
   async function createUser(e: FormEvent) {
     e.preventDefault();
@@ -1162,6 +1182,7 @@ function App() {
       setBusy(false);
     }
   }
+
 
   async function createUsersFromCsvFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1255,7 +1276,9 @@ function App() {
     }
   }
 
-  async function processUserGridRowUpdate(newRow: any, oldRow: any) {
+  type EditableUserRow = Partial<Pick<UserRow, "subject" | "fullName" | "email" | "username" | "roles" | "active">>;
+
+  async function processUserGridRowUpdate(newRow: EditableUserRow, oldRow: EditableUserRow) {
     if (!(await ensureActiveServerSession())) {
       throw new Error("Session expired");
     }
@@ -1279,12 +1302,23 @@ function App() {
     const nextActive = Boolean(newRow.active);
     const currentActive = Boolean(source.active);
 
-    if (nextFullName !== currentFullName || nextRoles.join("|") !== currentRoles.join("|")) {
-      const res = await callApi("/api/admin/users/update", "POST", undefined, {
+    const nextEmail = newRow.email !== undefined ? String(newRow.email).trim().toLowerCase() : undefined;
+    const currentEmail = String(source.email ?? "").trim().toLowerCase();
+    const nextUsername = newRow.username !== undefined ? String(newRow.username).trim().toLowerCase() : undefined;
+    const currentUsername = String(source.username ?? "").trim().toLowerCase();
+
+    const emailChanged = nextEmail !== undefined && nextEmail !== currentEmail;
+    const usernameChanged = nextUsername !== undefined && nextUsername !== currentUsername;
+
+    if (nextFullName !== currentFullName || nextRoles.join("|") !== currentRoles.join("|") || emailChanged || usernameChanged) {
+      const body: Record<string, unknown> = {
         subject,
         fullName: nextFullName,
-        roles: nextRoles
-      });
+        roles: nextRoles,
+      };
+      if (emailChanged) body.email = nextEmail;
+      if (usernameChanged) body.username = nextUsername;
+      const res = await callApi("/api/admin/users/update", "POST", undefined, body);
       if (!res.ok) {
         throw new Error(res.error ?? "User update failed");
       }
@@ -1306,14 +1340,16 @@ function App() {
     return newRow;
   }
 
-  async function updateUserRow(row: UserRow, patch: Partial<{ fullName: string; roles: string[]; active: boolean }>) {
-    const nextRow = {
+  async function updateUserRow(row: UserRow, patch: Partial<{ fullName: string; email: string; username: string; roles: string[]; active: boolean }>) {
+    const nextRow: EditableUserRow = {
       subject: row.subject,
       fullName: patch.fullName ?? (row.fullName || row.email || row.subject),
       roles: patch.roles ?? (row.roles.length > 0 ? row.roles : ["guest"]),
       active: patch.active ?? row.active,
+      ...(patch.email !== undefined ? { email: patch.email } : {}),
+      ...(patch.username !== undefined ? { username: patch.username } : {}),
     };
-    const oldRow = {
+    const oldRow: EditableUserRow = {
       subject: row.subject,
       fullName: row.fullName || row.email || row.subject,
       roles: row.roles.length > 0 ? row.roles : ["guest"],
@@ -1328,6 +1364,7 @@ function App() {
       setBusy(false);
     }
   }
+
 
   useEffect(() => {
     let tabId = sessionStorage.getItem("fa_tab_id") ?? "";
@@ -1347,6 +1384,7 @@ function App() {
       setSessionTakenOver(true);
       sessionCheckRef.current = { checkedAt: Date.now(), ok: false };
       bindAdminCacheToSession(null);
+      clearSessionDataCaches();
       setPrincipal(null);
       setMyAccount(null);
       setOtherSessionsCount(0);
@@ -1354,6 +1392,7 @@ function App() {
       setMenuAnchors({});
       setStatus("Session moved to another tab. Please sign in again.");
       sessionStorage.removeItem(TAB_SESSION_MARKER_KEY);
+      clearSessionDataCaches();
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -1419,6 +1458,34 @@ function App() {
     }
     void loadDashboard();
   }, [principal, superView, isAdmin]);
+
+  useEffect(() => {
+    if (!principal || superView !== "regulations") {
+      return;
+    }
+    void loadRegulations();
+    void loadPlansOfStudy();
+  }, [principal, superView]);
+
+  useEffect(() => {
+    if (!principal || superView !== "students-directory") {
+      return;
+    }
+    if (programmeOptions.length > 0) {
+      return;
+    }
+    void loadProgrammes();
+  }, [principal, superView, programmeOptions.length]);
+
+  useEffect(() => {
+    if (filteredPlansOfStudy.length === 0) {
+      if (planOfStudyTab !== 0) setPlanOfStudyTab(0);
+      return;
+    }
+    if (planOfStudyTab > filteredPlansOfStudy.length - 1) {
+      setPlanOfStudyTab(0);
+    }
+  }, [filteredPlansOfStudy.length, planOfStudyTab]);
 
   async function runStep(path: string, label: string, body?: unknown) {
     if (principal) {
@@ -1497,6 +1564,8 @@ function App() {
     await loadMyAccount();
     await loadOtherSessionsCount();
     await loadMySessions();
+    await loadRegulations();
+    await loadPlansOfStudy();
   }
 
   async function onGoogleCredential(response: GoogleCredentialResponse) {
@@ -1524,6 +1593,7 @@ function App() {
     sessionCheckRef.current = { checkedAt: Date.now(), ok: false };
     setSessionTakenOver(false);
     sessionStorage.removeItem(TAB_SESSION_MARKER_KEY);
+    clearSessionDataCaches();
     invalidateAdminCache();
     bindAdminCacheToSession(null);
     setPrincipal(null);
@@ -1540,7 +1610,6 @@ function App() {
     const next = String(fullNameInput ?? "").trim();
     if (current === next) {
       setEditingMyName(false);
-      setEditingMyNameWidth(null);
       return;
     }
     const res = await callApi("/api/auth/my-account", "POST", undefined, { fullName: fullNameInput });
@@ -1552,7 +1621,6 @@ function App() {
     setPrincipal((prev) => (prev ? { ...prev, fullName: next } : prev));
     setStatus("Profile updated");
     setEditingMyName(false);
-    setEditingMyNameWidth(null);
   }
 
   async function changePassword(e: FormEvent) {
@@ -1671,6 +1739,48 @@ function App() {
         },
       }],
     }] : []),
+    ...((principal && (hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || isAdmin)) ? [{
+      label: "Academics",
+      items: [
+        {
+          id: "academic",
+          label: "Academic",
+          icon: <SchoolIcon fontSize="small" />,
+          children: [
+            {
+              id: "regulations",
+              label: "Regulations",
+              icon: <MenuBookIcon fontSize="small" />,
+              active: superView === "regulations",
+              onClick: () => {
+                void (async () => {
+                  if (await ensureActiveServerSession()) {
+                    setSuperView("regulations");
+                    await loadRegulations();
+                    await loadPlansOfStudy();
+                  }
+                })();
+              },
+            },
+            ...((isAdmin || hasHeadRole || hasModeratorRole) ? [{
+              id: "students-directory",
+              label: "Students",
+              icon: <GroupIcon fontSize="small" />,
+              active: superView === "students-directory",
+              onClick: () => {
+                void (async () => {
+                  if (await ensureActiveServerSession()) {
+                    setSuperView("students-directory");
+                    await loadProgrammes({ force: true });
+                    await loadStudentsDirectory();
+                  }
+                })();
+              },
+            }] : []),
+          ],
+        },
+      ],
+    }] : []),
     ...(isAdmin ? [{
       label: "Administration",
       items: [
@@ -1728,7 +1838,10 @@ function App() {
               icon: <StorageIcon fontSize="small" />,
               active: false as const,
               disabled: busy,
-              onClick: () => { void runStep("/api/setup/seed-data", "Seed data"); },
+              onClick: () => {
+                if (!window.confirm("Seed data into the database? This cannot be undone.")) return;
+                void runStep("/api/setup/seed-data", "Seed data");
+              },
             }] : []),
             ...(isSuperAdmin ? [{
               id: "clear-logs",
@@ -1808,15 +1921,15 @@ function App() {
 
   const adminPageSx = {
     pageCard: { boxShadow: "none", border: "none", backgroundImage: "none" },
-    pageStack: { spacing: 2 },
+    pageStack: { spacing: 3 },
     headerPanel: {
-      p: { xs: 1.25, sm: 1.5 },
+      p: { xs: 2, sm: 2.5 },
       borderRadius: 2,
       border: "1px solid",
       borderColor: "divider",
       bgcolor: "action.hover",
     },
-    sectionPanel: { p: 1.5, borderRadius: 2 },
+    sectionPanel: { p: 2, borderRadius: 2 },
   } as const;
 
   const renderSidebarNav = () => (
@@ -2070,11 +2183,11 @@ function App() {
             <Typography variant="h6">Step 3: Create Super Admin</Typography>
             <Typography variant="body2" color="text.secondary">Enter private bootstrap key and create first admin account. This marks setup complete.</Typography>
             <form onSubmit={onCreateSuperAdmin}>
-              <TextField type="password" label="Bootstrap key" value={bootstrapKey} onChange={(e) => setBootstrapKey(e.target.value)} />
+              <TextField variant="standard" size="small" type="password" label="Bootstrap key" value={bootstrapKey} onChange={(e) => setBootstrapKey(e.target.value)} />
               <Box sx={{ height: 1 }} />
-              <TextField type="text" label="Admin username" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} />
+              <TextField variant="standard" size="small" type="text" label="Admin username" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} />
               <Box sx={{ height: 1 }} />
-              <TextField type="password" label="Admin password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
+              <TextField variant="standard" size="small" type="password" label="Admin password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
               <Box sx={{ mt: 2 }}>
                 <Button variant="contained" disabled={busy || (setupLocked && !isSuperAdmin)} type="submit">
                   Create Super Admin
@@ -2130,8 +2243,8 @@ function App() {
                 sx={{ textTransform: "none", color: shellColors.textPrimary, borderColor: shellColors.border, gap: 0.75 }}
                 variant="outlined"
               >
-                <Avatar sx={{ width: 22, height: 22, fontSize: "0.7rem", bgcolor: "primary.main" }}>
-                  {displayName.charAt(0).toUpperCase()}
+                <Avatar sx={{ width: 22, height: 22, fontSize: "0.6rem", bgcolor: "primary.main" }}>
+                  {getInitials(displayName)}
                 </Avatar>
                 {displayName}
               </Button>
@@ -2261,11 +2374,11 @@ function App() {
             <Typography variant="h6">Complete Access Setup</Typography>
             <Typography variant="body2" color="text.secondary">Database is initialized. Create the first super admin to unlock login.</Typography>
             <form onSubmit={onCreateSuperAdmin}>
-              <TextField type="password" label="Bootstrap key" value={bootstrapKey} onChange={(e) => setBootstrapKey(e.target.value)} />
+              <TextField variant="standard" size="small" type="password" label="Bootstrap key" value={bootstrapKey} onChange={(e) => setBootstrapKey(e.target.value)} />
               <Box sx={{ height: 1 }} />
-              <TextField type="text" label="Admin username" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} />
+              <TextField variant="standard" size="small" type="text" label="Admin username" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} />
               <Box sx={{ height: 1 }} />
-              <TextField type="password" label="Admin password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
+              <TextField variant="standard" size="small" type="password" label="Admin password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
               <Box sx={{ mt: 2 }}>
                 <Button variant="contained" disabled={busy || (setupLocked && !isSuperAdmin)} type="submit">
                   Create Super Admin
@@ -2277,33 +2390,192 @@ function App() {
         )}
 
         {hasSuperAdmin && !principal && (
-          <Box sx={{ maxWidth: 400, mx: "auto", mt: { xs: 6, md: 10 } }}>
-            <Stack spacing={1} sx={{ mb: 3, alignItems: "center" }}>
-              <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 48, height: 48 }} />
-              <Typography variant="h5" sx={{ textAlign: "center" }}>{`${APP_NAME_FULL} (${APP_NAME_SHORT})`}</Typography>
-              <Typography variant="body2" color="text.secondary">Sign in to your account</Typography>
-            </Stack>
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                <form onSubmit={onLogin}>
-                  <Stack spacing={2}>
-                    <TextField fullWidth type="text" label="Username" autoComplete="username" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} />
-                    <TextField fullWidth type="password" label="Password" autoComplete="current-password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)} />
-                    <Button fullWidth variant="contained" size="large" disabled={busy} type="submit">
-                      Sign In
-                    </Button>
-                    {GOOGLE_CLIENT_ID ? (
-                      <>
-                        <Divider>or</Divider>
-                        <Box sx={{ display: "flex", justifyContent: "center" }}>
-                          <Box id="google-signin-button" />
-                        </Box>
-                      </>
-                    ) : null}
-                  </Stack>
-                </form>
-              </CardContent>
-            </Card>
+          <Box
+            sx={{
+              position: "fixed",
+              inset: 0,
+              zIndex: 9999,
+              display: "flex",
+              bgcolor: "#f0f4f8",
+            }}
+          >
+            {/* Left branding panel — desktop only */}
+            <Box
+              sx={{
+                display: { xs: "none", md: "flex" },
+                flex: 1,
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                background: "linear-gradient(160deg, #0d1b5e 0%, #1a3a8a 55%, #2d52a0 100%)",
+                color: "#fff",
+                p: 6,
+                gap: 2,
+                position: "relative",
+                overflow: "hidden",
+              }}
+            >
+              <Box sx={{ position: "absolute", width: 450, height: 450, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.07)", top: -100, left: -100 }} />
+              <Box sx={{ position: "absolute", width: 320, height: 320, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.05)", bottom: -70, right: -70 }} />
+              <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 96, height: 96, mb: 1, position: "relative" }} />
+              <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: -0.5, position: "relative", textAlign: "center" }}>
+                {APP_NAME_SHORT}
+              </Typography>
+              <Typography variant="subtitle1" sx={{ opacity: 0.82, maxWidth: 340, position: "relative", textAlign: "center" }}>
+                {APP_NAME_FULL}
+              </Typography>
+              <Box sx={{ width: 48, height: 3, borderRadius: 2, bgcolor: "rgba(255,255,255,0.38)", my: 0.5, position: "relative" }} />
+              <Typography variant="body2" sx={{ opacity: 0.65, letterSpacing: 1.2, textTransform: "uppercase", fontSize: "0.7rem", position: "relative" }}>
+                {ORG_NAME}
+              </Typography>
+              <Typography variant="body2" sx={{ opacity: 0.48, mt: 0.25, position: "relative" }}>
+                Academic Management Portal
+              </Typography>
+            </Box>
+
+            {/* Right login panel */}
+            <Box
+              sx={{
+                width: { xs: "100%", md: 480 },
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                bgcolor: "#fff",
+                p: { xs: 3, sm: 5 },
+              }}
+            >
+              {/* Mobile-only branding */}
+              <Box sx={{ display: { xs: "block", md: "none" }, textAlign: "center", mb: 3 }}>
+                <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 60, height: 60, mb: 1.5 }} />
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>{APP_NAME_SHORT}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{ORG_NAME}</Typography>
+              </Box>
+
+              <Box sx={{ width: "100%", maxWidth: 360 }}>
+                <Typography variant="h5" gutterBottom sx={{ fontWeight: 700, textAlign: "center" }}>
+                  Welcome back
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5, textAlign: "center" }}>
+                  Sign in to your academic portal
+                </Typography>
+
+                <Stack spacing={1.25}>
+                  {/* Primary: SSO / OAuth buttons */}
+                  {GOOGLE_CLIENT_ID ? (
+                    <Box sx={{ display: "flex", justifyContent: "center" }}>
+                      <Box id="google-signin-button" sx={{ width: "100%" }} />
+                    </Box>
+                  ) : null}
+
+                  {/* Divider between SSO and local login */}
+                  {GOOGLE_CLIENT_ID ? (
+                    <Divider sx={{ my: 0.25 }}>
+                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.7rem" }}>or</Typography>
+                    </Divider>
+                  ) : null}
+
+                  {/* Secondary: local credentials — toggle link when SSO is available */}
+                  {GOOGLE_CLIENT_ID && !showLocalLogin ? (
+                    <Box sx={{ textAlign: "center" }}>
+                      <Typography
+                        component="button"
+                        variant="caption"
+                        onClick={() => setShowLocalLogin(true)}
+                        sx={{ color: "text.disabled", fontSize: "0.72rem", cursor: "pointer", background: "none", border: "none", p: 0, "&:hover": { color: "text.secondary", textDecoration: "underline" } }}
+                      >
+                        Sign in with username &amp; password
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Collapse in={showLocalLogin} unmountOnExit>
+                      <form onSubmit={onLogin}>
+                        <Stack spacing={2}>
+                          <TextField
+                            variant="outlined"
+                            fullWidth
+                            type="text"
+                            label="Username"
+                            autoComplete="username"
+                            value={loginUser}
+                            onChange={(e) => setLoginUser(e.target.value)}
+                            slotProps={{
+                              input: {
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <PersonIcon sx={{ fontSize: 18, color: "text.disabled" }} />
+                                  </InputAdornment>
+                                ),
+                              },
+                            }}
+                          />
+                          <TextField
+                            variant="outlined"
+                            fullWidth
+                            type="password"
+                            label="Password"
+                            autoComplete="current-password"
+                            value={loginPass}
+                            onChange={(e) => setLoginPass(e.target.value)}
+                            slotProps={{
+                              input: {
+                                startAdornment: (
+                                  <InputAdornment position="start">
+                                    <LockPersonIcon sx={{ fontSize: 18, color: "text.disabled" }} />
+                                  </InputAdornment>
+                                ),
+                              },
+                            }}
+                          />
+                          <Button
+                            fullWidth
+                            variant="contained"
+                            size="large"
+                            disabled={busy}
+                            type="submit"
+                            sx={{
+                              py: 1.5,
+                              fontWeight: 600,
+                              fontSize: "1rem",
+                              borderRadius: 2,
+                              background: "linear-gradient(90deg, #0d1b5e 0%, #1a3a8a 100%)",
+                              boxShadow: "0 4px 14px rgba(13,27,94,0.30)",
+                              "&:hover": {
+                                background: "linear-gradient(90deg, #1a3a8a 0%, #2d52a0 100%)",
+                                boxShadow: "0 6px 18px rgba(13,27,94,0.40)",
+                              },
+                            }}
+                          >
+                            Sign In
+                          </Button>
+                          {GOOGLE_CLIENT_ID ? (
+                            <Box sx={{ textAlign: "center" }}>
+                              <Button
+                                variant="text"
+                                size="small"
+                                onClick={() => setShowLocalLogin(false)}
+                                sx={{ color: "text.disabled", fontSize: "0.75rem", textTransform: "none", "&:hover": { color: "text.secondary", bgcolor: "transparent" } }}
+                              >
+                                ← Back to sign-in options
+                              </Button>
+                            </Box>
+                          ) : null}
+                        </Stack>
+                      </form>
+                    </Collapse>
+                  )}
+                </Stack>
+
+                <Box sx={{ mt: 5, pt: 3, borderTop: "1px solid", borderColor: "divider", textAlign: "center" }}>
+                  <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 0.75 }}>
+                    {APP_NAME_FULL}
+                  </Typography>
+                  <Typography variant="caption" color="text.disabled" sx={{ display: "block" }}>
+                    {ORG_NAME} · Academic Management Portal
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
           </Box>
         )}
 
@@ -2344,90 +2616,6 @@ function App() {
             {isAdmin ? (
               dashboard ? (
                 <>
-                  {/* Live platform metrics — not time-limited */}
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: { xs: "1fr", md: dashboard.auth?.totalGuests !== 0 ? "repeat(4, minmax(0, 1fr))" : "repeat(3, minmax(0, 1fr))" },
-                      gap: 2,
-                      mb: 3
-                    }}
-                  >
-                    <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
-                      <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
-                        Total Users
-                      </Typography>
-                      <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                        {(dashboard.auth?.totalUsers ?? 0).toLocaleString()}
-                      </Typography>
-                      <Button
-                        type="button"
-                        size="small"
-                        sx={{ p: 0, mt: 0.5 }}
-                        onClick={() => { void (async () => { if (await ensureActiveServerSession()) { setSuperView("all-users"); await loadUsers(); } })(); }}
-                      >
-                        View all accounts
-                      </Button>
-                    </Paper>
-                    {dashboard.auth?.totalGuests !== 0 ? (
-                      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
-                        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
-                          Total Guests
-                        </Typography>
-                        <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                          {(dashboard.auth?.totalGuests ?? 0).toLocaleString()}
-                        </Typography>
-                        <Button
-                          type="button"
-                          size="small"
-                          sx={{ p: 0, mt: 0.5 }}
-                          onClick={() => {
-                            void (async () => {
-                              if (await ensureActiveServerSession()) {
-                                setUserQuickFilters([]);
-                                setUserRoleFilters(["guest"]);
-                                setUserGlobalFilter("");
-                                setSuperView("all-users");
-                              }
-                            })();
-                          }}
-                        >
-                          View guest accounts
-                        </Button>
-                      </Paper>
-                    ) : null}
-                    <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
-                      <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
-                        Active Users
-                      </Typography>
-                      <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                        {(dashboard.auth?.activeUsers ?? 0).toLocaleString()}
-                      </Typography>
-                      <Button
-                        type="button"
-                        size="small"
-                        sx={{ p: 0, mt: 0.5 }}
-                        onClick={() => { void (async () => { if (await ensureActiveServerSession()) { setSuperView("active-users"); await loadActiveUsers(); } })(); }}
-                      >
-                        View active sessions
-                      </Button>
-                    </Paper>
-                    <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
-                      <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
-                        System DB
-                      </Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2, mt: 0.5 }}>
-                        {(dashboard.system?.tableCount ?? 0).toLocaleString()}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-                        tables
-                      </Typography>
-                      <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.5 }}>
-                        Schema: {dashboard.system?.currentSchemaVersion ?? "n/a"}
-                      </Typography>
-                    </Paper>
-                  </Box>
-
                   {isSuperAdmin && dashboard.mitigations?.needsMitigations ? (
                     <Alert
                       severity="warning"
@@ -2452,6 +2640,152 @@ function App() {
                         : ""}
                     </Alert>
                   ) : null}
+                  {dashboard.curriculumValidation?.hasErrors ? (
+                    <Alert severity="error" sx={{ mb: 2.5 }}>
+                      {`Plan-of-study validation found ${dashboard.curriculumValidation.totalErrors} issue(s) across ${
+                        dashboard.curriculumValidation.byPlan.filter((plan) => plan.hasErrors).length
+                      } plan(s).`}
+                        <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                        {dashboard.curriculumValidation.byPlan
+                          .flatMap((plan) => plan.errors.map((error) => ({ planCode: plan.planCode, planName: plan.planName, message: error.message })))
+                          .slice(0, 5)
+                          .map((item, idx) => (
+                            <Box component="li" key={`${item.planCode}-${idx}`}>
+                              <Typography variant="body2">{`${item.planName} (Code ${item.planCode}): ${item.message}`}</Typography>
+                            </Box>
+                          ))}
+                      </Box>
+                    </Alert>
+                  ) : null}
+
+                  {/* Live platform metrics — not time-limited */}
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "1fr", md: `repeat(${Math.max(1, [(dashboard.auth?.totalUsers ?? 0), (dashboard.auth?.totalGuests ?? 0), (dashboard.auth?.activeUsers ?? 0), (dashboard.system?.tableCount ?? 0)].filter(v => v !== 0).length)}, minmax(0, 1fr))` },
+                      gap: 2,
+                      mb: 3
+                    }}
+                  >
+                    {(dashboard.auth?.totalUsers ?? 0) !== 0 ? (
+                      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                          Total Users
+                        </Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                          {(dashboard.auth?.totalUsers ?? 0).toLocaleString()}
+                        </Typography>
+                        <Button
+                          type="button"
+                          size="small"
+                          sx={{ p: 0, mt: 0.5 }}
+                          onClick={() => { void (async () => { if (await ensureActiveServerSession()) { setSuperView("all-users"); await loadUsers(); } })(); }}
+                        >
+                          View all accounts
+                        </Button>
+                      </Paper>
+                    ) : null}
+                    {dashboard.auth?.totalGuests !== 0 ? (
+                      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                          Total Guests
+                        </Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                          {(dashboard.auth?.totalGuests ?? 0).toLocaleString()}
+                        </Typography>
+                        <Button
+                          type="button"
+                          size="small"
+                          sx={{ p: 0, mt: 0.5 }}
+                          onClick={() => {
+                            void (async () => {
+                              if (await ensureActiveServerSession()) {
+                                setUserGlobalFilter("guest");
+                                setSuperView("all-users");
+                              }
+                            })();
+                          }}
+                        >
+                          View guest accounts
+                        </Button>
+                      </Paper>
+                    ) : null}
+                    {(dashboard.auth?.activeUsers ?? 0) !== 0 ? (
+                      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                          Active Users
+                        </Typography>
+                        <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                          {(dashboard.auth?.activeUsers ?? 0).toLocaleString()}
+                        </Typography>
+                        <Button
+                          type="button"
+                          size="small"
+                          sx={{ p: 0, mt: 0.5 }}
+                          onClick={() => { void (async () => { if (await ensureActiveServerSession()) { setSuperView("active-users"); await loadActiveUsers(); } })(); }}
+                        >
+                          View active sessions
+                        </Button>
+                      </Paper>
+                    ) : null}
+                    {(dashboard.system?.tableCount ?? 0) !== 0 ? (
+                      <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                          System DB
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 700, lineHeight: 1.2, mt: 0.5 }}>
+                          {(dashboard.system?.tableCount ?? 0).toLocaleString()}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                          tables
+                        </Typography>
+                        <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.5 }}>
+                          Schema: {dashboard.system?.currentSchemaVersion ?? "n/a"}
+                        </Typography>
+                      </Paper>
+                    ) : null}
+                  </Box>
+
+                  {dashboard.system?.isTurso && dashboard.system?.turso ? (
+                    <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, mt: 2 }}>
+                      <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                        Turso DB · Billing Cycle Usage
+                      </Typography>
+                      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2.5, mt: 1.5 }}>
+                        {[
+                          { label: "Reads", value: dashboard.system!.turso!.rowsRead ?? 0, max: 500_000_000, isBytes: false },
+                          { label: "Writes", value: dashboard.system!.turso!.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
+                          { label: "Syncs", value: dashboard.system!.turso!.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
+                          { label: "Storage", value: dashboard.system!.turso!.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
+                        ].map(({ label, value, max, isBytes }) => {
+                          const pct = Math.min(100, (value / max) * 100);
+                          const fmt = (n: number) => isBytes
+                            ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
+                            : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
+                          return (
+                            <Box key={label}>
+                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.5 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600 }}>{label}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {fmt(value)}{" "}
+                                  <Typography component="span" variant="caption" color="text.disabled">/ {fmt(max)}</Typography>
+                                </Typography>
+                              </Box>
+                              <LinearProgress
+                                variant="determinate"
+                                value={pct}
+                                color={pct > 80 ? "error" : pct > 50 ? "warning" : "primary"}
+                                sx={{ height: 6, borderRadius: 1 }}
+                              />
+                              <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.25, textAlign: "right" }}>
+                                {pct.toFixed(1)}%
+                              </Typography>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Paper>
+                  ) : null}
 
                   {/* Section separator — 48-hour window */}
                   <Divider textAlign="left" sx={{ mb: 2.5 }}>
@@ -2468,7 +2802,7 @@ function App() {
                     <Paper variant="outlined" sx={{ borderRadius: 2 }}>
                       <List disablePadding>
                         <ListItemButton
-                          onClick={() => { void openLoginActivity("all"); }}
+                          onClick={() => { void openLoginActivity(); }}
                           sx={{ px: 2, py: 1.5 }}
                         >
                           <ListItemIcon sx={{ minWidth: 40 }}>
@@ -2752,7 +3086,7 @@ function App() {
                     <TableHead>
                       <TableRow sx={{ "& th": { bgcolor: "background.paper", borderBottom: "1px solid", borderColor: "divider" } }}>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>Time</TableCell>
-                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>User</TableCell>
+                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Full name</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Level</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Method</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Route</TableCell>
@@ -2982,7 +3316,7 @@ function App() {
                     <TableHead>
                       <TableRow sx={{ "& th": { bgcolor: "background.paper", borderBottom: "1px solid", borderColor: "divider" } }}>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>Time</TableCell>
-                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>User</TableCell>
+                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Full name</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Level</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Action</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Method</TableCell>
@@ -3119,37 +3453,42 @@ function App() {
             <CardContent>
               <Stack spacing={adminPageSx.pageStack.spacing}>
                 <Box sx={adminPageSx.headerPanel}>
-                  <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1.5}
+                    sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}
+                  >
                     <Box>
                       <Typography variant="h6">Active Users</Typography>
-                      <Typography variant="body2" color="text.secondary">Users with currently active sessions.</Typography>
-                      <Chip
-                        size="small"
-                        color="info"
-                        label={`${activeLiveUsersCount} live users`}
-                        sx={{ mt: 1, fontSize: "0.7rem", fontWeight: 700, height: 22 }}
-                      />
+                      <Typography variant="body2" color="text.secondary">
+                        Users with currently active sessions.
+                      </Typography>
                     </Box>
-                    <Tooltip title="Refresh" arrow>
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={busy}
-                          onClick={() => { void loadActiveUsers(undefined, { force: true }); }}
-                        >
-                          <RefreshIcon
-                            fontSize="small"
-                            sx={{
-                              "@keyframes spin": { from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } },
-                              animation: busy ? "spin 0.8s linear infinite" : "none",
-                            }}
-                          />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", alignSelf: { xs: "flex-start", sm: "flex-start" } }}>
+                      <Tooltip title="Refresh" arrow>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={busy}
+                            onClick={() => { void loadActiveUsers(undefined, { force: true }); }}
+                          >
+                            <RefreshIcon
+                              fontSize="small"
+                              sx={{
+                                "@keyframes spin": { from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } },
+                                animation: busy ? "spin 0.8s linear infinite" : "none",
+                              }}
+                            />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
                   </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
+                    {`${activeUserRows.length} records loaded · ${activeLiveUsersCount} live`}
+                  </Typography>
                 </Box>
-                <Paper sx={{ p: 1, borderRadius: 2, border: "none", boxShadow: "none" }}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
                   <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading active-users table...</Typography>}>
                     <ActiveUsersTable rows={activeUserRows} busy={busy} formatIst={formatIst} />
                   </Suspense>
@@ -3199,36 +3538,13 @@ function App() {
                       </span>
                     </Tooltip>
                   </Stack>
-                  <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                    <Chip
-                      size="small"
-                      clickable
-                      onClick={() => setLoginActivityQuickFilter("all")}
-                      color={loginActivityQuickFilter === "all" ? "primary" : "default"}
-                      variant={loginActivityQuickFilter === "all" ? "filled" : "outlined"}
-                      label={`Total: ${loginActivitySummary.total}`}
-                    />
-                    <Chip
-                      size="small"
-                      clickable
-                      onClick={() => setLoginActivityQuickFilter("success")}
-                      color="success"
-                      variant={loginActivityQuickFilter === "success" ? "filled" : "outlined"}
-                      label={`Success: ${loginActivitySummary.success}`}
-                    />
-                    <Chip
-                      size="small"
-                      clickable
-                      onClick={() => setLoginActivityQuickFilter("failed")}
-                      color="error"
-                      variant={loginActivityQuickFilter === "failed" ? "filled" : "outlined"}
-                      label={`Failed: ${loginActivitySummary.failed}`}
-                    />
-                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
+                    {`${loginActivityRows.length} records loaded.`}
+                  </Typography>
                 </Box>
-                <Paper sx={{ p: 1, borderRadius: 2, border: "none", boxShadow: "none" }}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
                   <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading failed-login table...</Typography>}>
-                    <FailedLoginsTable rows={visibleLoginActivityRows} busy={busy} formatIst={formatIst} />
+                    <FailedLoginsTable rows={loginActivityRows} busy={busy} formatIst={formatIst} />
                   </Suspense>
                 </Paper>
                 {loginActivityHasMore ? (
@@ -3289,70 +3605,9 @@ function App() {
                     spacing={1}
                     sx={{ mt: 1.25, alignItems: { xs: "stretch", sm: "center" }, justifyContent: "space-between", gap: 1 }}
                   >
-                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                      <Chip
-                        size="small"
-                        clickable
-                        onClick={() => {
-                          setUserQuickFilters([]);
-                          setUserRoleFilters([]);
-                        }}
-                        color={userQuickFilters.length === 0 && userRoleFilters.length === 0 ? "primary" : "default"}
-                        variant={userQuickFilters.length === 0 && userRoleFilters.length === 0 ? "filled" : "outlined"}
-                        label={`Total: ${userSummary.total}`}
-                      />
-                      {userSummary.active > 0 ? (
-                        <Chip
-                          size="small"
-                          clickable
-                          onClick={() =>
-                            setUserQuickFilters((prev) => (prev.includes("active") ? prev.filter((f) => f !== "active") : [...prev, "active"]))
-                          }
-                          color="success"
-                          variant={userQuickFilters.includes("active") ? "filled" : "outlined"}
-                          label={`Active: ${userSummary.active}`}
-                        />
-                      ) : null}
-                      {userSummary.disabled > 0 ? (
-                        <Chip
-                          size="small"
-                          clickable
-                          onClick={() =>
-                            setUserQuickFilters((prev) => (prev.includes("disabled") ? prev.filter((f) => f !== "disabled") : [...prev, "disabled"]))
-                          }
-                          color="default"
-                          variant={userQuickFilters.includes("disabled") ? "filled" : "outlined"}
-                          label={`Disabled: ${userSummary.disabled}`}
-                        />
-                      ) : null}
-                      {userSummary.neverLoggedIn > 0 ? (
-                        <Chip
-                          size="small"
-                          clickable
-                          onClick={() =>
-                            setUserQuickFilters((prev) =>
-                              prev.includes("neverLoggedIn") ? prev.filter((f) => f !== "neverLoggedIn") : [...prev, "neverLoggedIn"]
-                            )
-                          }
-                          color="warning"
-                          variant={userQuickFilters.includes("neverLoggedIn") ? "filled" : "outlined"}
-                          label={`Never Logged In: ${userSummary.neverLoggedIn}`}
-                        />
-                      ) : null}
-                      {userRoleSummary.map(([role, count]) => (
-                        <Chip
-                          key={role}
-                          size="small"
-                          clickable
-                          onClick={() =>
-                            setUserRoleFilters((prev) => (prev.includes(role) ? prev.filter((item) => item !== role) : [...prev, role]))
-                          }
-                          color={userRoleFilters.includes(role) ? "primary" : "default"}
-                          variant={userRoleFilters.includes(role) ? "filled" : "outlined"}
-                          label={`${role.toUpperCase()}: ${count}`}
-                        />
-                      ))}
-                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Use table column filters and search to refine user results.
+                    </Typography>
                     <Button
                       type="button"
                       variant={showAddUserForm ? "outlined" : "contained"}
@@ -3366,19 +3621,54 @@ function App() {
                 </Box>
 
                 {showAddUserForm ? (
-                  <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Paper variant="outlined">
+                    {/* Form header */}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                        p: 2.5,
+                        bgcolor: "action.hover",
+                        borderBottom: "1px solid",
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: "50%",
+                          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.12),
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <PersonAddIcon sx={{ color: "primary.main", fontSize: "1.1rem" }} />
+                      </Box>
+                      <Box>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Create Local Account</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Add a user with username and password credentials.
+                        </Typography>
+                      </Box>
+                    </Box>
+
                     <form onSubmit={createUser}>
-                        <Stack spacing={1.5}>
+                      <Stack spacing={2.5} sx={{ p: 2.5 }}>
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
-                          <TextField fullWidth type="text" label="Full name" value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} />
-                          <TextField fullWidth type="text" label="Email (optional)" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
-                          <TextField fullWidth type="text" label="Username" value={newUserUsername} onChange={(e) => setNewUserUsername(e.target.value)} />
+                          <TextField variant="standard" size="small" fullWidth type="text" label="Full name" value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} />
+                          <TextField variant="standard" size="small" fullWidth type="text" label="Email (optional)" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
+                          <TextField variant="standard" size="small" fullWidth type="text" label="Username" value={newUserUsername} onChange={(e) => setNewUserUsername(e.target.value)} />
                         </Stack>
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
-                          <TextField fullWidth type="password" label="Password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
-                          <FormControl fullWidth>
+                          <TextField variant="standard" size="small" fullWidth type="password" label="Password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
+                          <FormControl variant="standard" size="small" fullWidth>
                             <InputLabel id="new-user-roles-label">Roles</InputLabel>
                             <Select
+                              size="small"
                               labelId="new-user-roles-label"
                               label="Roles"
                               multiple
@@ -3389,41 +3679,56 @@ function App() {
                                 setNewUserRoles(nextRoles);
                               }}
                             >
-                              <MenuItem value="student"><Checkbox checked={newUserRoles.includes("student")} size="small" /><ListItemText primary="Student" /></MenuItem>
-                              <MenuItem value="faculty"><Checkbox checked={newUserRoles.includes("faculty")} size="small" /><ListItemText primary="Faculty" /></MenuItem>
-                              <MenuItem value="head"><Checkbox checked={newUserRoles.includes("head")} size="small" /><ListItemText primary="Head" /></MenuItem>
-                              <MenuItem value="moderator"><Checkbox checked={newUserRoles.includes("moderator")} size="small" /><ListItemText primary="Moderator" /></MenuItem>
-                              <MenuItem value="guest"><Checkbox checked={newUserRoles.includes("guest")} size="small" /><ListItemText primary="Guest" /></MenuItem>
-                              <MenuItem value="admin"><Checkbox checked={newUserRoles.includes("admin")} size="small" /><ListItemText primary="Admin" /></MenuItem>
+                              <MenuItem value="student">Student</MenuItem>
+                              <MenuItem value="faculty">Faculty</MenuItem>
+                              <MenuItem value="head">Head</MenuItem>
+                              <MenuItem value="moderator">Moderator</MenuItem>
+                              <MenuItem value="guest">Guest</MenuItem>
+                              <MenuItem value="admin">Admin</MenuItem>
                             </Select>
                           </FormControl>
                         </Stack>
-                        <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
-                          <Button type="submit" variant="contained" disabled={busy}>
+                        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                          <Button type="submit" variant="contained" startIcon={<PersonAddIcon />} disabled={busy}>
                             Create User
                           </Button>
-                        </Stack>
-                        <Divider />
-                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "center" } }}>
-                          <Typography variant="body2" color="text.secondary">
-                            Bulk create via CSV. Required columns: `fullName`, `username`, `password`. Optional: `email`, `role`.
-                          </Typography>
-                          <Button component="label" variant="outlined" disabled={busy}>
-                            Upload CSV
-                            <input hidden accept=".csv,text/csv" type="file" onChange={createUsersFromCsvFile} />
-                          </Button>
-                        </Stack>
-                        {bulkCsvFileName ? (
-                          <Typography variant="caption" color="text.secondary">
-                            Last selected file: {bulkCsvFileName}
-                          </Typography>
-                        ) : null}
+                        </Box>
                       </Stack>
                     </form>
+
+                    {/* Bulk CSV import */}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 2,
+                        flexWrap: "wrap",
+                        p: 2.5,
+                        bgcolor: "action.hover",
+                        borderTop: "1px solid",
+                        borderColor: "divider",
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                          <b>Bulk import via CSV.</b> Required: <code>fullName</code>, <code>username</code>, <code>password</code>. Optional: <code>email</code>, <code>role</code>.
+                        </Typography>
+                        {bulkCsvFileName ? (
+                          <Typography variant="caption" color="primary.main">
+                            Selected: {bulkCsvFileName}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                      <Button component="label" variant="outlined" size="small" disabled={busy}>
+                        Upload CSV
+                        <input hidden accept=".csv,text/csv" type="file" onChange={createUsersFromCsvFile} />
+                      </Button>
+                    </Box>
                   </Paper>
                 ) : null}
 
-                <Paper sx={{ p: 1, borderRadius: 2, border: "none", boxShadow: "none" }}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
                   <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading users table...</Typography>}>
                     <ManageUsersTable
                       rows={userRows}
@@ -3457,6 +3762,413 @@ function App() {
           </Card>
         ) : null}
 
+        {principal && (isAdmin || hasHeadRole || hasModeratorRole) && superView === "students-directory" ? (
+          <Card>
+            <CardContent>
+              <Stack spacing={adminPageSx.pageStack.spacing}>
+                <Box sx={adminPageSx.headerPanel}>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1.5}
+                    sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}
+                  >
+                    <Box>
+                      <Typography variant="h6">Students Directory</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {studentDirectoryRows.length} student account{studentDirectoryRows.length === 1 ? "" : "s"} loaded
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", alignSelf: { xs: "flex-start", sm: "flex-start" } }}>
+                      <Tooltip title="Refresh" arrow>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={busy}
+                            onClick={() => {
+                              void (async () => {
+                                await loadProgrammes({ force: true });
+                                await loadStudentsDirectory(undefined, { force: true });
+                              })();
+                            }}
+                          >
+                            <RefreshIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
+                    Use table column filters and search to refine student results.
+                  </Typography>
+                  <Box
+                    sx={{
+                      mt: 1.25,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1.5,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                        <b>Bulk import via CSV.</b> Compulsory: <code>email</code>. Optional (at least one required): <code>registration_number</code>, <code>plan_of_study_code</code>, <code>programme</code>, <code>batch</code>, <code>programme_duration</code>, <code>mentorEmail</code>.
+                      </Typography>
+                      {studentsCsvFileName ? (
+                        <Typography variant="caption" color="primary.main">
+                          Selected: {studentsCsvFileName}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                    {(isAdmin || hasModeratorRole) ? (
+                      <Button component="label" variant="contained" color="primary" size="small" disabled={busy}>
+                        Upload CSV
+                        <input hidden accept=".csv,text/csv" type="file" onChange={importStudentsFromCsvFile} />
+                      </Button>
+                    ) : null}
+                  </Box>
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      <b>Programme values:</b>{" "}
+                      {programmeOptions.length > 0
+                        ? programmeOptions.map((item) => `${item.id} - ${item.name}`).join(", ")
+                        : "No programme values loaded."}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                      <b>Plan of Study values:</b>{" "}
+                      {planOfStudyOptions.length > 0
+                        ? planOfStudyOptions.map((item) => `${item.code} - ${item.name}`).join(", ")
+                        : "No plan of study values loaded."}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading students directory table...</Typography>}>
+                    <StudentsDirectoryTable
+                      rows={studentDirectoryRows}
+                      busy={busy}
+                      planOfStudyOptions={planOfStudyOptions}
+                      mentorNameOptions={mentorNameOptions}
+                      programmeOptions={programmeOptions}
+                      onUpdateRow={async (row, patch) => {
+                        await updateStudentsDirectoryRow(row, patch);
+                      }}
+                    />
+                  </Suspense>
+                </Paper>
+                {studentsDirectoryHasMore ? (
+                  <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
+                    <Button type="button" onClick={() => { void loadStudentsDirectory(studentsDirectoryCursor); }}>
+                      Load More
+                    </Button>
+                  </Stack>
+                ) : null}
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {principal && superView === "regulations" ? (
+          <Card>
+            <CardContent>
+              <Stack spacing={adminPageSx.pageStack.spacing}>
+                <Box sx={adminPageSx.headerPanel}>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1.5}
+                    sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}
+                  >
+                    <Box>
+                      <Typography variant="h6">Regulations And Plans Of Study</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Curriculum structure, credit requirements, and batch plan distribution
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "flex-end", alignSelf: { xs: "flex-start", sm: "flex-start" } }}>
+                      <Tooltip title="Refresh" arrow>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={busy}
+                            onClick={() => {
+                              void loadRegulations({ force: true });
+                              void loadPlansOfStudy({ force: true });
+                            }}
+                          >
+                            <RefreshIcon
+                              fontSize="small"
+                              sx={{
+                                "@keyframes spin": { from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } },
+                                animation: busy ? "spin 0.8s linear infinite" : "none",
+                              }}
+                            />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+                  </Stack>
+                  {plansValidationReport?.hasErrors ? (
+                    <Alert severity="error" sx={{ mt: 1.5 }}>
+                      {`Validation found ${plansValidationReport.totalErrors} issue(s).`}
+                      <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                        {plansValidationReport.byPlan
+                          .flatMap((plan) => plan.errors.map((error) => ({ planCode: plan.planCode, planName: plan.planName, message: error.message })))
+                          .slice(0, 5)
+                          .map((item, idx) => (
+                            <Box component="li" key={`reg-validation-${item.planCode}-${idx}`}>
+                              <Typography variant="body2">{`${item.planName} (Code ${item.planCode}): ${item.message}`}</Typography>
+                            </Box>
+                          ))}
+                      </Box>
+                    </Alert>
+                  ) : null}
+                </Box>
+
+              {regulations.length > 0 ? (
+                <Paper variant="outlined">
+                    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+                      <Tabs
+                        value={Math.min(regulationTab, regulations.length - 1)}
+                        onChange={(_, v: number) => { setRegulationTab(v); }}
+                        variant="scrollable"
+                        scrollButtons="auto"
+                      >
+                        {regulations.map((reg, i) => (
+                          <Tab
+                            key={reg.code}
+                            value={i}
+                            label={
+                              <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+                                <span>{reg.code}</span>
+                                <Chip
+                                  label={`${reg.curriculumStructure.totalCreditsRequired} cr`}
+                                  size="small"
+                                  sx={{ height: 18, fontSize: "0.68rem", pointerEvents: "none", mx: 0.25, my: 0.25 }}
+                                />
+                              </Stack>
+                            }
+                          />
+                        ))}
+                      </Tabs>
+                    </Box>
+
+                    {regulations.map((regulation, i) => {
+                      if (i !== Math.min(regulationTab, regulations.length - 1)) return null;
+                      const total = regulation.curriculumStructure.totalCreditsRequired;
+                      const categories = regulation.curriculumStructure.categories;
+                      const rangeCount = categories.filter((c) => c.rule.type === "range").length;
+
+                      return (
+                        <Box key={regulation.code} sx={{ p: 3 }}>
+                          <Stack direction="row" gap={1.5} sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                              {regulation.name}
+                            </Typography>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", ml: 0.5 }}>
+                              <Chip label={`${total} credits required`} size="small" color="primary" sx={{ m: 0.25 }} />
+                              <Chip label={`${categories.length} categories`} size="small" variant="outlined" sx={{ m: 0.25 }} />
+                              {rangeCount > 0 && (
+                                <Chip label={`${rangeCount} flexible`} size="small" color="warning" variant="outlined" sx={{ m: 0.25 }} />
+                              )}
+                            </Stack>
+                          </Stack>
+
+                          <TableContainer component={Paper} variant="outlined">
+                            <Table>
+                              <TableHead>
+                                <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "action.hover", fontWeight: 700 } }}>
+                                  <TableCell>Code</TableCell>
+                                  <TableCell>Category</TableCell>
+                                  <TableCell align="right">Credits</TableCell>
+                                  <TableCell sx={{ width: 140 }}>Share of Total</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {categories.map((category) => {
+                                  const isRange = category.rule.type === "range";
+                                  const creditsText = isRange
+                                    ? `${(category.rule as { type: "range"; min: number; max: number }).min}–${(category.rule as { type: "range"; min: number; max: number }).max}`
+                                    : String((category.rule as { type: string; value: number }).value);
+                                  const barValue = isRange
+                                    ? (((category.rule as { type: "range"; min: number; max: number }).min + (category.rule as { type: "range"; min: number; max: number }).max) / 2 / total) * 100
+                                    : ((category.rule as { type: string; value: number }).value / total) * 100;
+
+                                  return (
+                                    <TableRow key={`${regulation.code}-${category.code}`} hover>
+                                      <TableCell>
+                                        <Chip
+                                          label={category.code}
+                                          size="small"
+                                          variant="outlined"
+                                          sx={{ fontFamily: "monospace", fontWeight: 600 }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>{category.name}</TableCell>
+                                      <TableCell align="right">
+                                        <Chip
+                                          label={creditsText}
+                                          size="small"
+                                          color={isRange ? "warning" : "default"}
+                                          variant={isRange ? "outlined" : "filled"}
+                                          sx={{ fontWeight: 600, minWidth: 52 }}
+                                        />
+                                      </TableCell>
+                                      <TableCell>
+                                        <Stack spacing={0.75}>
+                                          <LinearProgress
+                                            variant="determinate"
+                                            value={barValue}
+                                            color={isRange ? "warning" : "primary"}
+                                            sx={{ height: 6, borderRadius: 3 }}
+                                          />
+                                          <Typography variant="caption" color="text.secondary">
+                                            {Math.round(barValue)}%
+                                          </Typography>
+                                        </Stack>
+                                      </TableCell>
+                                    </TableRow>
+                                  );
+                                })}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
+                      );
+                    })}
+                </Paper>
+              ) : (
+                <Paper variant="outlined" sx={{ p: 3 }}>
+                  <Box sx={{ textAlign: "center" }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No regulations found. Click Refresh to reload.
+                    </Typography>
+                  </Box>
+                </Paper>
+              )}
+
+              {filteredPlansOfStudy.length > 0 ? (
+                <Paper variant="outlined">
+                    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
+                      <Tabs
+                        value={Math.min(planOfStudyTab, filteredPlansOfStudy.length - 1)}
+                        onChange={(_, v: number) => { setPlanOfStudyTab(v); }}
+                        variant="scrollable"
+                        scrollButtons="auto"
+                      >
+                        {filteredPlansOfStudy.map((plan, i) => (
+                          (() => {
+                            const computedPlanTotalCredits = plan.semesters.reduce(
+                              (acc, semester) => acc + Number(semester.totalCredits ?? 0),
+                              0
+                            );
+                            return (
+                          <Tab
+                            key={plan.planCode}
+                            value={i}
+                            label={
+                              <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
+                                <span>{plan.planName}</span>
+                                <Chip
+                                  label={`${computedPlanTotalCredits} cr`}
+                                  size="small"
+                                  sx={{ height: 18, fontSize: "0.68rem", pointerEvents: "none", mx: 0.25, my: 0.25 }}
+                                />
+                              </Stack>
+                            }
+                          />
+                            );
+                          })()
+                        ))}
+                      </Tabs>
+                    </Box>
+                    {filteredPlansOfStudy.map((plan, i) => {
+                      if (i !== Math.min(planOfStudyTab, filteredPlansOfStudy.length - 1)) return null;
+                      const computedCategoryTotals = plan.semesters.reduce<Record<string, number>>((acc, semester) => {
+                        Object.entries(semester.categories ?? {}).forEach(([code, rawValue]) => {
+                          const value = Number(rawValue ?? 0);
+                          acc[code] = (acc[code] ?? 0) + value;
+                        });
+                        return acc;
+                      }, {});
+                      const computedPlanTotalCredits = plan.semesters.reduce(
+                        (acc, semester) => acc + Number(semester.totalCredits ?? 0),
+                        0
+                      );
+                      const categoryCodes = Array.from(
+                        new Set(plan.semesters.flatMap((semester) => Object.keys(semester.categories ?? {})))
+                      );
+                      return (
+                        <Box key={plan.planCode} sx={{ p: 3 }}>
+                          <Stack direction="row" gap={1.5} sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                              {plan.planName}
+                            </Typography>
+                            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", ml: 0.5 }}>
+                              <Chip label={`Code ${plan.planCode}`} size="small" variant="outlined" sx={{ m: 0.25 }} />
+                              <Chip label={plan.regulationCode} size="small" variant="outlined" sx={{ m: 0.25 }} />
+                              <Chip label={`${plan.semesters.length} semesters`} size="small" variant="outlined" sx={{ m: 0.25 }} />
+                              <Chip label={`${computedPlanTotalCredits} credits planned`} size="small" color="primary" sx={{ m: 0.25 }} />
+                            </Stack>
+                          </Stack>
+
+                          <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "action.hover", fontWeight: 700 } }}>
+                                  <TableCell>Semester</TableCell>
+                                  {categoryCodes.map((code) => (
+                                    <TableCell key={`${plan.planCode}-${code}`} align="right">{code}</TableCell>
+                                  ))}
+                                  <TableCell align="right">Total</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {plan.semesters.map((semester) => (
+                                  <TableRow key={`${plan.planCode}-sem-${semester.semester}`} hover>
+                                    <TableCell>{semester.semester}</TableCell>
+                                    {categoryCodes.map((code) => (
+                                      <TableCell key={`${plan.planCode}-sem-${semester.semester}-${code}`} align="right">
+                                        {Number(semester.categories?.[code] ?? 0)}
+                                      </TableCell>
+                                    ))}
+                                    <TableCell align="right">
+                                      <Chip label={semester.totalCredits} size="small" sx={{ m: 0.25 }} />
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                                <TableRow sx={{ "& .MuiTableCell-root": { fontWeight: 700 } }}>
+                                  <TableCell>Total</TableCell>
+                                  {categoryCodes.map((code) => (
+                                    <TableCell key={`${plan.planCode}-tot-${code}`} align="right">
+                                      {Number(computedCategoryTotals[code] ?? 0)}
+                                    </TableCell>
+                                  ))}
+                                  <TableCell align="right">
+                                    <Chip label={computedPlanTotalCredits} size="small" color="primary" sx={{ m: 0.25 }} />
+                                  </TableCell>
+                                </TableRow>
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        </Box>
+                      );
+                    })}
+                </Paper>
+              ) : (
+                <Paper variant="outlined" sx={{ p: 3 }}>
+                  <Box sx={{ textAlign: "center" }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No plans of study found for the selected regulation. Click Refresh to reload.
+                    </Typography>
+                  </Box>
+                </Paper>
+              )}
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
+
         {principal && myAccount && superView === "account" ? (
           <Card>
             <CardContent>
@@ -3465,7 +4177,7 @@ function App() {
                   <Typography variant="h6">My Account</Typography>
                   <Typography variant="body2" color="text.secondary">Account details.</Typography>
                 </Box>
-                <Paper variant="outlined" sx={{ p: 1 }}>
+                <Paper variant="outlined" sx={{ p: 2 }}>
                   <Tabs
                     value={accountView}
                     onChange={(_, value: "profile" | "password" | "sessions") => {
@@ -3482,131 +4194,405 @@ function App() {
                     <Tab value="sessions" label="Sessions" />
                   </Tabs>
                   {accountView === "profile" ? (
-                    <TableContainer>
-                      <Table size="small">
-                        <TableBody>
-                          <TableRow>
-                            <TableCell component="th" scope="col">User</TableCell>
-                            <TableCell
-                              onDoubleClick={(e) => {
-                                if (canEditOwnProfile) {
-                                  const target = e.target as HTMLElement;
-                                  setEditingMyNameWidth(Math.ceil(target.getBoundingClientRect().width));
-                                  setEditingMyName(true);
-                                }
-                              }}
-                            >
-                              <Box component="span">
-                                {editingMyName && canEditOwnProfile ? (
-                                  <InputBase
-                                    autoFocus
-                                    sx={editingMyNameWidth ? { width: `${editingMyNameWidth}px` } : undefined}
-                                    value={fullNameInput}
-                                    onChange={(e) => setFullNameInput(e.target.value)}
-                                    onBlur={() => {
-                                      void saveMyAccountName();
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        void saveMyAccountName();
-                                      }
-                                      if (e.key === "Escape") {
-                                        setEditingMyName(false);
-                                        setEditingMyNameWidth(null);
-                                        setFullNameInput(myAccount.fullName ?? "");
-                                      }
-                                    }}
-                                    disabled={busy}
-                                  />
-                                ) : (
-                                  <Typography component="span" variant="body2">{myAccount.fullName || "—"}</Typography>
-                                )}
-                              </Box>
-                            </TableCell>
-                          </TableRow>
-                          <TableRow>
-                            <TableCell component="th" scope="col">Email</TableCell>
-                            <TableCell>{myAccount.email || "—"}</TableCell>
-                          </TableRow>
-                          <TableRow>
-                            <TableCell component="th" scope="col">Username</TableCell>
-                            <TableCell>{myAccount.username || "—"}</TableCell>
-                          </TableRow>
-                          <TableRow>
-                            <TableCell component="th" scope="col">Roles</TableCell>
-                            <TableCell>{myAccount.roles.join(", ") || "—"}</TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </TableContainer>
-                  ) : null}
-                  {accountView === "password" && canChangeOwnPassword && myAccount.username ? (
-                    <form onSubmit={changePassword}>
-                      <Stack spacing={1.25} sx={{ maxWidth: 420, p: 1 }}>
-                        <TextField label="Username" type="text" value={myAccount.username} disabled />
-                        <TextField label="Current password" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
-                        <TextField label="New password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-                        <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
-                          <Button type="submit" variant="contained" disabled={busy}>
-                            Update Password
-                          </Button>
-                        </Stack>
-                      </Stack>
-                    </form>
-                  ) : null}
-                  {accountView === "password" && canChangeOwnPassword && !myAccount.username ? (
-                    <Typography variant="body2" color="text.secondary" sx={{ p: 1 }}>
-                      No local password is configured for this account.
-                    </Typography>
-                  ) : null}
-                  {accountView === "sessions" ? (
-                    <Stack spacing={1.25} sx={{ p: 1 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        Active sessions for your account across devices and browsers.
-                      </Typography>
-                      <TableContainer>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>Session</TableCell>
-                              <TableCell>Created</TableCell>
-                              <TableCell>Last Seen</TableCell>
-                              <TableCell>Expires</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {mySessions.map((session) => (
-                              <TableRow key={session.id}>
-                                <TableCell>{session.isCurrent ? "Current" : "Other"}</TableCell>
-                                <TableCell>{formatIst(session.createdAt)}</TableCell>
-                                <TableCell>{formatIst(session.lastSeenAt)}</TableCell>
-                                <TableCell>{formatIst(session.expiresAt)}</TableCell>
-                              </TableRow>
-                            ))}
-                            {mySessions.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={4}>No active sessions found.</TableCell>
-                              </TableRow>
-                            ) : null}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center" }}>
-                        <Typography variant="caption" color="text.secondary">
-                          Other active sessions: {otherSessionsCount}
-                        </Typography>
-                        <Button
-                          type="button"
-                          size="small"
-                          disabled={busy || otherSessionsCount < 1}
-                          onClick={() => {
-                            void logoutOtherSessions();
+                    <Box sx={{ p: { xs: 2, sm: 2.5 } }}>
+                      {/* Profile hero */}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          flexDirection: { xs: "column", sm: "row" },
+                          alignItems: { xs: "center", sm: "flex-start" },
+                          gap: 2.5,
+                          p: { xs: 2, sm: 2.5 },
+                          borderRadius: 2,
+                          background: (theme) =>
+                            `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.primary.light, 0.03)} 100%)`,
+                          border: "1px solid",
+                          borderColor: (theme) => alpha(theme.palette.primary.main, 0.2),
+                          mb: 2.5,
+                        }}
+                      >
+                        <Avatar
+                          sx={{
+                            width: 76,
+                            height: 76,
+                            fontSize: "1.875rem",
+                            fontWeight: 700,
+                            bgcolor: "primary.main",
+                            boxShadow: 3,
+                            flexShrink: 0,
                           }}
                         >
-                          Logout All Sessions
-                        </Button>
+                          {getInitials(myAccount.fullName || myAccount.email || myAccount.username || "")}
+                        </Avatar>
+                        <Box sx={{ flex: 1, minWidth: 0, textAlign: { xs: "center", sm: "left" } }}>
+                          <Typography variant="h5" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                            {myAccount.fullName || myAccount.username || "—"}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                            {myAccount.email || "No email configured"}
+                          </Typography>
+                          <Box
+                            sx={{
+                              mt: 1.25,
+                              display: "flex",
+                              gap: 0.75,
+                              flexWrap: "wrap",
+                              justifyContent: { xs: "center", sm: "flex-start" },
+                            }}
+                          >
+                            {myAccount.roles.map((role) => (
+                              <Chip key={role} label={role} size="small" color="primary" />
+                            ))}
+                            {myAccount.provider ? (
+                              <Chip
+                                label={myAccount.provider.charAt(0).toUpperCase() + myAccount.provider.slice(1)}
+                                size="small"
+                                variant="outlined"
+                              />
+                            ) : null}
+                          </Box>
+                        </Box>
+                        {canEditOwnProfile && !editingMyName ? (
+                          <Button
+                            type="button"
+                            startIcon={<EditIcon />}
+                            variant="outlined"
+                            size="small"
+                            sx={{ flexShrink: 0, alignSelf: { xs: "center", sm: "flex-start" } }}
+                            onClick={() => {
+                              setFullNameInput(myAccount.fullName ?? "");
+                              setEditingMyName(true);
+                            }}
+                            disabled={busy}
+                          >
+                            Edit Profile
+                          </Button>
+                        ) : null}
+                      </Box>
+
+                      {/* Details list */}
+                      <Paper variant="outlined">
+                        <Stack divider={<Divider />}>
+                          {/* Full Name */}
+                          <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 2 }}>
+                            <PersonIcon fontSize="small" sx={{ color: "text.secondary", flexShrink: 0 }} />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25 }}>
+                                Full Name
+                              </Typography>
+                              {editingMyName && canEditOwnProfile ? (
+                                <TextField
+                                  variant="standard"
+                                  size="small"
+                                  fullWidth
+                                  autoFocus
+                                  value={fullNameInput}
+                                  onChange={(e) => setFullNameInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") void saveMyAccountName();
+                                    if (e.key === "Escape") {
+                                      setEditingMyName(false);
+                                      setFullNameInput(myAccount.fullName ?? "");
+                                    }
+                                  }}
+                                  disabled={busy}
+                                />
+                              ) : (
+                                <Typography
+                                  variant="body1"
+                                  sx={{ fontWeight: myAccount.fullName ? 500 : 400 }}
+                                  color={myAccount.fullName ? "text.primary" : "text.disabled"}
+                                >
+                                  {myAccount.fullName || "Not set"}
+                                </Typography>
+                              )}
+                            </Box>
+                            {editingMyName && canEditOwnProfile ? (
+                              <Stack direction="row" spacing={0.75} sx={{ flexShrink: 0 }}>
+                                <Button
+                                  type="button"
+                                  variant="contained"
+                                  size="small"
+                                  onClick={() => { void saveMyAccountName(); }}
+                                  disabled={busy}
+                                >
+                                  Save
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outlined"
+                                  size="small"
+                                  onClick={() => {
+                                    setEditingMyName(false);
+                                    setFullNameInput(myAccount.fullName ?? "");
+                                  }}
+                                  disabled={busy}
+                                >
+                                  Cancel
+                                </Button>
+                              </Stack>
+                            ) : null}
+                          </Box>
+
+                          {/* Email */}
+                          <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 2 }}>
+                            <EmailIcon fontSize="small" sx={{ color: "text.secondary", flexShrink: 0 }} />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25 }}>
+                                Email Address
+                              </Typography>
+                              <Typography
+                                variant="body1"
+                                sx={{ fontWeight: myAccount.email ? 500 : 400 }}
+                                color={myAccount.email ? "text.primary" : "text.disabled"}
+                              >
+                                {myAccount.email || "Not configured"}
+                              </Typography>
+                            </Box>
+                          </Box>
+
+                          {/* Username */}
+                          <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 2 }}>
+                            <AccountCircleIcon fontSize="small" sx={{ color: "text.secondary", flexShrink: 0 }} />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25 }}>
+                                Username
+                              </Typography>
+                              <Typography
+                                variant="body1"
+                                sx={{ fontWeight: myAccount.username ? 500 : 400 }}
+                                color={myAccount.username ? "text.primary" : "text.disabled"}
+                              >
+                                {myAccount.username || "Not set"}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        </Stack>
+                      </Paper>
+                    </Box>
+                  ) : null}
+                  {accountView === "password" && canChangeOwnPassword && myAccount.username ? (
+                    <Box sx={{ p: { xs: 2, sm: 2.5 } }}>
+                      {/* Password section header */}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          p: 2,
+                          borderRadius: 2,
+                          bgcolor: "action.hover",
+                          border: "1px solid",
+                          borderColor: "divider",
+                          mb: 2.5,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: "50%",
+                            bgcolor: (theme) => alpha(theme.palette.warning.main, 0.12),
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <LockPersonIcon sx={{ color: "warning.main" }} />
+                        </Box>
+                        <Box>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Change Password</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Update your local account password. Choose something strong.
+                          </Typography>
+                        </Box>
+                      </Box>
+
+                      <form onSubmit={changePassword}>
+                        <Paper variant="outlined" sx={{ mb: 2.5 }}>
+                          <Stack divider={<Divider />}>
+                            <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 2 }}>
+                              <PersonIcon fontSize="small" sx={{ color: "text.secondary", flexShrink: 0 }} />
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.25 }}>
+                                  Username
+                                </Typography>
+                                <Typography variant="body1" sx={{ fontWeight: 500 }}>{myAccount.username}</Typography>
+                              </Box>
+                            </Box>
+                            <Box sx={{ px: 2.5, py: 2 }}>
+                              <TextField
+                                variant="standard"
+                                size="small"
+                                fullWidth
+                                label="Current password"
+                                type="password"
+                                value={currentPassword}
+                                onChange={(e) => setCurrentPassword(e.target.value)}
+                                autoComplete="current-password"
+                              />
+                            </Box>
+                            <Box sx={{ px: 2.5, py: 2 }}>
+                              <TextField
+                                variant="standard"
+                                size="small"
+                                fullWidth
+                                label="New password"
+                                type="password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                autoComplete="new-password"
+                              />
+                            </Box>
+                          </Stack>
+                        </Paper>
+                        <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                          <Button type="submit" variant="contained" disabled={busy} startIcon={<LockPersonIcon />}>
+                            Update Password
+                          </Button>
+                        </Box>
+                      </form>
+                    </Box>
+                  ) : null}
+                  {accountView === "password" && canChangeOwnPassword && !myAccount.username ? (
+                    <Box sx={{ p: { xs: 2, sm: 2.5 }, display: "flex", alignItems: "center", gap: 2 }}>
+                      <LockPersonIcon sx={{ color: "text.disabled" }} />
+                      <Typography variant="body2" color="text.secondary">
+                        No local password is configured for this account.
+                      </Typography>
+                    </Box>
+                  ) : null}
+                  {accountView === "sessions" ? (
+                    <Box sx={{ p: { xs: 2, sm: 2.5 } }}>
+                      {/* Sessions header */}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.5,
+                          p: 2,
+                          borderRadius: 2,
+                          bgcolor: "action.hover",
+                          border: "1px solid",
+                          borderColor: "divider",
+                          mb: 2.5,
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: "50%",
+                            bgcolor: (theme) => alpha(theme.palette.info.main, 0.12),
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <HistoryIcon sx={{ color: "info.main" }} />
+                        </Box>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Active Sessions</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Your account sessions across devices and browsers.
+                          </Typography>
+                        </Box>
+                        {otherSessionsCount > 0 ? (
+                          <Chip label={`${otherSessionsCount} other`} size="small" variant="outlined" />
+                        ) : null}
+                      </Box>
+
+                      {/* Session cards */}
+                      <Stack spacing={2} sx={{ mb: 2.5 }}>
+                        {mySessions.length === 0 ? (
+                          <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
+                            <Typography variant="body2" color="text.disabled">No active sessions found.</Typography>
+                          </Paper>
+                        ) : (
+                          mySessions.map((session) => (
+                            <Paper
+                              key={session.id}
+                              variant="outlined"
+                              sx={{ borderColor: session.isCurrent ? "primary.main" : "divider" }}
+                            >
+                              <Box sx={{ p: 2.5, display: "flex", alignItems: "flex-start", gap: 2 }}>
+                                <ComputerIcon
+                                  sx={{
+                                    color: session.isCurrent ? "primary.main" : "text.secondary",
+                                    flexShrink: 0,
+                                    mt: 0.25,
+                                  }}
+                                />
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                                      {session.isCurrent ? "This Device" : "Other Device"}
+                                    </Typography>
+                                    {session.isCurrent ? (
+                                      <Chip label="Current" size="small" color="primary" />
+                                    ) : null}
+                                  </Box>
+                                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: { xs: 1.5, sm: 3 } }}>
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>Created</Typography>
+                                      <Typography variant="body2">{formatIst(session.createdAt)}</Typography>
+                                    </Box>
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>Last Seen</Typography>
+                                      <Typography variant="body2">{formatIst(session.lastSeenAt)}</Typography>
+                                    </Box>
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>Expires</Typography>
+                                      <Typography variant="body2">{formatIst(session.expiresAt)}</Typography>
+                                    </Box>
+                                  </Box>
+                                </Box>
+                              </Box>
+                            </Paper>
+                          ))
+                        )}
                       </Stack>
-                    </Stack>
+
+                      {/* Danger zone */}
+                      {otherSessionsCount > 0 ? (
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            borderRadius: 2,
+                            borderColor: (theme) => alpha(theme.palette.error.main, 0.35),
+                            bgcolor: (theme) => alpha(theme.palette.error.main, 0.04),
+                            p: 2.5,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 2,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }} color="error.main">
+                              Sign out other sessions
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              Remove access from {otherSessionsCount} other active session{otherSessionsCount !== 1 ? "s" : ""}.
+                            </Typography>
+                          </Box>
+                          <Button
+                            type="button"
+                            variant="outlined"
+                            color="error"
+                            size="small"
+                            startIcon={<LogoutIcon />}
+                            disabled={busy}
+                            onClick={() => { void logoutOtherSessions(); }}
+                          >
+                            Logout Other Sessions
+                          </Button>
+                        </Paper>
+                      ) : null}
+                    </Box>
                   ) : null}
                 </Paper>
               </Stack>
@@ -3625,21 +4611,86 @@ function App() {
                   </Typography>
                 </Box>
 
-                <Paper variant="outlined" sx={adminPageSx.sectionPanel}>
-                  <form onSubmit={forceLogoutAllSessionsForUser}>
-                    <TextField
-                      label="Username / Email / Subject"
-                      type="text"
-                      placeholder="user@example.com or local-user@example.com or username"
-                      value={sessionTarget}
-                      onChange={(e) => setSessionTarget(e.target.value)}
-                      sx={{ width: { xs: "100%", sm: 300 }, mb: 1.25 }}
-                    />
-                    <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-                      <Button type="submit" variant="contained" disabled={busy}>
-                        Revoke All Sessions
-                      </Button>
+                <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+                  {/* Section header */}
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.5,
+                      px: 2,
+                      py: 1.5,
+                      bgcolor: "action.hover",
+                      borderBottom: "1px solid",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: "50%",
+                        bgcolor: (theme) => alpha(theme.palette.error.main, 0.12),
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <LogoutIcon sx={{ color: "error.main", fontSize: "1.1rem" }} />
                     </Box>
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Revoke User Sessions</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Immediately terminates all active sessions for the target account.
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  <form onSubmit={forceLogoutAllSessionsForUser}>
+                    <Stack spacing={2} sx={{ p: 2 }}>
+                      {/* Warning callout */}
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 1,
+                          p: 1.5,
+                          borderRadius: 1.5,
+                          bgcolor: (theme) => alpha(theme.palette.warning.main, 0.08),
+                          border: "1px solid",
+                          borderColor: (theme) => alpha(theme.palette.warning.main, 0.3),
+                        }}
+                      >
+                        <WarningAmberIcon sx={{ color: "warning.main", fontSize: "1rem", mt: 0.15, flexShrink: 0 }} />
+                        <Typography variant="caption" color="text.secondary">
+                          This action is immediate and cannot be undone. The user will be signed out of all devices and browsers at once.
+                        </Typography>
+                      </Box>
+
+                      <TextField
+                        variant="outlined"
+                        size="small"
+                        fullWidth
+                        label="Username / Email / Subject"
+                        type="text"
+                        placeholder="user@example.com · local-username · subject-id"
+                        value={sessionTarget}
+                        onChange={(e) => setSessionTarget(e.target.value)}
+                      />
+
+                      <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+                        <Button
+                          type="submit"
+                          variant="contained"
+                          color="error"
+                          startIcon={<LogoutIcon />}
+                          disabled={busy || !sessionTarget.trim()}
+                        >
+                          Revoke All Sessions
+                        </Button>
+                      </Box>
+                    </Stack>
                   </form>
                 </Paper>
               </Stack>

@@ -1,11 +1,34 @@
-import { getDb } from "../../core/db";
-import type { Env } from "../../core/types";
+import regulationsCatalog from "../../data/regulations.json";
 
-export async function fetchRegulations(env: Env) {
-  const db = getDb(env);
-  const regs = await db.execute("select code, name, duration_years, total_credits_required, active from regulations order by code");
-  const categories = await db.execute(
-    "select regulation_code, category_code, category_name, min_credits from regulation_category_requirements order by regulation_code, category_code"
-  );
-  return { regulations: regs.rows, categories: categories.rows };
+type RegulationCreditRule =
+  | { type: "fixed"; value: number }
+  | { type: "minimum"; value: number }
+  | { type: "maximum"; value: number }
+  | { type: "range"; min: number; max: number };
+
+type RegulationCategory = {
+  code: string;
+  name: string;
+  rule: RegulationCreditRule;
+};
+
+type Regulation = {
+  code: string;
+  name: string;
+  curriculumStructure: {
+    totalCreditsRequired: number;
+    categories: RegulationCategory[];
+  };
+};
+
+type RegulationsCatalog = {
+  regulations: Regulation[];
+};
+
+export async function fetchRegulationsFromJson() {
+  const catalog = regulationsCatalog as RegulationsCatalog;
+  return {
+    regulations: catalog.regulations ?? [],
+  };
 }
+

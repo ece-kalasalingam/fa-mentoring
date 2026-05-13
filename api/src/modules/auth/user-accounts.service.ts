@@ -421,7 +421,7 @@ function normalizeRoles(inputs: unknown): string[] {
 export async function updateUserByAdmin(
   env: Env,
   principal: AuthPrincipal,
-  payload: { subject: string; fullName: string; roles: string[] }
+  payload: { subject: string; fullName: string; roles: string[]; email?: string; username?: string }
 ): Promise<void> {
   if (!principal.roles.includes("admin")) {
     throw new Error("Admin access required.");
@@ -437,7 +437,7 @@ export async function updateUserByAdmin(
   }
   const db = getDb(env);
   const target = await db.execute({
-    sql: "select id, is_superuser from user_accounts where subject = ? limit 1",
+    sql: "select id, is_superuser, provider from user_accounts where subject = ? limit 1",
     args: [subject]
   });
   if (target.rows.length === 0) {
@@ -447,11 +447,35 @@ export async function updateUserByAdmin(
     throw new Error("Super admin cannot be modified through this action.");
   }
 
+  const accountId = String(target.rows[0]?.id ?? "");
+  const provider = String(target.rows[0]?.provider ?? "");
+
   const permissions = roles.includes("admin") ? ["*"] : [];
   await db.execute({
     sql: `update user_accounts
           set full_name = ?, roles_json = ?, permissions_json = ?, is_admin = ?, updated_at = current_timestamp
           where id = ?`,
-    args: [fullName, JSON.stringify(roles), JSON.stringify(permissions), roles.includes("admin") ? 1 : 0, String(target.rows[0]?.id ?? "")]
+    args: [fullName, JSON.stringify(roles), JSON.stringify(permissions), roles.includes("admin") ? 1 : 0, accountId]
   });
+
+  if (provider === "local") {
+    if (payload.email !== undefined) {
+      const newEmail = normalizeEmail(payload.email);
+      await db.execute({
+        sql: "update user_accounts set email = ?, updated_at = current_timestamp where id = ?",
+        args: [newEmail, accountId]
+      });
+    }
+
+    if (payload.username !== undefined) {
+      const newUsername = truncate(String(payload.username ?? "").trim().toLowerCase(), 80);
+      if (!newUsername) {
+        throw new Error("Username cannot be empty.");
+      }
+      await db.execute({
+        sql: "update auth_credentials set username = ? where user_account_id = ?",
+        args: [newUsername, accountId]
+      });
+    }
+  }
 }

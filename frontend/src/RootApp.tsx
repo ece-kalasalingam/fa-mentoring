@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { createTheme } from "@mui/material/styles";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import App from "./app/App";
 
 export default function RootApp() {
@@ -47,7 +49,9 @@ export default function RootApp() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <App />
+      <LocalizationProvider dateAdapter={AdapterDateFns}>
+        <App />
+      </LocalizationProvider>
     </ThemeProvider>
   );
 }

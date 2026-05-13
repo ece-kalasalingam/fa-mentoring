@@ -1,6 +1,51 @@
 import { getDb } from "../../core/db";
 import type { Env } from "../../core/types";
+import { validatePlansOfStudyAgainstRegulations } from "../plan-of-study/plan-of-study-validation.service";
 import { getSetupStatus } from "../setup/setup.service";
+
+type TursoStats = {
+  rowsRead: number | null;
+  rowsWritten: number | null;
+  storageBytes: number | null;
+  bytesSynced: number | null;
+};
+
+function deriveTursoDbName(databaseUrl: string, orgName: string): string | null {
+  try {
+    const hostname = databaseUrl.replace(/^libsql:\/\//, "").split("/")[0];
+    const subdomain = hostname.split(".")[0];
+    const orgSuffix = `-${orgName}`;
+    return subdomain.endsWith(orgSuffix) ? subdomain.slice(0, -orgSuffix.length) : subdomain;
+  } catch {
+    return null;
+  }
+}
+
+async function getTursoStats(env: Env): Promise<TursoStats | null> {
+  const apiToken = env.TURSO_API_TOKEN;
+  const orgName = env.TURSO_ORG_NAME;
+  if (!apiToken || !orgName) return null;
+  const dbName = deriveTursoDbName(env.TURSO_DATABASE_URL ?? "", orgName);
+  if (!dbName) return null;
+  try {
+    const res = await fetch(
+      `https://api.turso.tech/v1/organizations/${orgName}/databases/${dbName}/usage`,
+      { headers: { Authorization: `Bearer ${apiToken}` } }
+    );
+    if (!res.ok) return null;
+    const raw = (await res.json()) as Record<string, unknown>;
+    const db = raw.database as Record<string, unknown> | undefined;
+    const usage = (db?.usage ?? {}) as Record<string, unknown>;
+    return {
+      rowsRead: typeof usage.rows_read === "number" ? usage.rows_read : null,
+      rowsWritten: typeof usage.rows_written === "number" ? usage.rows_written : null,
+      storageBytes: typeof usage.storage_bytes === "number" ? usage.storage_bytes : null,
+      bytesSynced: typeof usage.bytes_synced === "number" ? usage.bytes_synced : null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 async function safeSingleNumber(env: Env, sql: string, args: Array<string | number> = []): Promise<number | null> {
   try {
@@ -119,6 +164,10 @@ export async function getAdminDashboard(env: Env) {
     ? await safeSingleNumber(env, "select count(*) from app_logs where level = 'warn' and ts >= datetime('now', '-48 hours')")
     : null;
 
+  const isTurso = Boolean(env.TURSO_DATABASE_URL?.includes("turso.io"));
+  const tursoStats = isTurso ? await getTursoStats(env) : null;
+  const curriculumValidation = await validatePlansOfStudyAgainstRegulations();
+
   return {
     generatedAt: new Date().toISOString(),
     mitigations: {
@@ -132,7 +181,9 @@ export async function getAdminDashboard(env: Env) {
     system: {
       hasTables: setup.hasTables,
       tableCount: setup.tableCount,
-      currentSchemaVersion: setup.currentSchemaVersion
+      currentSchemaVersion: setup.currentSchemaVersion,
+      isTurso,
+      turso: tursoStats,
     },
     auth: {
       totalUsers,
@@ -152,6 +203,7 @@ export async function getAdminDashboard(env: Env) {
     logging: {
       errorLogs48h,
       warnLogs48h
-    }
+    },
+    curriculumValidation,
   };
 }

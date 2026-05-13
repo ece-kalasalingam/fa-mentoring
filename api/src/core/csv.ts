@@ -9,7 +9,7 @@ export function normalizeEmail(value: unknown): string {
 export function toYear(value: unknown): number {
   const year = Number.parseInt(normalizeText(value), 10);
   if (!Number.isFinite(year) || year < 1970 || year > 2070) {
-    throw new Error(`Invalid batch_start_year: ${value}`);
+    throw new Error(`Invalid batch: ${value}`);
   }
   return year;
 }

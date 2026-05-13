@@ -1,0 +1,229 @@
+{
+  "regulations": [
+    {
+      "code": "UG-2025-LE",
+      "name": "UG Regulation 2025 Lateral",
+      "curriculumStructure": {
+        "totalCreditsRequired": 123,
+        "categories": [
+          {
+            "code": "FCM",
+            "name": "Foundation Course Mandatory",
+            "rule": {
+              "type": "range",
+              "min": 2,
+              "max": 5
+            }
+          },
+          {
+            "code": "FCE",
+            "name": "Foundation Course Elective",
+            "rule": {
+              "type": "range",
+              "min": 2,
+              "max": 5
+            }
+          },
+          {
+            "code": "PCM",
+            "name": "Programme Course Mandatory",
+            "rule": {
+              "type": "fixed",
+              "value": 65
+            }
+          },
+          {
+            "code": "PCE",
+            "name": "Programme Course Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 18
+            }
+          },
+          {
+            "code": "SEM",
+            "name": "Skill Enhancement Course Mandatory",
+            "rule": {
+              "type": "range",
+              "min": 2,
+              "max": 4
+            }
+          },
+          {
+            "code": "SEE",
+            "name": "Skill Enhancement Course Elective",
+            "rule": {
+              "type": "range",
+              "min": 12,
+              "max": 14
+            }
+          },
+          {
+            "code": "MDM",
+            "name": "Multidisciplinary Course Mandatory",
+            "rule": {
+              "type": "fixed",
+              "value": 6
+            }
+          },
+          {
+            "code": "MDE",
+            "name": "Multidisciplinary Course Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 10
+            }
+          },
+          {
+            "code": "CSC",
+            "name": "Complimentary Skill Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "code": "UG-2025",
+      "name": "UG Regulation 2025 Regular",
+      "curriculumStructure": {
+        "totalCreditsRequired": 163,
+        "categories": [
+          {
+            "code": "FCM",
+            "name": "Foundation Course Mandatory",
+            "rule": {
+              "type": "fixed",
+              "value": 35
+            }
+          },
+          {
+            "code": "FCE",
+            "name": "Foundation Course Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 5
+            }
+          },
+          {
+            "code": "PCM",
+            "name": "Programme Course Mandatory",
+            "rule": {
+              "type": "fixed",
+              "value": 70
+            }
+          },
+          {
+            "code": "PCE",
+            "name": "Programme Course Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 18
+            }
+          },
+          {
+            "code": "SEM",
+            "name": "Skill Enhancement Course Mandatory",
+            "rule": {
+              "type": "range",
+              "min": 2,
+              "max": 4
+            }
+          },
+          {
+            "code": "SEE",
+            "name": "Skill Enhancement Course Elective",
+            "rule": {
+              "type": "range",
+              "min": 12,
+              "max": 14
+            }
+          },
+          {
+            "code": "MDM",
+            "name": "Multidisciplinary Course Mandatory",
+            "rule": {
+              "type": "fixed",
+              "value": 6
+            }
+          },
+          {
+            "code": "MDE",
+            "name": "Multidisciplinary Course Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 10
+            }
+          },
+          {
+            "code": "CSC",
+            "name": "Complimentary Skill Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "code": "UG-2021",
+      "name": "UG Regulation 2021 Regular",
+      "curriculumStructure": {
+        "totalCreditsRequired": 160,
+        "categories": [
+          {
+            "code": "FC",
+            "name": "Foundation Course",
+            "rule": {
+              "type": "fixed",
+              "value": 44
+            }
+          },
+          {
+            "code": "UE",
+            "name": "University Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 16
+            }
+          },
+          {
+            "code": "PC",
+            "name": "Programme Core",
+            "rule": {
+              "type": "fixed",
+              "value": 52
+            }
+          },
+          {
+            "code": "PE",
+            "name": "Programme Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 24
+            }
+          },
+          {
+            "code": "EC",
+            "name": "Experiential Core",
+            "rule": {
+              "type": "fixed",
+              "value": 16
+            }
+          },
+          {
+            "code": "EE",
+            "name": "Experiential Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 8
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

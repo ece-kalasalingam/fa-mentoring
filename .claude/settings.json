@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://api.github.com/repos/KevinVandy/material-react-table/contents/apps/material-react-table-docs/examples/editing-crud-cell/src?ref=v3\")",
+      "Bash(node -e \"process.stdin.resume\\(\\);let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{JSON.parse\\(d\\).forEach\\(i=>console.log\\(i.name, i.download_url\\)\\)}\\)\")",
+      "Bash(node -e \"process.stdin.resume\\(\\);let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\); console.log\\(JSON.stringify\\(r,null,2\\)\\)}\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/KevinVandy/material-react-table/contents/apps/material-react-table-docs/examples/editing-crud-cell/sandbox/src/TS.tsx?ref=v3\")",
+      "Bash(node -e \"process.stdin.resume\\(\\);let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\);console.log\\(Buffer.from\\(r.content,'base64'\\).toString\\(\\)\\)}\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('@mui/material:', p.dependencies['@mui/material']\\)\")",
+      "Bash(node -e \"const p = require\\('./node_modules/material-react-table/package.json'\\); console.log\\('MRT:', p.version\\); const m = require\\('./node_modules/@mui/material/package.json'\\); console.log\\('MUI:', m.version\\);\")",
+      "Bash(npm show *)",
+      "Bash(node -e \"const d=require\\('fs'\\).readFileSync\\('/dev/stdin','utf8'\\); const v=JSON.parse\\(d\\); console.log\\(v.filter\\(x=>x.startsWith\\('3.'\\)\\).slice\\(-5\\).join\\('\\\\n'\\)\\);\")",
+      "Bash(npm install *)",
+      "Bash(python -c \"import sys; t=sys.stdin.read\\(\\); idx=t.find\\('InputProps'\\); print\\(t[max\\(0,idx-80\\):idx+80]\\)\")",
+      "Bash(grep -c \"inputProps: Object.assign\\({ autoComplete: 'off' }, textFieldProps.inputProps\\), onChange: handleChange\" \"g:\\\\JP\\\\Git Repositories\\\\fa-mentoring\\\\frontend\\\\node_modules\\\\material-react-table\\\\dist\\\\index.cjs.js\")",
+      "Bash(npx patch-package *)",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

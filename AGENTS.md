@@ -32,6 +32,7 @@
 - There MUST be a single shared dashboard route/view for all authenticated users.
 - The dashboard route must render role-based sections; if a user has multiple roles, all matching sections must be shown.
 - `My Account` MUST remain a dedicated separate route/view for personal profile/password actions.
+- Dashboard metric cards MUST be hidden when their value is zero. Do not render a card if its underlying count/metric is 0. The grid column count must adjust dynamically to match the number of visible cards.
 
 7. Table UX and Material React Table baseline are mandatory.
 - Any table/grid UI MUST use native table-level search/filter controls by default (for Material React Table: built-in global search and column filters enabled).
@@ -45,6 +46,13 @@
   - Export behavior: if any rows are selected, export selected rows only; otherwise export all current table rows.
   - Rows-per-page selector must include an `All` option.
   - Outer table border should be removed (borderless table shell).
+  - Any MRT column that represents date/time values MUST use the same filtering pattern as Manage Users `Last Login`: date value accessor, `filterVariant: "date"`, `filterFn: "greaterThan"`, and `enableGlobalFilter: false`.
+  - Any MRT column titled `Full Name` MUST use the same filter behavior as Manage Users `Full Name` (column filter modes enabled and text-style filtering).
+  - Any MRT column titled `User`, `Username`, or `Email` MUST follow the same filter mode/type behavior as Manage Users `Full Name` (text-style filter with column filter modes enabled).
+  - Default filter-mode policy: enable filter modes by default only for textbox-style columns (`Full Name`, `User`, `Username`, `Email`). For all non-textbox columns, filter modes MUST be explicitly opted-in per MRT/column; otherwise keep `enableColumnFilterModes: false` on those columns.
+  - Fixed-value categorical columns policy:
+    - If a column has fixed predefined values with more than two unique values, use the same select-style pattern as Manage Users `Roles` (`filterVariant: "multi-select"` with explicit `filterSelectOptions`).
+    - If a fixed-value column is binary, use the same pattern as Manage Users `Status` (`filterVariant: "checkbox"` with boolean-style accessor values).
 - Exceptions are allowed only for explicitly approved tables, and each exception must be documented in this file before divergence is implemented.
 
 8. Changelog logging is mandatory for every change.
@@ -168,6 +176,19 @@ Never use MUI implicit defaults for nav font sizes — always set them explicitl
 4. **`active` flags** must be derived from `superView` or equivalent view state — never from menu open state.
 5. **Adding a new role's nav** = add a new `NavSection` entry in `navSections` with the appropriate role guard. The sidebar and top bar renderers pick it up automatically.
 6. After any nav change, run `npx tsc --noEmit` in `frontend/` and confirm zero errors.
+
+## Single Source of Truth and Modularization Rule (Compulsory)
+
+1. **Single Source of Truth is mandatory for designated domains.**
+- Keep canonical, shared definitions centralized where this file explicitly requires it (for example: navigation in `frontend/src/app/App.tsx` via `navSections`, canonical identity semantics in `user_accounts`).
+- Do not duplicate or fork authoritative config/state definitions across multiple files.
+
+2. **Modular code organization is required outside designated single-source domains.**
+- Feature logic, UI pieces, API services, helpers, and validation SHOULD be split into focused modules/files rather than one large file.
+- Keep module boundaries intentional: one responsibility per module where practical, with clear imports/exports.
+
+3. **Conflict resolution rule.**
+- If modularization conflicts with a mandated single-source section in this file, preserve the mandated single-source pattern and modularize around it (helpers/hooks/components/services may be extracted, while canonical declarations remain centralized).
 
 ## Operational Guardrails
 

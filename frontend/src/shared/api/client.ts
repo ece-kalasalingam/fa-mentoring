@@ -25,6 +25,61 @@ export type ApiResult = {
     username: string | null;
   } | null;
   rows?: Array<Record<string, unknown>>;
+  mentorNameOptions?: string[];
+  programmes?: Array<{ id: number; name: string }>;
+  regulations?: Array<{
+    code: string;
+    name: string;
+    curriculumStructure: {
+      totalCreditsRequired: number;
+      categories: Array<{
+        code: string;
+        name: string;
+        rule:
+          | { type: "fixed"; value: number }
+          | { type: "minimum"; value: number }
+          | { type: "maximum"; value: number }
+          | { type: "range"; min: number; max: number };
+      }>;
+    };
+  }>;
+  plansOfStudy?: Array<{
+    planCode: number;
+    planName: string;
+    regulationCode: string;
+    semesters: Array<{
+      semester: number;
+      categories: Record<string, number>;
+      totalCredits: number;
+    }>;
+    categoryTotals?: Record<string, number>;
+    totalCredits?: number;
+  }>;
+  validation?: {
+    hasErrors: boolean;
+    totalErrors: number;
+    byPlan: Array<{
+      planCode: number;
+      planName: string;
+      regulationCode: string;
+      hasErrors: boolean;
+      errors: Array<{
+        code:
+          | "REGULATION_NOT_FOUND"
+          | "PLAN_TOTAL_MISMATCH"
+          | "PLAN_CATEGORY_CODE_INVALID"
+          | "PLAN_CATEGORY_MISSING"
+          | "PLAN_CATEGORY_RULE_VIOLATION"
+          | "SEMESTER_TOTAL_MISMATCH";
+        message: string;
+        planCode: number;
+        planName: string;
+        regulationCode: string;
+        categoryCode?: string;
+        semester?: number;
+      }>;
+    }>;
+  };
   totalLiveUsers?: number;
   page?: {
     limit: number;
@@ -93,6 +148,31 @@ export type ApiResult = {
   logging?: {
     errorLogs48h: number | null;
     warnLogs48h: number | null;
+  };
+  curriculumValidation?: {
+    hasErrors: boolean;
+    totalErrors: number;
+    byPlan: Array<{
+      planCode: number;
+      planName: string;
+      regulationCode: string;
+      hasErrors: boolean;
+      errors: Array<{
+        code:
+          | "REGULATION_NOT_FOUND"
+          | "PLAN_TOTAL_MISMATCH"
+          | "PLAN_CATEGORY_CODE_INVALID"
+          | "PLAN_CATEGORY_MISSING"
+          | "PLAN_CATEGORY_RULE_VIOLATION"
+          | "SEMESTER_TOTAL_MISMATCH";
+        message: string;
+        planCode: number;
+        planName: string;
+        regulationCode: string;
+        categoryCode?: string;
+        semester?: number;
+      }>;
+    }>;
   };
   activeUserRows?: Array<{
     subject: string;

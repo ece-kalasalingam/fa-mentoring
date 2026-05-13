@@ -49,6 +49,11 @@ async function shouldRunMigration(env: Env, migrationId: string): Promise<boolea
   // 0005 is only needed for older installs that used integer ids.
   // Fresh installs already use text/UUID ids from migrations 0003/0004.
   if (migrationId !== "0005_user_account_uuid_rekey") {
+    if (migrationId === "0016_faculty_profiles_drop_legacy_user_account_column") {
+      const legacyUserAccountType = await getColumnType(env, "faculty_profiles", "user_account");
+      // Run only when legacy column exists; otherwise mark as auto-skipped.
+      return Boolean(legacyUserAccountType);
+    }
     return true;
   }
 

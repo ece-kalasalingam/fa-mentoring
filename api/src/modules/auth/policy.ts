@@ -44,13 +44,14 @@ const ROUTE_POLICIES: Record<string, AccessPolicy> = {
   "POST /api/auth/my-account": { anyRole: ["faculty", "head", "moderator", "admin"] },
   "POST /api/setup": { anyRole: ["admin"] },
   "POST /api/migrate": { anyRole: ["admin"] },
-  "GET /api/regulations": { anyRole: ["guest", "student", "faculty", "head", "moderator", "admin"] },
+  "GET /api/regulations": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
+  "GET /api/plans-of-study": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
+  "GET /api/programmes": { anyRole: ["head", "moderator", "admin"] },
   "GET /api/students": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
+  "GET /api/students-directory": { anyRole: ["head", "moderator", "admin"] },
+  "POST /api/students-directory/update": { anyRole: ["head", "moderator", "admin"] },
   "GET /api/students/stats": { anyRole: ["faculty", "head", "admin"] },
-  "POST /api/import/regulations-categories": { anyRole: ["moderator", "admin"] },
-  "POST /api/import/faculty": { anyRole: ["moderator", "admin"] },
-  "POST /api/import/students": { anyRole: ["moderator", "admin"] },
-  "POST /api/import/plan-of-study": { anyRole: ["moderator", "admin"] }
+  "POST /api/import/students": { anyRole: ["moderator", "admin"] }
 };
 
 function hasIntersection(left: string[], right: string[]): boolean {

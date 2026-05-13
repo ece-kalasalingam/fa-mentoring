@@ -9,41 +9,6 @@ export const MIGRATIONS: Migration[] = [
     id: "0001_initial_schema",
     description: "Create initial schema for mentoring platform",
     statements: [
-      `create table if not exists regulations (
-        id integer primary key autoincrement,
-        code text not null unique,
-        name text not null,
-        duration_years integer not null check(duration_years > 0),
-        total_credits_required integer not null check(total_credits_required > 0),
-        active integer not null default 1,
-        created_at text not null default current_timestamp,
-        updated_at text not null default current_timestamp
-      )`,
-      `create table if not exists regulation_category_requirements (
-        id integer primary key autoincrement,
-        regulation_code text not null,
-        category_code text not null,
-        category_name text not null,
-        min_credits real not null check(min_credits >= 0),
-        unique(regulation_code, category_code)
-      )`,
-      `create table if not exists regulation_plans (
-        id integer primary key autoincrement,
-        regulation_code text not null,
-        program text not null,
-        batch_start_year integer not null check(batch_start_year between 1970 and 2070),
-        version integer not null default 1,
-        active integer not null default 1,
-        unique(regulation_code, program, batch_start_year, version)
-      )`,
-      `create table if not exists regulation_semester_category_plan (
-        id integer primary key autoincrement,
-        plan_id integer not null,
-        semester_no integer not null check(semester_no > 0),
-        category_code text not null,
-        planned_credits real not null check(planned_credits >= 0),
-        unique(plan_id, semester_no, category_code)
-      )`,
       `create table if not exists faculty_profiles (
         id integer primary key autoincrement,
         employee_id text not null unique,
@@ -337,6 +302,286 @@ export const MIGRATIONS: Migration[] = [
     description: "Store source IP address in login attempts for admin observability",
     statements: [
       "alter table auth_login_attempts add column ip_address text"
+    ]
+  },
+  {
+    id: "0011_drop_legacy_regulations_tables",
+    description: "Drop legacy regulations and plan-of-study tables after redesign reset",
+    statements: [
+      "drop table if exists regulation_semester_category_plan",
+      "drop table if exists regulation_plans",
+      "drop table if exists regulation_category_requirements",
+      "drop table if exists regulations"
+    ]
+  },
+  {
+    id: "0012_faculty_profiles_uuid_fk_rework",
+    description: "Rework faculty_profiles to use user_accounts UUID/email foreign keys and drop legacy columns",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old",
+      `create table faculty_profiles (
+        id text primary key,
+        employee_id text not null unique,
+        name text not null,
+        email text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(id) references user_accounts(id),
+        foreign key(email) references user_accounts(email)
+      )`,
+      "create index if not exists idx_faculty_profiles_email on faculty_profiles(email)",
+      `insert into faculty_profiles(id, employee_id, name, email, department, updated_at)
+       select ua.id, f.employee_id, f.name, lower(trim(f.email)), f.department, coalesce(f.updated_at, current_timestamp)
+       from faculty_profiles_old f
+       join user_accounts ua on lower(trim(ua.email)) = lower(trim(f.email))
+       where trim(coalesce(f.employee_id, '')) <> ''
+         and trim(coalesce(f.name, '')) <> ''
+         and trim(coalesce(f.email, '')) <> ''`,
+      "drop table faculty_profiles_old"
+    ]
+  },
+  {
+    id: "0013_faculty_profiles_drop_name_email_columns",
+    description: "Drop name/email/email_user_account columns from faculty_profiles and keep UUID FK model",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old_v2",
+      `create table faculty_profiles (
+        id text primary key,
+        employee_id text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(id) references user_accounts(id)
+      )`,
+      `insert into faculty_profiles(id, employee_id, department, updated_at)
+       select id, employee_id, department, coalesce(updated_at, current_timestamp)
+       from faculty_profiles_old_v2`,
+      "drop table faculty_profiles_old_v2"
+    ]
+  },
+  {
+    id: "0014_faculty_profiles_rename_id_to_user_account_id",
+    description: "Rename faculty_profiles FK column from id to user_account_id",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old_v3",
+      `create table faculty_profiles (
+        user_account_id text primary key,
+        employee_id text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(user_account_id) references user_accounts(id)
+      )`,
+      `insert into faculty_profiles(user_account_id, employee_id, department, updated_at)
+       select id, employee_id, department, coalesce(updated_at, current_timestamp)
+       from faculty_profiles_old_v3`,
+      "drop table faculty_profiles_old_v3"
+    ]
+  },
+  {
+    id: "0015_faculty_profiles_restore_id_pk_and_user_account_id",
+    description: "Restore faculty_profiles id as primary key and keep user_account_id as renamed FK column",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old_v4",
+      `create table faculty_profiles (
+        id text primary key,
+        user_account_id text not null unique,
+        employee_id text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(user_account_id) references user_accounts(id)
+      )`,
+      `insert into faculty_profiles(id, user_account_id, employee_id, department, updated_at)
+       select user_account_id, user_account_id, employee_id, department, coalesce(updated_at, current_timestamp)
+       from faculty_profiles_old_v4`,
+      "drop table faculty_profiles_old_v4"
+    ]
+  },
+  {
+    id: "0016_faculty_profiles_drop_legacy_user_account_column",
+    description: "Drop legacy user_account column from faculty_profiles",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old_v5",
+      `create table faculty_profiles (
+        id text primary key,
+        user_account_id text not null unique,
+        employee_id text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(user_account_id) references user_accounts(id)
+      )`,
+      `insert into faculty_profiles(id, user_account_id, employee_id, department, updated_at)
+       select id, user_account, employee_id, department, coalesce(updated_at, current_timestamp)
+       from faculty_profiles_old_v5`,
+      "drop table faculty_profiles_old_v5"
+    ]
+  },
+  {
+    id: "0017_faculty_profiles_enforce_single_fk_user_account_id",
+    description: "Ensure faculty_profiles has only one FK: user_account_id -> user_accounts(id)",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old_v6",
+      `create table faculty_profiles (
+        id text primary key,
+        user_account_id text not null unique,
+        employee_id text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(user_account_id) references user_accounts(id)
+      )`,
+      `insert into faculty_profiles(id, user_account_id, employee_id, department, updated_at)
+       select id, user_account_id, employee_id, department, coalesce(updated_at, current_timestamp)
+       from faculty_profiles_old_v6`,
+      "drop table faculty_profiles_old_v6"
+    ]
+  },
+  {
+    id: "0018_faculty_profiles_strict_single_fk_shape",
+    description: "Strictly enforce faculty_profiles final shape with only user_account_id FK and no extra columns",
+    statements: [
+      "alter table faculty_profiles rename to faculty_profiles_old_v7",
+      `create table faculty_profiles (
+        id text primary key,
+        user_account_id text not null unique,
+        employee_id text not null unique,
+        department text,
+        updated_at text not null default current_timestamp,
+        foreign key(user_account_id) references user_accounts(id)
+      )`,
+      `insert into faculty_profiles(id, user_account_id, employee_id, department, updated_at)
+       select id, user_account_id, employee_id, department, coalesce(updated_at, current_timestamp)
+       from faculty_profiles_old_v7`,
+      "drop table faculty_profiles_old_v7"
+    ]
+  },
+  {
+    id: "0019_drop_faculty_profiles_feature",
+    description: "Drop deprecated faculty_profiles table after feature removal",
+    statements: [
+      "drop table if exists faculty_profiles"
+    ]
+  },
+  {
+    id: "0020_rebuild_students_table_user_linked",
+    description: "Drop existing students table and recreate with user-linked schema",
+    statements: [
+      "drop table if exists students",
+      `create table students (
+        user_id text primary key,
+        batch integer not null,
+        programme_duration real not null,
+        programme varchar(10),
+        mentor_id text,
+        constraint valid_batch check (batch between 2010 and 2050),
+        foreign key (user_id) references user_accounts(id) on delete cascade,
+        foreign key (mentor_id) references user_accounts(id) on delete set null
+      )`
+    ]
+  },
+  {
+    id: "0021_students_add_registration_number_unique",
+    description: "Add registration_number to students as varchar(15) unique not null",
+    statements: [
+      "alter table students rename to students_old_v2",
+      `create table students (
+        user_id text primary key,
+        registration_number varchar(15) unique not null,
+        batch integer not null,
+        programme_duration real not null,
+        programme varchar(10),
+        mentor_id text,
+        constraint valid_batch check (batch between 2010 and 2050),
+        foreign key (user_id) references user_accounts(id) on delete cascade,
+        foreign key (mentor_id) references user_accounts(id) on delete set null
+      )`,
+      `with numbered as (
+         select user_id, batch, programme_duration, programme, mentor_id,
+                row_number() over(order by user_id) as rn
+         from students_old_v2
+       )
+       insert into students(user_id, registration_number, batch, programme_duration, programme, mentor_id)
+       select user_id,
+              substr('REG' || printf('%012d', rn), 1, 15),
+              batch,
+              programme_duration,
+              programme,
+              mentor_id
+       from numbered`,
+      "drop table students_old_v2"
+    ]
+  },
+  {
+    id: "0022_students_add_plan_of_study_code",
+    description: "Add plan_of_study_code to students as varchar(30)",
+    statements: [
+      "alter table students add column plan_of_study_code varchar(30)",
+      "update students set plan_of_study_code = null where trim(coalesce(plan_of_study_code, '')) = ''"
+    ]
+  },
+  {
+    id: "0023_students_plan_of_study_code_integer",
+    description: "Rebuild students table with plan_of_study_code as integer",
+    statements: [
+      "alter table students rename to students_old_v3",
+      `create table students (
+        user_id text primary key,
+        registration_number varchar(15) unique not null,
+        plan_of_study_code integer,
+        batch integer not null,
+        programme_duration real not null,
+        programme varchar(10),
+        mentor_id text,
+        constraint valid_batch check (batch between 2010 and 2050),
+        foreign key (user_id) references user_accounts(id) on delete cascade,
+        foreign key (mentor_id) references user_accounts(id) on delete set null
+      )`,
+      `insert into students(user_id, registration_number, plan_of_study_code, batch, programme_duration, programme, mentor_id)
+       select
+         user_id,
+         registration_number,
+         case
+           when trim(coalesce(cast(plan_of_study_code as text), '')) = '' then null
+           when trim(cast(plan_of_study_code as text)) glob '-?[0-9]*' then cast(trim(cast(plan_of_study_code as text)) as integer)
+           else null
+         end as plan_of_study_code,
+         batch,
+         programme_duration,
+         programme,
+         mentor_id
+       from students_old_v3`,
+      "drop table students_old_v3"
+    ]
+  },
+  {
+    id: "0024_students_programme_integer",
+    description: "Rebuild students table with programme as integer",
+    statements: [
+      "alter table students rename to students_old_v4",
+      `create table students (
+        user_id text primary key,
+        registration_number varchar(15) unique not null,
+        plan_of_study_code integer,
+        batch integer not null,
+        programme_duration real not null,
+        programme integer,
+        mentor_id text,
+        constraint valid_batch check (batch between 2010 and 2050),
+        foreign key (user_id) references user_accounts(id) on delete cascade,
+        foreign key (mentor_id) references user_accounts(id) on delete set null
+      )`,
+      `insert into students(user_id, registration_number, plan_of_study_code, batch, programme_duration, programme, mentor_id)
+       select
+         user_id,
+         registration_number,
+         plan_of_study_code,
+         batch,
+         programme_duration,
+         case
+           when trim(coalesce(cast(programme as text), '')) = '' then 0
+           when trim(cast(programme as text)) glob '-?[0-9]*' then cast(trim(cast(programme as text)) as integer)
+           else 0
+         end as programme,
+         mentor_id
+       from students_old_v4`,
+      "drop table students_old_v4"
     ]
   }
 ];

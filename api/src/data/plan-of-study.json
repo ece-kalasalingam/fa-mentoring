@@ -1,0 +1,223 @@
+{
+  "plansOfStudy": [
+    {
+      "planCode": 1,
+      "planName": "UG Batch 2025 Regular",
+      "regulationCode": "UG-2025",
+      "semesters": [
+        {
+          "semester": 1,
+          "categories": {
+            "PCM": 0,
+            "SEM": 0,
+            "FCM": 18,
+            "FCE": 0,
+            "PCE": 0,
+            "SEE": 0,
+            "MDE": 0,
+            "MDM": 0
+          },
+          "totalCredits": 18
+        },
+        {
+          "semester": 2,
+          "categories": {
+            "PCM": 4,
+            "SEM": 0,
+            "FCM": 15,
+            "FCE": 5,
+            "PCE": 0,
+            "SEE": 0,
+            "MDE": 0,
+            "MDM": 0
+          },
+          "totalCredits": 24
+        },
+        {
+          "semester": 3,
+          "categories": {
+            "PCM": 16,
+            "SEM": 1,
+            "FCM": 2,
+            "FCE": 0,
+            "PCE": 4,
+            "SEE": 2,
+            "MDE": 1,
+            "MDM": 0
+          },
+          "totalCredits": 26
+        },
+        {
+          "semester": 4,
+          "categories": {
+            "PCM": 15,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 4,
+            "SEE": 2,
+            "MDE": 3,
+            "MDM": 0
+          },
+          "totalCredits": 24
+        },
+        {
+          "semester": 5,
+          "categories": {
+            "PCM": 11,
+            "SEM": 1,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 3,
+            "SEE": 4,
+            "MDE": 2,
+            "MDM": 3,
+            "CSC": 1
+          },
+          "totalCredits": 25
+        },
+        {
+          "semester": 6,
+          "categories": {
+            "PCM": 11,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 4,
+            "SEE": 4,
+            "MDE": 2,
+            "MDM": 3,
+            "CSC":1
+          },
+          "totalCredits": 25
+        },
+        {
+          "semester": 7,
+          "categories": {
+            "PCM": 3,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 3,
+            "SEE": 2,
+            "MDE": 2,
+            "MDM": 0,
+            "CSC": 1
+          },
+          "totalCredits": 11
+        },
+        {
+          "semester": 8,
+          "categories": {
+            "PCM": 10,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 0,
+            "SEE": 0,
+            "MDE": 0,
+            "MDM": 0
+          },
+          "totalCredits": 10
+        }
+      ]
+    },
+    {
+      "planCode": 2,
+      "planName": "UG Batch 2025 Lateral",
+      "regulationCode": "UG-2025-LE",
+      "semesters": [
+        {
+          "semester": 3,
+          "categories": {
+            "PCM": 16,
+            "SEM": 0,
+            "FCM": 2,
+            "FCE": 0,
+            "PCE": 4,
+            "SEE": 2,
+            "MDE": 1,
+            "MDM": 0,
+            "CSC": 0
+          },
+          "totalCredits": 25
+        },
+        {
+          "semester": 4,
+          "categories": {
+            "PCM": 15,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 3,
+            "PCE": 4,
+            "SEE": 2,
+            "MDE": 3,
+            "MDM": 0,
+            "CSC": 0
+          },
+          "totalCredits": 27
+        },
+        {
+          "semester": 5,
+          "categories": {
+            "PCM": 11,
+            "SEM": 2,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 3,
+            "SEE": 4,
+            "MDE": 2,
+            "MDM": 3,
+            "CSC": 1
+          },
+          "totalCredits": 26
+        },
+        {
+          "semester": 6,
+          "categories": {
+            "PCM": 11,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 4,
+            "SEE": 4,
+            "MDE": 2,
+            "MDM": 3,
+            "CSC": 1
+          },
+          "totalCredits": 25
+        },
+        {
+          "semester": 7,
+          "categories": {
+            "PCM": 3,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 3,
+            "SEE": 2,
+            "MDE": 2,
+            "MDM": 0,
+            "CSC": 1
+          },
+          "totalCredits": 11
+        },
+        {
+          "semester": 8,
+          "categories": {
+            "PCM": 10,
+            "SEM": 0,
+            "FCM": 0,
+            "FCE": 0,
+            "PCE": 0,
+            "SEE": 0,
+            "MDE": 0,
+            "MDM": 0,
+            "CSC": 0
+          },
+          "totalCredits": 10
+        }
+      ]
+    }
+  ]
+}

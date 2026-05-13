@@ -11,7 +11,7 @@ describe("fa-mentoring auth and routing", () => {
   });
 
   it("protects secured routes when static bearer auth is enabled", async () => {
-    const response = await worker.fetch(new Request("https://example.com/api/regulations"), {
+    const response = await worker.fetch(new Request("https://example.com/api/students"), {
       AUTH_PROVIDER: "static-bearer",
       AUTH_STATIC_TOKENS_JSON: JSON.stringify([
         { token: "mentor-token", subject: "mentor-1", roles: ["faculty"] }

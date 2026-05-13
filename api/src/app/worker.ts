@@ -28,12 +28,16 @@ import {
   setLocalPasswordForPrincipal
 } from "../modules/auth/password-auth.service";
 import { getAccountProfileByPrincipal, getPrincipalAccountFlags, resolveUserAccountIdByPrincipal, setUserActiveByAdmin, updateOwnFullName, updateUserByAdmin } from "../modules/auth/user-accounts.service";
-import { importFaculty, importPlanOfStudy, importRegulationsAndCategories, importStudents } from "../modules/imports/imports.service";
+import { importStudents } from "../modules/imports/imports.service";
 import { clearAllLogs, readRecentLogs, writeLog } from "../modules/logging/logger.service";
-import { fetchRegulations } from "../modules/regulations/regulations.service";
+import { fetchPlansOfStudyFromJson } from "../modules/plan-of-study/plan-of-study.service";
+import { validatePlansOfStudyAgainstRegulations } from "../modules/plan-of-study/plan-of-study-validation.service";
+import { fetchProgrammesFromJson } from "../modules/programmes/programmes.service";
+import { fetchRegulationsFromJson } from "../modules/regulations/regulations.service";
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
 import { getStudentStatsByScope, listStudentsByScope } from "../modules/students/students.service";
+import { listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
   "/api/health",
@@ -69,12 +73,13 @@ const ROOT_ENDPOINTS = [
   "/api/setup",
   "/api/migrate",
   "/api/regulations",
+  "/api/plans-of-study",
+  "/api/programmes",
   "/api/students",
+  "/api/students-directory",
+  "/api/students-directory/update",
   "/api/students/stats",
-  "/api/import/regulations-categories",
-  "/api/import/faculty",
-  "/api/import/students",
-  "/api/import/plan-of-study"
+  "/api/import/students"
 ];
 
 function parseCookieToken(request: Request, name: string): string {
@@ -300,9 +305,6 @@ export const worker = {
           limitParam: url.searchParams.get("limit"),
           cursorParam: url.searchParams.get("cursor"),
           searchParam: url.searchParams.get("q"),
-          activeParam: url.searchParams.get("active"),
-          roleParam: url.searchParams.get("roles"),
-          neverLoggedInParam: url.searchParams.get("neverLoggedIn"),
         });
         statusCode = 200;
         return respond({ ok: true, ...data });
@@ -370,7 +372,9 @@ export const worker = {
         const subject = isObject(body) ? String(body.subject ?? "") : "";
         const fullName = isObject(body) ? String(body.fullName ?? "") : "";
         const roles = isObject(body) && Array.isArray(body.roles) ? body.roles : [];
-        await updateUserByAdmin(env, principal, { subject, fullName, roles });
+        const email = isObject(body) && "email" in body ? String(body.email ?? "") : undefined;
+        const username = isObject(body) && "username" in body ? String(body.username ?? "") : undefined;
+        await updateUserByAdmin(env, principal, { subject, fullName, roles, email, username });
         statusCode = 200;
         event = "admin.user.updated";
         return respond({ ok: true, message: "User updated." });
@@ -814,9 +818,22 @@ export const worker = {
       }
 
       if (pathname === "/api/regulations" && request.method === "GET") {
-        const data = await fetchRegulations(env);
+        const data = await fetchRegulationsFromJson();
         statusCode = 200;
         return respond({ ok: true, ...data });
+      }
+
+      if (pathname === "/api/plans-of-study" && request.method === "GET") {
+        const data = await fetchPlansOfStudyFromJson();
+        const validation = await validatePlansOfStudyAgainstRegulations();
+        statusCode = 200;
+        return respond({ ok: true, ...data, validation });
+      }
+
+      if (pathname === "/api/programmes" && request.method === "GET") {
+        const data = await fetchProgrammesFromJson();
+        statusCode = 200;
+        return respond({ ok: true, ...data }, 200, undefined, false);
       }
 
       if (pathname === "/api/students" && request.method === "GET") {
@@ -832,6 +849,42 @@ export const worker = {
         return respond({ ok: true, ...data });
       }
 
+      if (pathname === "/api/students-directory" && request.method === "GET") {
+        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head"))) {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
+        const url = new URL(request.url);
+        const data = await listStudentsDirectory(env, url.searchParams.get("limit"), url.searchParams.get("cursor"));
+        statusCode = 200;
+        return respond({ ok: true, ...data });
+      }
+
+      if (pathname === "/api/students-directory/update" && request.method === "POST") {
+        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head"))) {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
+        const body = await request.json();
+        const userId = isObject(body) ? String(body.userId ?? "") : "";
+        const registrationNumber = isObject(body) ? String(body.registrationNumber ?? "") : "";
+        const planOfStudyCode = isObject(body) && "planOfStudyCode" in body && body.planOfStudyCode !== null && body.planOfStudyCode !== ""
+          ? Number(body.planOfStudyCode)
+          : null;
+        const batch = isObject(body) && "batch" in body ? Number(body.batch) : null;
+        const programme = isObject(body) && "programme" in body && body.programme !== null && body.programme !== ""
+          ? Number(body.programme)
+          : null;
+        const duration = isObject(body) && "duration" in body ? Number(body.duration) : null;
+        const mentorName = isObject(body) ? String(body.mentorName ?? "") : "";
+        await upsertStudentDirectoryRow(env, { userId, registrationNumber, planOfStudyCode, batch, programme, duration, mentorName });
+        statusCode = 200;
+        event = "students.directory.updated";
+        return respond({ ok: true, message: "Student updated." });
+      }
+
       if (pathname === "/api/students/stats" && request.method === "GET") {
         if (!principal || !canPerformAction(principal, "students.stats.read")) {
           statusCode = 403;
@@ -842,40 +895,6 @@ export const worker = {
         const data = await getStudentStatsByScope(env, scope);
         statusCode = 200;
         return respond({ ok: true, ...data });
-      }
-
-      if (pathname === "/api/import/regulations-categories" && request.method === "POST") {
-        if (!canPerformAction(principal, "imports.manage")) {
-          statusCode = 403;
-          event = "request.forbidden";
-          return respond({ ok: false, error: "Forbidden" }, 403);
-        }
-        const body = await request.json();
-        if (!isObject(body) || !Array.isArray(body.rows)) {
-          statusCode = 400;
-          event = "request.validation_failed";
-          return respond({ ok: false, error: "rows[] is required" }, 400);
-        }
-        await importRegulationsAndCategories(env, body.rows as CsvImportRow[]);
-        statusCode = 200;
-        return respond({ ok: true, imported: body.rows.length });
-      }
-
-      if (pathname === "/api/import/faculty" && request.method === "POST") {
-        if (!canPerformAction(principal, "imports.manage")) {
-          statusCode = 403;
-          event = "request.forbidden";
-          return respond({ ok: false, error: "Forbidden" }, 403);
-        }
-        const body = await request.json();
-        if (!isObject(body) || !Array.isArray(body.rows)) {
-          statusCode = 400;
-          event = "request.validation_failed";
-          return respond({ ok: false, error: "rows[] is required" }, 400);
-        }
-        await importFaculty(env, body.rows as CsvImportRow[]);
-        statusCode = 200;
-        return respond({ ok: true, imported: body.rows.length });
       }
 
       if (pathname === "/api/import/students" && request.method === "POST") {
@@ -891,23 +910,6 @@ export const worker = {
           return respond({ ok: false, error: "rows[] is required" }, 400);
         }
         await importStudents(env, body.rows as CsvImportRow[]);
-        statusCode = 200;
-        return respond({ ok: true, imported: body.rows.length });
-      }
-
-      if (pathname === "/api/import/plan-of-study" && request.method === "POST") {
-        if (!canPerformAction(principal, "imports.manage")) {
-          statusCode = 403;
-          event = "request.forbidden";
-          return respond({ ok: false, error: "Forbidden" }, 403);
-        }
-        const body = await request.json();
-        if (!isObject(body) || !Array.isArray(body.rows)) {
-          statusCode = 400;
-          event = "request.validation_failed";
-          return respond({ ok: false, error: "rows[] is required" }, 400);
-        }
-        await importPlanOfStudy(env, body.rows as CsvImportRow[]);
         statusCode = 200;
         return respond({ ok: true, imported: body.rows.length });
       }
