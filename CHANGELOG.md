@@ -28,6 +28,15 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 00:03 IST | codex | chore
+- Summary: Expanded Worker observability settings in Wrangler config for consistent logs and traces across deployments.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Enabled persisted Worker logs with invocation logs and full head sampling.
+  - Enabled persisted traces with full head sampling for easier production debugging.
+  - Kept observability controlled via `api/wrangler.jsonc` to align dashboard behavior with config-as-code.
+- Revert: none
+
 ## 2026-05-14 23:11 IST | codex | fix
 - Summary: Fixed frontend TypeScript build failures from MUI prop typing incompatibilities and an unused import.
 - Files: frontend/src/app/ActiveUsersTable.tsx, frontend/src/app/App.tsx, frontend/src/app/ManageUsersTable.tsx, CHANGELOG.md
