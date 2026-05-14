@@ -11,13 +11,15 @@ import type { StudentDirectoryRow } from "./types";
 type Props = {
   rows: StudentDirectoryRow[];
   busy: boolean;
+  canEdit?: boolean;
   planOfStudyOptions: Array<{ code: number; name: string }>;
   mentorNameOptions: string[];
   programmeOptions: Array<{ id: number; name: string }>;
-  onUpdateRow: (row: StudentDirectoryRow, patch: Pick<StudentDirectoryRow, "registrationNumber" | "planOfStudyCode" | "batch" | "programme" | "duration" | "mentorName">) => Promise<void>;
+  onUpdateRow: (row: StudentDirectoryRow, patch: Pick<StudentDirectoryRow, "registrationNumber" | "planOfStudyCode" | "gender" | "section" | "mobileNumber" | "batch" | "programme" | "duration" | "mentorName">) => Promise<void>;
 };
 
 export default function StudentsDirectoryTable(props: Props) {
+  const canEdit = props.canEdit ?? true;
   const csvConfig = useMemo(
     () =>
       mkConfig({
@@ -52,6 +54,9 @@ export default function StudentsDirectoryTable(props: Props) {
                   batch: row.original.batch,
                   programme: row.original.programme,
                   duration: row.original.duration,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
                   mentorName: row.original.mentorName,
                 });
               }
@@ -88,6 +93,9 @@ export default function StudentsDirectoryTable(props: Props) {
                   batch: row.original.batch,
                   programme: row.original.programme,
                   duration: row.original.duration,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
                   mentorName: row.original.mentorName,
                 });
               }
@@ -99,6 +107,96 @@ export default function StudentsDirectoryTable(props: Props) {
               <MenuItem key={option.code} value={option.code}>{option.name}</MenuItem>
             ))}
           </TextField>
+        ),
+      },
+      {
+        accessorKey: "gender",
+        header: "Gender",
+        enableColumnFilterModes: false,
+        Edit: ({ cell, row, table }) => (
+          <TextField
+            autoFocus
+            fullWidth
+            variant="standard"
+            defaultValue={String(cell.getValue<string>() ?? "")}
+            onBlur={(e) => {
+              const next = e.currentTarget.value.trim();
+              if (next !== row.original.gender) {
+                void props.onUpdateRow(row.original, {
+                  registrationNumber: row.original.registrationNumber,
+                  planOfStudyCode: row.original.planOfStudyCode,
+                  gender: next,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
+                  batch: row.original.batch,
+                  programme: row.original.programme,
+                  duration: row.original.duration,
+                  mentorName: row.original.mentorName,
+                });
+              }
+              table.setEditingCell(null);
+            }}
+          />
+        ),
+      },
+      {
+        accessorKey: "section",
+        header: "Section",
+        enableColumnFilterModes: false,
+        Edit: ({ cell, row, table }) => (
+          <TextField
+            autoFocus
+            fullWidth
+            variant="standard"
+            defaultValue={String(cell.getValue<string>() ?? "")}
+            onBlur={(e) => {
+              const next = e.currentTarget.value.trim();
+              if (next !== row.original.section) {
+                void props.onUpdateRow(row.original, {
+                  registrationNumber: row.original.registrationNumber,
+                  planOfStudyCode: row.original.planOfStudyCode,
+                  gender: row.original.gender,
+                  section: next,
+                  mobileNumber: row.original.mobileNumber,
+                  batch: row.original.batch,
+                  programme: row.original.programme,
+                  duration: row.original.duration,
+                  mentorName: row.original.mentorName,
+                });
+              }
+              table.setEditingCell(null);
+            }}
+          />
+        ),
+      },
+      {
+        accessorKey: "mobileNumber",
+        header: "Mobile Number",
+        enableColumnFilterModes: false,
+        Edit: ({ cell, row, table }) => (
+          <TextField
+            autoFocus
+            fullWidth
+            variant="standard"
+            defaultValue={String(cell.getValue<string>() ?? "")}
+            onBlur={(e) => {
+              const next = e.currentTarget.value.trim();
+              if (next !== row.original.mobileNumber) {
+                void props.onUpdateRow(row.original, {
+                  registrationNumber: row.original.registrationNumber,
+                  planOfStudyCode: row.original.planOfStudyCode,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: next,
+                  batch: row.original.batch,
+                  programme: row.original.programme,
+                  duration: row.original.duration,
+                  mentorName: row.original.mentorName,
+                });
+              }
+              table.setEditingCell(null);
+            }}
+          />
         ),
       },
       {
@@ -122,6 +220,9 @@ export default function StudentsDirectoryTable(props: Props) {
                   batch: next,
                   programme: row.original.programme,
                   duration: row.original.duration,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
                   mentorName: row.original.mentorName,
                 });
               }
@@ -158,6 +259,9 @@ export default function StudentsDirectoryTable(props: Props) {
                   batch: row.original.batch,
                   programme: next,
                   duration: row.original.duration,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
                   mentorName: row.original.mentorName,
                 });
               }
@@ -192,6 +296,9 @@ export default function StudentsDirectoryTable(props: Props) {
                   batch: row.original.batch,
                   programme: row.original.programme,
                   duration: next,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
                   mentorName: row.original.mentorName,
                 });
               }
@@ -224,6 +331,9 @@ export default function StudentsDirectoryTable(props: Props) {
                   batch: row.original.batch,
                   programme: row.original.programme,
                   duration: row.original.duration,
+                  gender: row.original.gender,
+                  section: row.original.section,
+                  mobileNumber: row.original.mobileNumber,
                   mentorName: next,
                 });
               }
@@ -247,7 +357,7 @@ export default function StudentsDirectoryTable(props: Props) {
       data={props.rows}
       getRowId={(row) => row.userId}
       layoutMode="semantic"
-      enableEditing
+      enableEditing={canEdit}
       editDisplayMode="cell"
       enableRowSelection
       enableRowNumbers
@@ -267,11 +377,12 @@ export default function StudentsDirectoryTable(props: Props) {
       state={{ isLoading: props.busy }}
       muiTableBodyCellProps={({ cell, column, table }) => ({
         onClick: () => {
+          if (!canEdit) return;
           if (column.columnDef.enableEditing === false) return;
           table.setEditingCell(cell);
         },
         sx: {
-          cursor: column.columnDef.enableEditing === false ? "default" : "pointer",
+          cursor: !canEdit || column.columnDef.enableEditing === false ? "default" : "pointer",
         },
       })}
       renderTopToolbarCustomActions={({ table }) => (
@@ -296,6 +407,9 @@ export default function StudentsDirectoryTable(props: Props) {
                         r.original.planOfStudyCode == null
                           ? "Not Allotted"
                           : (props.planOfStudyOptions.find((item) => item.code === r.original.planOfStudyCode)?.name ?? `Code ${r.original.planOfStudyCode}`),
+                      gender: r.original.gender || "",
+                      section: r.original.section || "",
+                      mobileNumber: r.original.mobileNumber || "",
                       batch: r.original.batch ?? "",
                       programme: r.original.programme == null
                         ? "Not Allotted"
@@ -324,7 +438,7 @@ export default function StudentsDirectoryTable(props: Props) {
                   const rows = selected ? table.getSelectedRowModel().rows : table.getPrePaginationRowModel().rows;
                   const doc = new jsPDF({ orientation: "landscape" });
                   autoTable(doc, {
-                    head: [["Full Name", "Email", "Registration Number", "Plan Of Study Code", "Batch", "Programme", "Duration", "Mentor Name"]],
+                    head: [["Full Name", "Email", "Registration Number", "Plan Of Study Code", "Gender", "Section", "Mobile Number", "Batch", "Programme", "Duration", "Mentor Name"]],
                     body: rows.map((r) => [
                       r.original.fullName,
                       r.original.email,
@@ -332,6 +446,9 @@ export default function StudentsDirectoryTable(props: Props) {
                       r.original.planOfStudyCode == null
                         ? "Not Allotted"
                         : (props.planOfStudyOptions.find((item) => item.code === r.original.planOfStudyCode)?.name ?? `Code ${r.original.planOfStudyCode}`),
+                      r.original.gender || "",
+                      r.original.section || "",
+                      r.original.mobileNumber || "",
                       String(r.original.batch ?? ""),
                       r.original.programme == null
                         ? "Not Allotted"

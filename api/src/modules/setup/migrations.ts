@@ -583,5 +583,17 @@ export const MIGRATIONS: Migration[] = [
        from students_old_v4`,
       "drop table students_old_v4"
     ]
+  },
+  {
+    id: "0025_students_add_gender_section_mobile_number",
+    description: "Add gender, section (6 chars), and mobile_number columns to students",
+    statements: [
+      "alter table students add column gender varchar(20)",
+      "alter table students add column section varchar(6)",
+      "alter table students add column mobile_number varchar(20)",
+      "update students set gender = null where trim(coalesce(gender, '')) = ''",
+      "update students set section = substr(trim(section), 1, 6) where trim(coalesce(section, '')) <> ''",
+      "update students set mobile_number = null where trim(coalesce(mobile_number, '')) = ''"
+    ]
   }
 ];

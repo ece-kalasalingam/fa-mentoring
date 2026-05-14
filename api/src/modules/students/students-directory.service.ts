@@ -10,6 +10,9 @@ function parseLimit(raw: string | null): number {
 type StudentsSchemaInfo = {
   hasRegistrationNumber: boolean;
   hasPlanOfStudyCode: boolean;
+  hasGender: boolean;
+  hasSection: boolean;
+  hasMobileNumber: boolean;
 };
 
 async function getStudentsSchemaInfo(env: Env): Promise<StudentsSchemaInfo> {
@@ -19,6 +22,9 @@ async function getStudentsSchemaInfo(env: Env): Promise<StudentsSchemaInfo> {
   return {
     hasRegistrationNumber: names.has("registration_number"),
     hasPlanOfStudyCode: names.has("plan_of_study_code"),
+    hasGender: names.has("gender"),
+    hasSection: names.has("section"),
+    hasMobileNumber: names.has("mobile_number"),
   };
 }
 
@@ -40,6 +46,9 @@ export async function listStudentsDirectory(env: Env, limitRaw: string | null, c
             coalesce(ua.email, '') as email,
             ${schema.hasRegistrationNumber ? "s.registration_number" : "s.user_id"} as registration_number,
             ${schema.hasPlanOfStudyCode ? "s.plan_of_study_code" : "null"} as plan_of_study_code,
+            ${schema.hasGender ? "s.gender" : "null"} as gender,
+            ${schema.hasSection ? "s.section" : "null"} as section,
+            ${schema.hasMobileNumber ? "s.mobile_number" : "null"} as mobile_number,
             s.batch as batch,
             s.programme as programme,
             s.programme_duration as programme_duration,
@@ -78,6 +87,9 @@ export async function listStudentsDirectory(env: Env, limitRaw: string | null, c
     email: String(row.email ?? ""),
     registrationNumber: row.registration_number == null ? "" : String(row.registration_number),
     planOfStudyCode: row.plan_of_study_code == null ? null : Number(row.plan_of_study_code),
+    gender: row.gender == null ? "" : String(row.gender),
+    section: row.section == null ? "" : String(row.section),
+    mobileNumber: row.mobile_number == null ? "" : String(row.mobile_number),
     batch: row.batch == null ? null : Number(row.batch),
     programme: row.programme == null ? null : Number(row.programme),
     duration: row.programme_duration == null ? null : Number(row.programme_duration),
@@ -101,6 +113,9 @@ export async function upsertStudentDirectoryRow(
     userId: string;
     registrationNumber: string;
     planOfStudyCode: number | null;
+    gender: string;
+    section: string;
+    mobileNumber: string;
     batch: number | null;
     programme: number | null;
     duration: number | null;
@@ -119,6 +134,15 @@ export async function upsertStudentDirectoryRow(
   if (!schema.hasPlanOfStudyCode) {
     throw new Error("students.plan_of_study_code column is missing. Run super-admin mitigations first.");
   }
+  if (!schema.hasGender) {
+    throw new Error("students.gender column is missing. Run super-admin mitigations first.");
+  }
+  if (!schema.hasSection) {
+    throw new Error("students.section column is missing. Run super-admin mitigations first.");
+  }
+  if (!schema.hasMobileNumber) {
+    throw new Error("students.mobile_number column is missing. Run super-admin mitigations first.");
+  }
 
   const userRes = await db.execute({
     sql: "select id from user_accounts where id = ? and active = 1 limit 1",
@@ -132,6 +156,9 @@ export async function upsertStudentDirectoryRow(
   const duration = input.duration == null ? null : Number(input.duration);
   const registrationNumber = String(input.registrationNumber ?? "").trim() || "Not Allotted";
   const planOfStudyCode = input.planOfStudyCode == null ? null : Number(input.planOfStudyCode);
+  const gender = String(input.gender ?? "").trim();
+  const section = String(input.section ?? "").trim();
+  const mobileNumber = String(input.mobileNumber ?? "").trim();
   const programme = input.programme == null ? null : Number(input.programme);
   const mentorName = String(input.mentorName ?? "").trim();
   if (registrationNumber.length > 15) {
@@ -142,6 +169,9 @@ export async function upsertStudentDirectoryRow(
   }
   if (programme != null && (!Number.isFinite(programme) || !Number.isInteger(programme))) {
     throw new Error("Programme must be an integer.");
+  }
+  if (section.length > 6) {
+    throw new Error("Section must be at most 6 characters.");
   }
 
   const existingRes = await db.execute({
@@ -188,15 +218,29 @@ export async function upsertStudentDirectoryRow(
   }
 
   await db.execute({
-    sql: `insert into students(user_id, registration_number, plan_of_study_code, batch, programme_duration, programme, mentor_id)
-          values(?, ?, ?, ?, ?, ?, ?)
+    sql: `insert into students(user_id, registration_number, plan_of_study_code, gender, section, mobile_number, batch, programme_duration, programme, mentor_id)
+          values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           on conflict(user_id) do update set
             registration_number = excluded.registration_number,
             plan_of_study_code = excluded.plan_of_study_code,
+            gender = excluded.gender,
+            section = excluded.section,
+            mobile_number = excluded.mobile_number,
             batch = excluded.batch,
             programme_duration = excluded.programme_duration,
             programme = excluded.programme,
             mentor_id = excluded.mentor_id`,
-    args: [userId, registrationNumber, planOfStudyCode, effectiveBatch, effectiveDuration, effectiveProgramme, mentorId],
+    args: [
+      userId,
+      registrationNumber,
+      planOfStudyCode,
+      gender || null,
+      section || null,
+      mobileNumber || null,
+      effectiveBatch,
+      effectiveDuration,
+      effectiveProgramme,
+      mentorId,
+    ],
   });
 }

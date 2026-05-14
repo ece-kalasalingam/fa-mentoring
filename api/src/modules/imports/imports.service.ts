@@ -9,6 +9,9 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
     const registrationNumber = normalizeText(row.registration_number) || "Not Allotted";
     const planOfStudyCodeText = normalizeText(row.plan_of_study_code);
     const planOfStudyCode = planOfStudyCodeText ? Number(planOfStudyCodeText) : null;
+    const gender = normalizeText(row.gender) || null;
+    const section = normalizeText(row.section) || null;
+    const mobileNumber = normalizeText(row.mobile_number) || normalizeText(row.mobileNumber) || null;
     const email = normalizeEmail(row.email);
     const programText = normalizeText(row.programme);
     const program = programText ? Number(programText) : 0;
@@ -28,6 +31,9 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
     }
     if (!Number.isFinite(program) || !Number.isInteger(program)) {
       throw new Error(`Programme must be an integer id for email ${email}`);
+    }
+    if (section && section.length > 6) {
+      throw new Error(`Section must be at most 6 characters for email ${email}`);
     }
 
     const studentAccount = await db.execute({
@@ -65,16 +71,19 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
     }
 
     await db.execute({
-      sql: `insert into students(user_id, registration_number, plan_of_study_code, batch, programme_duration, programme, mentor_id)
-            values(?, ?, ?, ?, ?, ?, ?)
+      sql: `insert into students(user_id, registration_number, plan_of_study_code, gender, section, mobile_number, batch, programme_duration, programme, mentor_id)
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(user_id) do update set
               registration_number = excluded.registration_number,
               plan_of_study_code = excluded.plan_of_study_code,
+              gender = excluded.gender,
+              section = excluded.section,
+              mobile_number = excluded.mobile_number,
               batch = excluded.batch,
               programme_duration = excluded.programme_duration,
               programme = excluded.programme,
               mentor_id = excluded.mentor_id`,
-      args: [userId, registrationNumber, planOfStudyCode, batchValue, duration, program, mentorId]
+      args: [userId, registrationNumber, planOfStudyCode, gender, section, mobileNumber, batchValue, duration, program, mentorId]
     });
   }
 }

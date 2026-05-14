@@ -50,11 +50,15 @@ export async function listStudentsByScope(env: Env, scope: StudentScope, limitRa
             s.user_id,
             s.registration_number,
             s.plan_of_study_code,
+            s.gender,
+            s.section,
+            s.mobile_number,
             s.batch,
             s.programme_duration,
             s.programme,
             student_ua.full_name,
             student_ua.email,
+            student_ua.active as student_active,
             mentor_ua.email as mentor_email
           from students s
           left join user_accounts student_ua on student_ua.id = s.user_id

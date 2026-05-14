@@ -11,7 +11,10 @@
       "Bash(./node_modules/.bin/tsc --noEmit)",
       "PowerShell(Get-ChildItem \"g:\\\\JP\\\\coding\\\\fa-mentoring\\\\api\\\\node_modules\" | Select-Object -First 5 Name; \\(Get-ChildItem \"g:\\\\JP\\\\coding\\\\fa-mentoring\\\\api\\\\node_modules\" -Directory\\).Count)",
       "PowerShell(\\(Get-ChildItem \"g:\\\\JP\\\\coding\\\\fa-mentoring\\\\api\\\\node_modules\" -Force\\).Count)",
-      "PowerShell(Get-Process | Where-Object { $_.Name -match \"node|wrangler\" } | Select-Object Id, Name, CommandLine 2>&1 | Select-Object -First 20)"
+      "PowerShell(Get-Process | Where-Object { $_.Name -match \"node|wrangler\" } | Select-Object Id, Name, CommandLine 2>&1 | Select-Object -First 20)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\JP\\\\GitHub Repositories\\\\fa-mentoring\\\\frontend\\\\src\" -Recurse -File | ForEach-Object { $_.FullName } | Sort-Object)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\JP\\\\GitHub Repositories\\\\fa-mentoring\\\\frontend\" -File | Where-Object { $_.Name -match \"tailwind|postcss|vite|index\" } | Select-Object Name, FullName)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\JP\\\\GitHub Repositories\\\\fa-mentoring\\\\frontend\" -File -Name | Where-Object { $_ -match \"config|index|main\" })"
     ]
   }
 }

@@ -873,13 +873,27 @@ export const worker = {
         const planOfStudyCode = isObject(body) && "planOfStudyCode" in body && body.planOfStudyCode !== null && body.planOfStudyCode !== ""
           ? Number(body.planOfStudyCode)
           : null;
+        const gender = isObject(body) ? String(body.gender ?? "") : "";
+        const section = isObject(body) ? String(body.section ?? "") : "";
+        const mobileNumber = isObject(body) ? String(body.mobileNumber ?? "") : "";
         const batch = isObject(body) && "batch" in body ? Number(body.batch) : null;
         const programme = isObject(body) && "programme" in body && body.programme !== null && body.programme !== ""
           ? Number(body.programme)
           : null;
         const duration = isObject(body) && "duration" in body ? Number(body.duration) : null;
         const mentorName = isObject(body) ? String(body.mentorName ?? "") : "";
-        await upsertStudentDirectoryRow(env, { userId, registrationNumber, planOfStudyCode, batch, programme, duration, mentorName });
+        await upsertStudentDirectoryRow(env, {
+          userId,
+          registrationNumber,
+          planOfStudyCode,
+          gender,
+          section,
+          mobileNumber,
+          batch,
+          programme,
+          duration,
+          mentorName,
+        });
         statusCode = 200;
         event = "students.directory.updated";
         return respond({ ok: true, message: "Student updated." });

@@ -110,10 +110,26 @@ export type StudentDirectoryRow = {
   email: string;
   registrationNumber: string;
   planOfStudyCode: number | null;
+  gender: string;
+  section: string;
+  mobileNumber: string;
   batch: number | null;
   programme: number | null;
   duration: number | null;
   mentorName: string;
+};
+
+export type FacultyStudentRow = {
+  userId: string;
+  registrationNumber: string | null;
+  planOfStudyCode: number | null;
+  batch: number | null;
+  programme: number | null;
+  duration: number | null;
+  fullName: string | null;
+  email: string | null;
+  studentActive: boolean;
+  mentorEmail: string | null;
 };
 
 export type FailedLoginRow = {
@@ -203,6 +219,7 @@ export type AdminCacheKey =
   | "active-users:first"
   | "login-activity:first"
   | "users:first"
-  | "students-directory:first";
+  | "students-directory:first"
+  | "faculty-students:first";
 
 export type AdminCacheEntry = { cachedAt: number; payload: unknown };

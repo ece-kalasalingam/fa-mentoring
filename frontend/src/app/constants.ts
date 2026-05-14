@@ -16,4 +16,5 @@ export const ADMIN_CACHE_TTL_MS = {
   activeUsers: 20_000,
   failedLogins: 30_000,
   users: 30_000,
+  facultyStudents: 30_000,
 } as const;

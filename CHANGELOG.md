@@ -36,6 +36,25 @@ Allowed `<type>` values:
   - Added `LICENSE` (MIT), `SECURITY.md`, and `README.md`.
   - Added mandatory changelog policy and entry template in `CHANGELOG.md`.
 - Revert: none
+## 2026-05-14 16:34 IST | codex | change
+- Summary: Fixed frontend parse error in Students Directory table caused by an extra column object token.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Removed an accidental extra `{` in the `columns` array before the `gender` column definition.
+  - Restored valid TSX parsing for Vite/OXC transform.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-14 16:24 IST | codex | change
+- Summary: Added student `gender`, `section`, and `mobile_number` fields with mitigation and end-to-end student directory/import support.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/students/students-directory.service.ts, api/src/app/worker.ts, api/src/modules/imports/imports.service.ts, api/src/modules/students/students.service.ts, frontend/src/app/types.ts, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added migration `0025_students_add_gender_section_mobile_number` to alter existing `students` tables and add `gender`, `section` (`varchar(6)`), and `mobile_number` columns, including normalization updates for existing rows.
+  - Extended student directory schema detection/read/write paths to include the three new columns and added validation to enforce `section` max length (6 characters).
+  - Updated `/api/students-directory/update` request handling to accept and persist `gender`, `section`, and `mobileNumber`.
+  - Updated student CSV import upsert behavior to accept/import `gender`, `section`, and `mobile_number` (plus `mobileNumber` alias) and store them in `students`.
+  - Included the new fields in `GET /api/students` row selection for consistency with student data reads.
+  - Extended frontend student directory types, inline editing table columns, update payloads, and CSV helper/header parsing to support the new fields.
+- Revert: none
 
 ## 2026-05-11 06:08 IST | codex | docs
 - Summary: Added compulsory changelog governance and workflow enforcement.
@@ -2211,4 +2230,26 @@ px tsc --noEmit.
   - Programme line now shows `id - name` pairs sourced from loaded `programmeOptions`.
   - Plan of Study line now shows `code - name` pairs sourced from `planOfStudyOptions`.
   - Added clear fallback text when either dataset is not yet loaded.
+- Revert: none
+## 2026-05-14 15:15 IST | codex | change
+- Summary: Added faculty dashboard mentoring list to show students assigned to the logged-in faculty account.
+- Files: frontend/src/app/App.tsx, frontend/src/app/types.ts, frontend/src/app/constants.ts, CHANGELOG.md
+- Details:
+  - Added a new faculty dashboard data loader that calls `GET /api/students?limit=100` and maps API rows into a typed `FacultyStudentRow` shape.
+  - Added session-scoped read cache support for the faculty mentoring list (`faculty-students:first`) with a 30-second TTL to align with dashboard read-caching policy.
+  - Replaced the faculty dashboard placeholder text with a rendered "My Mentored Students" list showing each student name, registration number, and email, plus a force-refresh action.
+  - Added the new frontend types and cache-key/TTL definitions required by the faculty list implementation.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-14 15:41 IST | codex | change
+- Summary: Added faculty dashboard student-status cards and faculty-only Students page filtering for mentoring vs completed student lists.
+- Files: api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/types.ts, frontend/src/app/constants.ts, CHANGELOG.md
+- Details:
+  - Extended `GET /api/students` response rows with `student_active` from `user_accounts.active` so faculty can deterministically split assigned students by active/inactive account status.
+  - Reworked the Faculty dashboard section to show two metric cards: `Mentoring Students` (active accounts) and `Completed Students` (non-active accounts), each with a `View Students` action.
+  - Implemented faculty drill-down routing to the existing `Students` view (`superView = "students-directory"`) with a faculty-only filter state (`mentoring`/`completed`) and faculty-scoped row mapping.
+  - Kept admin/head/moderator Students behavior unchanged while enabling faculty access to the same page in read-only mode.
+  - Updated Students table usage to disable inline editing for faculty-only mode (`canEdit={false}`) and retained existing editing/export behavior for admin/head/moderator.
+  - Added/used faculty list cache key and TTL entries for session-scoped read caching alignment.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npm --prefix api run test`.
 - Revert: none
