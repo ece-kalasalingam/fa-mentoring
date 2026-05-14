@@ -2,6 +2,7 @@
   "name": "fa-mentoring-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-05-08",
+  "account_id": "ebae5f2a315736349f026474e57089dc",
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,

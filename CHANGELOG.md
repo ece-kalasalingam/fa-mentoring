@@ -28,6 +28,14 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 00:20 IST | codex | chore
+- Summary: Added explicit Cloudflare account binding in Wrangler config for deterministic non-interactive deploy targeting.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Added `account_id` to `api/wrangler.jsonc` to avoid multi-account ambiguity during CI/non-interactive `wrangler deploy`.
+  - Preserved existing observability settings and runtime entrypoints unchanged.
+- Revert: none
+
 ## 2026-05-15 00:03 IST | codex | chore
 - Summary: Expanded Worker observability settings in Wrangler config for consistent logs and traces across deployments.
 - Files: api/wrangler.jsonc, CHANGELOG.md
