@@ -4153,7 +4153,7 @@ function App() {
 
                       return (
                         <Box key={regulation.code} sx={{ p: 3 }}>
-                          <Stack direction="row" gap={1.5} sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+                          <Stack direction="row" sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
                             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                               {regulation.name}
                             </Typography>
@@ -4292,7 +4292,7 @@ function App() {
                       );
                       return (
                         <Box key={plan.planCode} sx={{ p: 3 }}>
-                          <Stack direction="row" gap={1.5} sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center" }}>
+                          <Stack direction="row" sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
                             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
                               {plan.planName}
                             </Typography>

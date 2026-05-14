@@ -28,6 +28,16 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-14 23:11 IST | codex | fix
+- Summary: Fixed frontend TypeScript build failures from MUI prop typing incompatibilities and an unused import.
+- Files: frontend/src/app/ActiveUsersTable.tsx, frontend/src/app/App.tsx, frontend/src/app/ManageUsersTable.tsx, CHANGELOG.md
+- Details:
+  - Replaced `Typography` prop `display="block"` with `sx={{ display: "block" }}` in Active Users email subtext to match current MUI type surface.
+  - Moved `Stack` `gap={1.5}` usage into `sx` in two App sections to avoid strict prop typing rejection in CI build.
+  - Removed unused `useEffect` import from `ManageUsersTable.tsx` to satisfy strict TypeScript checks.
+  - Verified frontend production build passes with `npm --prefix frontend run build`.
+- Revert: none
+
 ## 2026-05-11 00:00 IST | codex | docs
 - Summary: Added initial repository governance and project docs.
 - Files: AGENTS.md, LICENSE, SECURITY.md, README.md, CHANGELOG.md

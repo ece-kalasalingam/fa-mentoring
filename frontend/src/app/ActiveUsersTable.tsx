@@ -105,7 +105,7 @@ export default function ActiveUsersTable(props: Props) {
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }} noWrap>{name}</Typography>
                 {showEmail ? (
-                  <Typography variant="caption" color="text.secondary" noWrap display="block">{email}</Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>{email}</Typography>
                 ) : null}
               </Box>
             </Box>
