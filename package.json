@@ -4,7 +4,11 @@
   "version": "0.0.0",
   "scripts": {
     "dev": "concurrently -k -n API,WEB -c cyan,magenta \"npm --prefix api run dev\" \"npm --prefix frontend run dev\"",
-    "build": "npm --prefix api run test && npm --prefix frontend run build"
+    "build": "npm --prefix api run test && npm --prefix frontend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "deploy:worker": "npm --prefix api run deploy",
+    "deploy:pages": "npx wrangler pages deploy frontend/dist --project-name spris",
+    "deploy:all": "npm run build:frontend && npm run deploy:worker && npm run deploy:pages"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

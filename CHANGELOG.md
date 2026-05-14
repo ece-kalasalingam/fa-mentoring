@@ -28,6 +28,24 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 01:18 IST | codex | chore
+- Summary: Aligned Wrangler deployment config with production runtime settings and completed repo-driven deployment automation updates.
+- Files: api/wrangler.jsonc, package.json, README.md, CHANGELOG.md
+- Details:
+  - Added explicit Worker deployment controls in `api/wrangler.jsonc`: `workers_dev=false`, `preview_urls=false`, and custom-domain route for `spris-api.eceklu.in`.
+  - Added non-secret runtime vars to `wrangler.jsonc` (`AUTH_PROVIDER`, `ALLOW_INSECURE_AUTH_NONE`, `FRONTEND_ORIGIN`, `GOOGLE_CLIENT_ID`, `TURSO_ORG_NAME`) so dashboard and repo config remain consistent across redeploys.
+  - Added root deployment scripts in `package.json` and documented standardized Cloudflare deployment commands/targets in `README.md` for repeatable ops.
+- Revert: none
+
+## 2026-05-15 00:45 IST | codex | chore
+- Summary: Added root deployment automation scripts and deployment runbook for repeatable Worker and Pages redeploys.
+- Files: package.json, README.md, CHANGELOG.md
+- Details:
+  - Added root scripts: `build:frontend`, `deploy:worker`, `deploy:pages`, and `deploy:all`.
+  - Wired Pages redeploy command to the production Cloudflare Pages project name `spris`.
+  - Documented production deployment targets, command sequence, and CI env requirements in `README.md`.
+- Revert: none
+
 ## 2026-05-15 00:20 IST | codex | chore
 - Summary: Added explicit Cloudflare account binding in Wrangler config for deterministic non-interactive deploy targeting.
 - Files: api/wrangler.jsonc, CHANGELOG.md

@@ -59,6 +59,34 @@ npm --prefix frontend run build
 npm --prefix frontend run lint
 ```
 
+## Deployment (Cloudflare)
+
+Production targets:
+- Frontend (Pages): `spris.eceklu.in` (project: `spris`)
+- API (Worker): `spris-api.eceklu.in` (worker: `fa-mentoring-api`)
+
+From repository root:
+
+```bash
+# Build frontend artifact
+npm run build:frontend
+
+# Redeploy API Worker
+npm run deploy:worker
+
+# Redeploy Pages frontend from frontend/dist
+npm run deploy:pages
+
+# Run all three in order
+npm run deploy:all
+```
+
+Required for non-interactive/CI deploys:
+- `CLOUDFLARE_API_TOKEN` (secret)
+
+Optional (repo already pins worker account in `api/wrangler.jsonc`):
+- `CLOUDFLARE_ACCOUNT_ID`
+
 ## Project Rules
 
 - Contributor guardrails and product invariants are defined in `AGENTS.md`.

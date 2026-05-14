@@ -3,6 +3,22 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-05-08",
   "account_id": "ebae5f2a315736349f026474e57089dc",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "spris-api.eceklu.in",
+      "zone_name": "eceklu.in",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "AUTH_PROVIDER": "password-session",
+    "ALLOW_INSECURE_AUTH_NONE": "false",
+    "FRONTEND_ORIGIN": "https://spris.eceklu.in",
+    "GOOGLE_CLIENT_ID": "911855405763-ta8lqvl2mggocgf1c8asvrdo5iclg98j.apps.googleusercontent.com",
+    "TURSO_ORG_NAME": "jeyaprakashk"
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
