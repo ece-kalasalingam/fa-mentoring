@@ -61,6 +61,12 @@ async function getColumnType(env: Env, table: string, column: string): Promise<s
 async function shouldRunMigration(env: Env, migrationId: string): Promise<boolean> {
   // 0005 is only needed for older installs that used integer ids.
   // Fresh installs already use text/UUID ids from migrations 0003/0004.
+  if (migrationId === "0006_user_full_name") {
+    const fullNameType = await getColumnType(env, "user_accounts", "full_name");
+    // Skip when already present to keep setup deterministic across reset/dev states.
+    return !fullNameType;
+  }
+
   if (migrationId !== "0005_user_account_uuid_rekey") {
     if (migrationId === "0016_faculty_profiles_drop_legacy_user_account_column") {
       const legacyUserAccountType = await getColumnType(env, "faculty_profiles", "user_account");

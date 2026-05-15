@@ -28,6 +28,26 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 09:59 IST | codex | fix
+- Summary: Reduced worker request bursts by deduplicating concurrent identical frontend GET API calls.
+- Files: frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Added in-flight request deduplication for identical tokenless `GET` calls in the frontend API client.
+  - When multiple UI effects/actions request the same endpoint at the same time, subsequent calls now reuse the same pending promise instead of issuing duplicate network requests.
+  - Kept POST and authenticated/tokenized request behavior unchanged.
+  - Verified frontend build passes with `npm --prefix frontend run build`.
+- Revert: none
+
+## 2026-05-15 09:46 IST | codex | fix
+- Summary: Prevented setup failure on duplicate `full_name` by deterministically skipping migration `0006_user_full_name` when the column already exists.
+- Files: api/src/modules/setup/setup.service.ts, CHANGELOG.md
+- Details:
+  - Added an explicit `shouldRunMigration` guard for `0006_user_full_name` that checks `user_accounts.full_name` via schema introspection.
+  - Migration `0006` now auto-skips on databases where `full_name` is already present, avoiding `SQLITE_UNKNOWN: duplicate column name: full_name`.
+  - Preserved existing migration behavior for all other migrations and fail-closed semantics for non-benign errors.
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
 ## 2026-05-15 09:43 IST | codex | fix
 - Summary: Hardened setup mitigations so benign idempotency conflicts do not stop later migrations from running.
 - Files: api/src/modules/setup/setup.service.ts, CHANGELOG.md

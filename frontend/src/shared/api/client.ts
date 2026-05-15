@@ -211,12 +211,22 @@ export type ApiResult = {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8787";
 let csrfTokenMemory = "";
+const inFlightGetRequests = new Map<string, Promise<ApiResult>>();
 
 export function setCsrfToken(token: string) {
   csrfTokenMemory = token;
 }
 
 export async function callApi(path: string, method: "GET" | "POST", token?: string, body?: unknown): Promise<ApiResult> {
+  const dedupeKey = method === "GET" && !token && body === undefined ? `${method}:${path}` : null;
+  if (dedupeKey) {
+    const inFlight = inFlightGetRequests.get(dedupeKey);
+    if (inFlight) {
+      return inFlight;
+    }
+  }
+
+  const execute = async (): Promise<ApiResult> => {
   const headers: Record<string, string> = {};
   if (token) {
     headers.authorization = `Bearer ${token}`;
@@ -240,4 +250,15 @@ export async function callApi(path: string, method: "GET" | "POST", token?: stri
     throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
   }
   return (await res.json()) as ApiResult;
+  };
+
+  if (!dedupeKey) {
+    return execute();
+  }
+
+  const promise = execute().finally(() => {
+    inFlightGetRequests.delete(dedupeKey);
+  });
+  inFlightGetRequests.set(dedupeKey, promise);
+  return promise;
 }
