@@ -944,18 +944,25 @@ export const worker = {
       );
     } finally {
       try {
-        await writeLog(env, {
-          level: statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info",
-          requestId,
-          method: request.method,
-          path: pathname,
-          statusCode,
-          durationMs: Date.now() - startedAt,
-          principalSubject,
-          authProvider,
-          event,
-          meta: errorMessage ? { error: errorMessage } : undefined
-        });
+        const skipLogForPath =
+          pathname === "/api/setup/run-migrations" ||
+          pathname === "/api/setup/run-mitigations" ||
+          pathname === "/api/setup" ||
+          pathname === "/api/migrate";
+        if (!skipLogForPath) {
+          await writeLog(env, {
+            level: statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info",
+            requestId,
+            method: request.method,
+            path: pathname,
+            statusCode,
+            durationMs: Date.now() - startedAt,
+            principalSubject,
+            authProvider,
+            event,
+            meta: errorMessage ? { error: errorMessage } : undefined
+          });
+        }
       } catch {
         // Never fail request handling because logging failed.
       }

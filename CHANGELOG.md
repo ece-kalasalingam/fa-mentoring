@@ -28,6 +28,35 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 15:09 IST | codex | fix
+- Summary: Fixed setup endpoint network failures by removing a `finally` early-return that could suppress Worker responses.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Corrected logging-skip behavior for setup/migration endpoints to avoid returning from the Worker `finally` block.
+  - Changed logic to conditionally skip `writeLog()` without altering the primary response flow.
+  - This resolves browser-side `NetworkError when attempting to fetch resource` observed after initial setup migration calls.
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-15 13:46 IST | codex | chore
+- Summary: Synced local Wrangler route configuration with Cloudflare dashboard route flags.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Queried live Cloudflare Worker settings via API for `fa-mentoring-api` and confirmed current dashboard plain-text vars and observability values.
+  - Updated `api/wrangler.jsonc` route entry to include `enabled: true` and `previews_enabled: false` so local route config matches dashboard-side route metadata used at deploy time.
+  - Kept existing local vars values aligned with dashboard (`AUTH_PROVIDER`, `ALLOW_INSECURE_AUTH_NONE`, `FRONTEND_ORIGIN`, `GOOGLE_CLIENT_ID`, `TURSO_ORG_NAME`).
+- Revert: none
+
+## 2026-05-15 12:50 IST | codex | fix
+- Summary: Reduced setup-time Worker subrequest pressure by skipping app-log persistence for migration/mitigation endpoints.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Added a skip-logging guard in the Worker `finally` block for `/api/setup/run-migrations`, `/api/setup/run-mitigations`, `/api/setup`, and `/api/migrate`.
+  - Prevented extra `app_logs` insert/retention queries from running during heavy setup invocations, preserving subrequest budget for schema work.
+  - Kept existing request logging behavior unchanged for non-setup endpoints.
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
 ## 2026-05-15 12:40 IST | codex | fix
 - Summary: Fixed mitigation step subrequest spikes by replacing per-user full-name backfill updates with a single set-based SQL update.
 - Files: api/src/modules/setup/wizard.service.ts, CHANGELOG.md

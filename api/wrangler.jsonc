@@ -9,7 +9,9 @@
     {
       "pattern": "spris-api.eceklu.in",
       "zone_name": "eceklu.in",
-      "custom_domain": true
+      "custom_domain": true,
+      "enabled": true,
+      "previews_enabled": false
     }
   ],
   "vars": {
