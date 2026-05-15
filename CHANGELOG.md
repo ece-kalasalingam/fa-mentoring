@@ -28,6 +28,16 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 16:01 IST | codex | fix
+- Summary: Hid the My Account password tab for non-local accounts and auto-redirected invalid password-tab state to profile.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added local-account detection based on `myAccount.username` and exposed `Password` tab only when a local credential exists.
+  - Added a guard effect to switch `accountView` from `password` to `profile` when the account is not local.
+  - Preserved existing profile/sessions behavior and role-based edit permissions.
+  - Verified frontend build passes with `npm --prefix frontend run build`.
+- Revert: none
+
 ## 2026-05-15 15:15 IST | codex | fix
 - Summary: Fixed super-admin creation failure on Cloudflare Workers by lowering PBKDF2 iterations to the platform-supported maximum.
 - Files: api/src/modules/auth/password-auth.service.ts, CHANGELOG.md

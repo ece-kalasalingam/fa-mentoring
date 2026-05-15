@@ -190,6 +190,7 @@ function App() {
     return !principal.roles.includes("guest") && !principal.roles.includes("student");
   }, [principal]);
   const canChangeOwnPassword = canEditOwnProfile;
+  const hasLocalPasswordAccount = Boolean(myAccount?.username);
 
   useEffect(() => {
     if (!status || status === "Loading...") return;
@@ -1525,6 +1526,12 @@ function App() {
       setDashboard(null);
     }
   }, [isSuperAdmin]);
+
+  useEffect(() => {
+    if (accountView === "password" && !hasLocalPasswordAccount) {
+      setAccountView("profile");
+    }
+  }, [accountView, hasLocalPasswordAccount]);
 
   useEffect(() => {
     if (!principal || superView !== "dashboard" || !isAdmin) {
@@ -4446,7 +4453,7 @@ function App() {
                     sx={{ mb: 1 }}
                   >
                     <Tab value="profile" label="Profile" />
-                    {canChangeOwnPassword ? <Tab value="password" label="Password" /> : null}
+                    {canChangeOwnPassword && hasLocalPasswordAccount ? <Tab value="password" label="Password" /> : null}
                     <Tab value="sessions" label="Sessions" />
                   </Tabs>
                   {accountView === "profile" ? (
