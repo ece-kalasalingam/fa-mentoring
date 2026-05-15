@@ -28,6 +28,16 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 15:15 IST | codex | fix
+- Summary: Fixed super-admin creation failure on Cloudflare Workers by lowering PBKDF2 iterations to the platform-supported maximum.
+- Files: api/src/modules/auth/password-auth.service.ts, CHANGELOG.md
+- Details:
+  - Changed local password hashing iteration constant from `310000` to `100000` in `password-auth.service.ts`.
+  - Added an inline note documenting the Cloudflare Workers WebCrypto PBKDF2 iteration cap.
+  - This resolves setup-time error: `Pbkdf2 failed: iteration counts above 100000 are not supported`.
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
 ## 2026-05-15 15:09 IST | codex | fix
 - Summary: Fixed setup endpoint network failures by removing a `finally` early-return that could suppress Worker responses.
 - Files: api/src/app/worker.ts, CHANGELOG.md

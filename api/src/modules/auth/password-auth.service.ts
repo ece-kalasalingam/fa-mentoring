@@ -3,7 +3,8 @@ import type { Env } from "../../core/types";
 import type { AuthPrincipal } from "./identity";
 import { persistAuthenticatedAdmin, resolveUserAccountIdByPrincipal } from "./user-accounts.service";
 
-const PASSWORD_ITERATIONS = 310000;
+// Cloudflare Workers WebCrypto PBKDF2 currently supports up to 100000 iterations.
+const PASSWORD_ITERATIONS = 100000;
 const SESSION_HOURS = 12;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_MINUTES = 15;
