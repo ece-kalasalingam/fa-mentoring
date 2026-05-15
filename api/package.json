@@ -3,11 +3,11 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "wrangler deploy",
-		"dev": "wrangler dev --ip localhost --port 8787",
-		"start": "wrangler dev --ip localhost --port 8787",
+		"deploy": "set XDG_CONFIG_HOME=..\\.wrangler&& set WRANGLER_CACHE_DIR=..\\.wrangler\\cache&& wrangler deploy",
+		"dev": "set XDG_CONFIG_HOME=..\\.wrangler&& set WRANGLER_CACHE_DIR=..\\.wrangler\\cache&& wrangler dev --ip localhost --port 8787",
+		"start": "set XDG_CONFIG_HOME=..\\.wrangler&& set WRANGLER_CACHE_DIR=..\\.wrangler\\cache&& wrangler dev --ip localhost --port 8787",
 		"test": "vitest",
-		"cf-typegen": "wrangler types"
+		"cf-typegen": "set XDG_CONFIG_HOME=..\\.wrangler&& set WRANGLER_CACHE_DIR=..\\.wrangler\\cache&& wrangler types"
 	},
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "^0.16.3",

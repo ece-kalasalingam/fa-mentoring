@@ -28,6 +28,16 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 09:33 IST | codex | fix
+- Summary: Redirected Wrangler and npm cache/log paths to workspace-local directories to avoid Windows profile permission failures during deploy tooling runs.
+- Files: api/package.json, package.json, .npmrc, api/worker-configuration.d.ts, CHANGELOG.md
+- Details:
+  - Updated API Wrangler scripts (`deploy`, `dev`, `start`, `cf-typegen`) to set `XDG_CONFIG_HOME` and `WRANGLER_CACHE_DIR` under the repository `.wrangler` directory before invoking Wrangler.
+  - Updated root `deploy:pages` script to use the API-local Wrangler binary via `npm --prefix api exec -- wrangler ...` and the same local Wrangler path overrides, removing dependency on `npx` registry fetch at deploy time.
+  - Added a repo-level `.npmrc` to force npm cache and logs into `.tmp/npm-cache` and `.tmp/npm-logs`, avoiding user-profile cache/log write permissions issues.
+  - Regenerated `api/worker-configuration.d.ts` via `npm --prefix api run cf-typegen` while validating the Wrangler path fix.
+- Revert: none
+
 ## 2026-05-15 23:37 IST | codex | fix
 - Summary: Updated OAuth/SSO account upserts to populate `full_name` only when the stored value is empty.
 - Files: api/src/modules/auth/google-auth.service.ts, api/src/modules/auth/user-accounts.service.ts, CHANGELOG.md
