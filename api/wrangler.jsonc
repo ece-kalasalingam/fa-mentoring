@@ -18,7 +18,7 @@
     "AUTH_PROVIDER": "password-session",
     "ALLOW_INSECURE_AUTH_NONE": "false",
     "FRONTEND_ORIGIN": "https://spris.eceklu.in",
-    "GOOGLE_CLIENT_ID": "911855405763-ta8lqvl2mggocgf1c8asvrdo5iclg98j.apps.googleusercontent.com",
+    "GOOGLE_CLIENT_ID": "911855405763-tr8bok9kmhj8djsjpt6g0cud9vfl3c6u.apps.googleusercontent.com",
     "TURSO_ORG_NAME": "jeyaprakashk"
   },
   "observability": {

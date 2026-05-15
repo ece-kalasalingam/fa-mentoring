@@ -28,6 +28,14 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 16:08 IST | codex | chore
+- Summary: Updated local Wrangler production Google client ID to match the dashboard production value.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Changed `vars.GOOGLE_CLIENT_ID` in `api/wrangler.jsonc` from the previous `...ta8lqv...` client ID to production `...tr8bok...`.
+  - Aligns local deploy config with current dashboard/Pages production Google sign-in configuration to avoid future deploy drift.
+- Revert: none
+
 ## 2026-05-15 16:01 IST | codex | fix
 - Summary: Hid the My Account password tab for non-local accounts and auto-redirected invalid password-tab state to profile.
 - Files: frontend/src/app/App.tsx, CHANGELOG.md
