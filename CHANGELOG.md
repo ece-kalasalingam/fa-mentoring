@@ -2523,3 +2523,22 @@ px tsc --noEmit.
   - Fixes empty plan options in Students edit dropdown unless Regulations view was opened first.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+
+## 2026-05-15 23:41 IST | codex | change
+- Summary: Regenerated Cloudflare Worker type definitions with Wrangler to sync API types with current worker config.
+- Files: api/worker-configuration.d.ts, CHANGELOG.md
+- Details:
+  - Re-ran wrangler types from pi/ (where wrangler.jsonc is defined).
+  - Updated generated pi/worker-configuration.d.ts to reflect current Worker env/runtime typings.
+  - Noted Wrangler log-write EPERM warning in local AppData logs path; type generation still completed successfully.
+- Revert: none
+## 2026-05-15 23:48 IST | codex | change
+- Summary: Restricted My Account Password tab visibility to eligible local-role accounts and excluded super admin.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated local-password account detection to require `myAccount.provider === "local"` and a configured username.
+  - Added explicit role gate for password-tab eligibility: `admin` (excluding super admin), `faculty`, or `moderator` only.
+  - Updated password-tab fallback effect to redirect to `profile` whenever current user is not eligible for password changes.
+  - Keeps password controls hidden for all non-local accounts and for super admin accounts per requirement.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

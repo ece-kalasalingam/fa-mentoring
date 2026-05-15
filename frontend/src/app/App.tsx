@@ -189,8 +189,13 @@ function App() {
     if (!principal) return false;
     return !principal.roles.includes("guest") && !principal.roles.includes("student");
   }, [principal]);
-  const canChangeOwnPassword = canEditOwnProfile;
-  const hasLocalPasswordAccount = myAccount?.provider === "session" && Boolean(myAccount?.username);
+  const hasLocalPasswordAccount = myAccount?.provider === "local" && Boolean(myAccount?.username);
+  const isEligibleRoleForPasswordTab = useMemo(() => {
+    if (!principal) return false;
+    if (isSuperAdmin) return false;
+    return principal.roles.includes("admin") || principal.roles.includes("faculty") || principal.roles.includes("moderator");
+  }, [principal, isSuperAdmin]);
+  const canChangeOwnPassword = isEligibleRoleForPasswordTab && hasLocalPasswordAccount;
 
   useEffect(() => {
     if (!status || status === "Loading...") return;
@@ -1528,10 +1533,10 @@ function App() {
   }, [isSuperAdmin]);
 
   useEffect(() => {
-    if (accountView === "password" && !hasLocalPasswordAccount) {
+    if (accountView === "password" && !canChangeOwnPassword) {
       setAccountView("profile");
     }
-  }, [accountView, hasLocalPasswordAccount]);
+  }, [accountView, canChangeOwnPassword]);
 
   useEffect(() => {
     if (!principal || superView !== "dashboard" || !isAdmin) {
