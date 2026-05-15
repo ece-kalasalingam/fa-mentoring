@@ -90,16 +90,22 @@ async function shouldRunMigration(env: Env, migrationId: string): Promise<boolea
 export async function setupSchema(env: Env) {
   await ensureMigrationsTable(env);
   const db = getDb(env);
+  const maxMigrationsPerRun = 1;
   const appliedIds = await getAppliedMigrationIds(env);
   const pending = MIGRATIONS.filter((migration) => !appliedIds.has(migration.id));
+  let processedMigrations = 0;
 
   for (const migration of pending) {
+    if (processedMigrations >= maxMigrationsPerRun) {
+      break;
+    }
     const runThisMigration = await shouldRunMigration(env, migration.id);
     if (!runThisMigration) {
       await db.execute({
         sql: "insert into schema_migrations(id, description) values(?, ?)",
         args: [migration.id, `${migration.description} (auto-skipped)`]
       });
+      processedMigrations += 1;
       continue;
     }
 
@@ -113,6 +119,7 @@ export async function setupSchema(env: Env) {
         args: [migration.id, migration.description]
       });
       await safeCommit(db);
+      processedMigrations += 1;
     } catch (error) {
       await safeRollback(db);
       if (isBenignIdempotentMigrationError(error)) {
@@ -122,15 +129,21 @@ export async function setupSchema(env: Env) {
           sql: "insert into schema_migrations(id, description) values(?, ?)",
           args: [migration.id, `${migration.description} (auto-skipped: already present)`]
         });
+        processedMigrations += 1;
         continue;
       }
       throw error;
     }
   }
 
+  const appliedNowIds = await getAppliedMigrationIds(env);
+  const pendingMigrations = MIGRATIONS.filter((migration) => !appliedNowIds.has(migration.id)).map((migration) => migration.id);
+
   return {
-    appliedNow: pending.length,
-    totalMigrations: MIGRATIONS.length
+    appliedNow: processedMigrations,
+    totalMigrations: MIGRATIONS.length,
+    pendingMigrations,
+    hasMore: pendingMigrations.length > 0
   };
 }
 

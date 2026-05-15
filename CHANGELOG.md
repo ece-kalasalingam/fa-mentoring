@@ -28,6 +28,18 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 12:29 IST | codex | fix
+- Summary: Prevented Cloudflare subrequest-limit failures during setup by batching migrations per invocation and auto-running batches from the setup UI.
+- Files: api/src/modules/setup/setup.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Updated `setupSchema()` to process at most one migration per invocation and return `hasMore` + `pendingMigrations` for deterministic chunked progress.
+  - Kept idempotent auto-skip behavior and added accurate `appliedNow` counting for each processed migration batch.
+  - Updated `/api/setup` and `/api/migrate` response messages to indicate when more migrations remain.
+  - Added a dedicated setup UI flow that repeatedly calls `/api/setup/run-migrations` in batches until pending migrations reach zero, with live progress status.
+  - Extended frontend API response typing for setup batch fields (`appliedNow`, `hasMore`, `pendingMigrations`).
+  - Verified `npm --prefix api run test` and `npm --prefix frontend run build` both pass.
+- Revert: none
+
 ## 2026-05-15 09:59 IST | codex | fix
 - Summary: Reduced worker request bursts by deduplicating concurrent identical frontend GET API calls.
 - Files: frontend/src/shared/api/client.ts, CHANGELOG.md

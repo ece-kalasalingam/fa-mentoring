@@ -1639,6 +1639,47 @@ function App() {
     }
   }
 
+  async function runMigrationsInBatches() {
+    if (principal) {
+      if (!(await ensureActiveServerSession())) {
+        return false;
+      }
+    }
+    if (setupLocked && !isSuperAdmin) {
+      setStatus("Setup is locked. Login as super admin.");
+      return false;
+    }
+    setBusy(true);
+    setStatus("Database setup...");
+    try {
+      let totalApplied = 0;
+      for (let batch = 1; batch <= 50; batch += 1) {
+        const res = await callApi("/api/setup/run-migrations", "POST");
+        if (!res.ok) {
+          setStatus(`Database setup failed: ${res.error ?? "Unknown error"}`);
+          return false;
+        }
+        const appliedNow = Math.max(0, Number(res.appliedNow ?? 0));
+        totalApplied += appliedNow;
+        const pendingCount = Array.isArray(res.pendingMigrations) ? res.pendingMigrations.length : 0;
+        if (!res.hasMore || pendingCount === 0) {
+          setStatus(`Database setup complete (${totalApplied} migration batch${totalApplied === 1 ? "" : "es"} processed).`);
+          await loadWizardStatus();
+          return true;
+        }
+        setStatus(`Database setup in progress... ${pendingCount} migration${pendingCount === 1 ? "" : "s"} remaining.`);
+      }
+      setStatus("Database setup paused after 50 batches. Click Run Migrations again.");
+      await loadWizardStatus();
+      return false;
+    } catch (error) {
+      setStatus(`Database setup failed: ${error instanceof Error ? error.message : "Network or server error"}`);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onCreateSuperAdmin(e: FormEvent) {
     e.preventDefault();
     if (!bootstrapKey.trim() || !adminUser.trim() || !adminPass) {
@@ -2303,7 +2344,7 @@ function App() {
             <Typography variant="body2" color="text.secondary">{wizardState.hasTables ? "Tables are set up." : "Tables not set up."}</Typography>
             <Button
               disabled={busy || (setupLocked && !isSuperAdmin)}
-              onClick={() => void runStep("/api/setup/run-migrations", "Database setup")}
+              onClick={() => void runMigrationsInBatches()}
               type="button"
             >
               Run Migrations

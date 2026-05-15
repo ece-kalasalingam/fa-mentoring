@@ -101,6 +101,9 @@ export type ApiResult = {
   hasSuperAdmin?: boolean;
   hasCredentials?: boolean;
   setupLocked?: boolean;
+  appliedNow?: number;
+  hasMore?: boolean;
+  pendingMigrations?: string[];
   cookieConfig?: {
     name: string;
     secure: boolean;

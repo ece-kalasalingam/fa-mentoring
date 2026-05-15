@@ -808,13 +808,13 @@ export const worker = {
       if (pathname === "/api/setup" && request.method === "POST") {
         const result = await setupSchema(env);
         statusCode = 200;
-        return respond({ ok: true, message: "Schema migrations completed", ...result });
+        return respond({ ok: true, message: result.hasMore ? "Schema migrations processed (more pending)." : "Schema migrations completed", ...result });
       }
 
       if (pathname === "/api/migrate" && request.method === "POST") {
         const result = await setupSchema(env);
         statusCode = 200;
-        return respond({ ok: true, message: "Migrations executed", ...result });
+        return respond({ ok: true, message: result.hasMore ? "Migrations processed (more pending)." : "Migrations executed", ...result });
       }
 
       if (pathname === "/api/regulations" && request.method === "GET") {
