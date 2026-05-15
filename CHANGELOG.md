@@ -28,6 +28,16 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 12:40 IST | codex | fix
+- Summary: Fixed mitigation step subrequest spikes by replacing per-user full-name backfill updates with a single set-based SQL update.
+- Files: api/src/modules/setup/wizard.service.ts, CHANGELOG.md
+- Details:
+  - Updated `runRecentMitigations()` to compute pending full-name backfill count with one query and apply backfill in one `UPDATE ... CASE` statement.
+  - Removed the per-row update loop that could trigger Cloudflare Worker "Too many subrequests by single Worker invocation" during mitigation execution.
+  - Preserved existing fallback behavior for deriving full names (`email`, then `local-*` subject stripping, then subject, then `User`).
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
 ## 2026-05-15 12:29 IST | codex | fix
 - Summary: Prevented Cloudflare subrequest-limit failures during setup by batching migrations per invocation and auto-running batches from the setup UI.
 - Files: api/src/modules/setup/setup.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, frontend/src/shared/api/client.ts, CHANGELOG.md

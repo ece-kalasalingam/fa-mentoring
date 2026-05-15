@@ -151,15 +151,21 @@ export async function runRecentMitigations(env: Env) {
   let backfilled = 0;
   if (hasFullName) {
     const missing = await db.execute(
-      "select id, subject, email from user_accounts where active = 1 and (full_name is null or trim(full_name) = '')"
+      "select count(*) as c from user_accounts where active = 1 and (full_name is null or trim(full_name) = '')"
     );
-    for (const row of missing.rows) {
-      const value = inferFullName(String(row.subject ?? ""), row.email ? String(row.email) : null);
-      await db.execute({
-        sql: "update user_accounts set full_name = ?, updated_at = current_timestamp where id = ?",
-        args: [value, String(row.id)]
-      });
-      backfilled += 1;
+    backfilled = Number(missing.rows[0]?.c ?? 0);
+    if (backfilled > 0) {
+      // Single set-based update avoids per-row write loops that can exceed Worker subrequest limits.
+      await db.execute(`update user_accounts
+        set
+          full_name = case
+            when email is not null and trim(email) <> '' then trim(email)
+            when subject like 'local-%' then substr(subject, 7)
+            when trim(coalesce(subject, '')) <> '' then trim(subject)
+            else 'User'
+          end,
+          updated_at = current_timestamp
+        where active = 1 and (full_name is null or trim(full_name) = '')`);
     }
   }
   return {
