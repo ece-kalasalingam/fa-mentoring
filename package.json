@@ -7,7 +7,7 @@
     "build": "npm --prefix api run test && npm --prefix frontend run build",
     "build:frontend": "npm --prefix frontend run build",
     "deploy:worker": "npm --prefix api run deploy",
-    "deploy:pages": "set XDG_CONFIG_HOME=.\\.wrangler&& set WRANGLER_CACHE_DIR=.\\.wrangler\\cache&& npm --prefix api exec -- wrangler pages deploy ../frontend/dist --project-name spris",
+    "deploy:pages": "set XDG_CONFIG_HOME=.\\.wrangler&& set WRANGLER_CACHE_DIR=.\\.wrangler\\cache&& npm --prefix api exec -- wrangler pages deploy frontend/dist --project-name spris",
     "deploy:all": "npm run build:frontend && npm run deploy:worker && npm run deploy:pages"
   },
   "devDependencies": {

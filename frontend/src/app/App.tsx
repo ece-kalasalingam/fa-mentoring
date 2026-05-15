@@ -190,7 +190,7 @@ function App() {
     return !principal.roles.includes("guest") && !principal.roles.includes("student");
   }, [principal]);
   const canChangeOwnPassword = canEditOwnProfile;
-  const hasLocalPasswordAccount = Boolean(myAccount?.username);
+  const hasLocalPasswordAccount = myAccount?.provider === "session" && Boolean(myAccount?.username);
 
   useEffect(() => {
     if (!status || status === "Loading...") return;

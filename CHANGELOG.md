@@ -28,6 +28,25 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 16:34 IST | codex | fix
+- Summary: Fixed production localhost API fallback/CORS mismatch and ensured Password tab is hidden for non-local providers.
+- Files: frontend/src/app/App.tsx, frontend/src/shared/api/client.ts, api/src/core/http.ts, CHANGELOG.md
+- Details:
+  - Updated My Account password-tab eligibility to require a local/session provider (`provider === "session"`) plus local username, preventing Google-only accounts from seeing the Password tab.
+  - Updated frontend API base fallback: uses `http://localhost:8787` only on localhost/127.0.0.1, and defaults to `https://spris-api.eceklu.in` on non-local hosts when `VITE_API_BASE_URL` is absent.
+  - Added local-dev CORS compatibility in API origin resolution: when API host is localhost/127.0.0.1 and request origin is localhost/127.0.0.1, echo request origin instead of forcing configured production origin.
+  - Verified `npm --prefix api run test` and `npm --prefix frontend run build` both pass.
+- Revert: none
+
+## 2026-05-15 16:29 IST | codex | fix
+- Summary: Corrected `deploy:pages` script to use the valid frontend build output path from repo root.
+- Files: package.json, CHANGELOG.md
+- Details:
+  - Updated root `deploy:pages` command from `../frontend/dist` to `frontend/dist`.
+  - Fixes `ENOENT ... scandir '...\\frontend\\dist'` failures caused by resolving a path outside the repository when deploying Pages.
+  - Keeps existing Wrangler local cache/config overrides unchanged.
+- Revert: none
+
 ## 2026-05-15 16:08 IST | codex | chore
 - Summary: Updated local Wrangler production Google client ID to match the dashboard production value.
 - Files: api/wrangler.jsonc, CHANGELOG.md

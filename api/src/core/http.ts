@@ -3,11 +3,19 @@ import type { Env } from "./types";
 function resolveAllowedOrigin(request: Request, env: Env): string {
   const requestOrigin = request.headers.get("origin") ?? "";
   const configured = String(env.FRONTEND_ORIGIN ?? "").trim();
+  const requestUrl = new URL(request.url);
+  const requestHost = requestUrl.hostname.toLowerCase();
+  const requestOriginHost = requestOrigin ? new URL(requestOrigin).hostname.toLowerCase() : "";
   if (!configured) {
     return requestOrigin || "*";
   }
   const allowedOrigins = configured.split(",").map((item) => item.trim()).filter(Boolean);
   if (allowedOrigins.includes(requestOrigin)) {
+    return requestOrigin;
+  }
+  const isLocalApiHost = requestHost === "localhost" || requestHost === "127.0.0.1";
+  const isLocalFrontendOrigin = requestOriginHost === "localhost" || requestOriginHost === "127.0.0.1";
+  if (isLocalApiHost && isLocalFrontendOrigin) {
     return requestOrigin;
   }
   return allowedOrigins[0];
