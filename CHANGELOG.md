@@ -28,6 +28,16 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 09:43 IST | codex | fix
+- Summary: Hardened setup mitigations so benign idempotency conflicts do not stop later migrations from running.
+- Files: api/src/modules/setup/setup.service.ts, CHANGELOG.md
+- Details:
+  - Added benign migration-error detection for common idempotent cases (e.g., duplicate column/index/already-exists conflicts) encountered on partially-evolved dev databases.
+  - Updated `setupSchema()` to auto-skip and mark the current migration in `schema_migrations` when a benign idempotency conflict is detected, then continue executing later pending migrations.
+  - Preserved fail-closed behavior for non-benign migration errors by rethrowing after rollback.
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
 ## 2026-05-15 09:33 IST | codex | fix
 - Summary: Redirected Wrangler and npm cache/log paths to workspace-local directories to avoid Windows profile permission failures during deploy tooling runs.
 - Files: api/package.json, package.json, .npmrc, api/worker-configuration.d.ts, CHANGELOG.md

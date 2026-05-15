@@ -2,6 +2,19 @@ import { getDb } from "../../core/db";
 import type { Env } from "../../core/types";
 import { MIGRATIONS } from "./migrations";
 
+function isBenignIdempotentMigrationError(error: unknown): boolean {
+  const message = String((error as { message?: unknown })?.message ?? "").toLowerCase();
+  if (!message) {
+    return false;
+  }
+  return (
+    message.includes("duplicate column name") ||
+    message.includes("already exists") ||
+    message.includes("duplicate key name") ||
+    message.includes("index") && message.includes("exists")
+  );
+}
+
 async function safeRollback(db: ReturnType<typeof getDb>): Promise<void> {
   try {
     await db.execute("ROLLBACK");
@@ -96,6 +109,15 @@ export async function setupSchema(env: Env) {
       await safeCommit(db);
     } catch (error) {
       await safeRollback(db);
+      if (isBenignIdempotentMigrationError(error)) {
+        // Dev/reset environments may already include a subset of intended changes.
+        // Mark as auto-skipped so newer mitigations can continue running.
+        await db.execute({
+          sql: "insert into schema_migrations(id, description) values(?, ?)",
+          args: [migration.id, `${migration.description} (auto-skipped: already present)`]
+        });
+        continue;
+      }
       throw error;
     }
   }
