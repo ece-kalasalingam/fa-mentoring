@@ -28,6 +28,25 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-15 23:37 IST | codex | fix
+- Summary: Updated OAuth/SSO account upserts to populate `full_name` only when the stored value is empty.
+- Files: api/src/modules/auth/google-auth.service.ts, api/src/modules/auth/user-accounts.service.ts, CHANGELOG.md
+- Details:
+  - Changed Google login upsert queries to set `user_accounts.full_name` only when the existing DB value is null/blank.
+  - Applied the same conditional full-name-fill logic in shared authenticated account persistence to keep SSO/OAuth behavior consistent across providers.
+  - Preserved existing non-empty `full_name` values so user-edited names are not overwritten on subsequent logins.
+  - Verified API tests pass with `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-15 01:30 IST | codex | docs
+- Summary: Added a compulsory production release checklist to AGENTS.md for repeatable Cloudflare Worker/Pages rollouts.
+- Files: AGENTS.md, CHANGELOG.md
+- Details:
+  - Added a new `Production Release Checklist (Compulsory)` section covering preflight validation, Worker and Pages config checks, deploy order, and post-deploy verification.
+  - Captured required production env/secret keys and exact domain expectations for `spris.eceklu.in` and `spris-api.eceklu.in`.
+  - Included explicit validation for Google auth and localhost-call regression prevention.
+- Revert: none
+
 ## 2026-05-15 01:18 IST | codex | chore
 - Summary: Aligned Wrangler deployment config with production runtime settings and completed repo-driven deployment automation updates.
 - Files: api/wrangler.jsonc, package.json, README.md, CHANGELOG.md
@@ -2297,4 +2316,72 @@ px tsc --noEmit.
   - Updated Students table usage to disable inline editing for faculty-only mode (`canEdit={false}`) and retained existing editing/export behavior for admin/head/moderator.
   - Added/used faculty list cache key and TTL entries for session-scoped read caching alignment.
   - Verification passed: `npx tsc --noEmit` in `frontend/` and `npm --prefix api run test`.
+- Revert: none
+## 2026-05-15 00:27 IST | codex | change
+- Summary: Made Students CSV `batch` optional in backend import flow to match frontend guidance.
+- Files: api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Updated student CSV import to treat missing/blank `batch` as optional instead of failing validation.
+  - When `batch` is provided, validation remains enforced (`2010` to `2050`).
+  - When `batch` is missing, importer now reuses existing `students.batch` for that user when present; otherwise it falls back to `2010` to satisfy non-null schema constraints.
+  - Keeps import deterministic and compatible with current frontend text that marks `batch` as optional.
+- Revert: none
+## 2026-05-15 00:30 IST | codex | change
+- Summary: Added safe registration-number fallback for student CSV imports and conflict checks.
+- Files: api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Replaced `registration_number` fallback from static `Not Allotted` to deterministic resolution: CSV value -> existing student value -> email local-part.
+  - Added validation to fail clearly when registration number cannot be resolved or exceeds 15 characters.
+  - Added conflict guard to detect `registration_number` already used by a different `user_id` before upsert, returning an explicit error.
+  - Kept existing upsert behavior and batch optional flow intact.
+- Revert: none
+## 2026-05-15 00:33 IST | codex | change
+- Summary: Reworked student CSV import to use null registration fallback and dynamic per-row column updates.
+- Files: api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Removed static `Not Allotted` registration-number fallback and now passes `null` when `registration_number` is missing on new inserts.
+  - Replaced upsert with explicit existence-aware flow:
+    - existing student row: dynamic `UPDATE` that only touches fields actually present in the CSV row,
+    - new student row: dynamic `INSERT` with required columns and optional columns only when present.
+  - Preserved batch optional behavior and validation, with existing-batch/default fallback for required storage.
+  - Preserved mentor-email resolution to active faculty account before setting `mentor_id`.
+- Revert: none
+## 2026-05-15 00:36 IST | codex | change
+- Summary: Made student import registration fallback schema-aware using email-derived value only when `registration_number` is NOT NULL.
+- Files: api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Added one-time schema inspection via `pragma table_info(students)` to detect whether `registration_number` is declared `NOT NULL`.
+  - When CSV omits `registration_number`:
+    - if schema requires it, importer now resolves value as existing student registration number (if any) or email local-part,
+    - if schema does not require it, importer keeps `registration_number` as `null` on insert.
+  - Added validation/conflict checks for resolved registration numbers (max length 15, uniqueness across other users).
+  - Kept dynamic column update behavior: updates only fields present in CSV rows.
+- Revert: none
+## 2026-05-15 00:38 IST | codex | change
+- Summary: Enforced non-null registration-number inserts and header-presence-driven dynamic student CSV updates.
+- Files: api/src/modules/imports/imports.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated frontend CSV row construction to include only columns whose headers are actually present in the uploaded CSV.
+  - Updated backend import logic to detect field presence by object keys (header presence semantics), not by non-empty cell values.
+  - Ensured `registration_number` is never inserted as null: for new student rows it now always resolves as CSV value -> existing value -> email local-part, with uniqueness/length checks retained.
+  - Preserved dynamic CRUD behavior so optional student columns are only included in SQL update/insert sets when their CSV headers are present.
+- Revert: none
+## 2026-05-15 00:46 IST | codex | change
+- Summary: Fixed Students table select out-of-range warnings by guarding edit values against unloaded option lists.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated `planOfStudyCode` edit select to use `''` unless the current numeric code exists in `planOfStudyOptions`.
+  - Updated `programme` edit select with the same guard against missing `programmeOptions` entries.
+  - Prevents MUI `out-of-range value` warnings during async option-loading windows while preserving existing update behavior.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-15 00:48 IST | codex | change
+- Summary: Ensured Plans of Study are loaded on Students view entry so plan-code editor options always populate.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated Students navigation onClick flow to load plans of study (`loadPlansOfStudy`) alongside programmes before rendering student table interactions.
+  - Updated faculty students-directory opener (`openFacultyStudentsDirectory`) to load plans of study before loading faculty students.
+  - Updated students-directory effect guard to trigger plans load when programmes are present but plans are missing, and to load both when entering with empty caches.
+  - Fixes empty plan options in Students edit dropdown unless Regulations view was opened first.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none

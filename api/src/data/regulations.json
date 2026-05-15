@@ -172,7 +172,7 @@
       "code": "UG-2021",
       "name": "UG Regulation 2021 Regular",
       "curriculumStructure": {
-        "totalCreditsRequired": 160,
+        "totalCreditsRequired": 163,
         "categories": [
           {
             "code": "FC",
@@ -220,6 +220,79 @@
             "rule": {
               "type": "fixed",
               "value": 8
+            }
+          },
+          {
+            "code": "CSC",
+            "name": "Complimentary Skill Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            }
+          }
+        ]
+      }
+    },
+     {
+      "code": "UG-2021-LE",
+      "name": "UG Regulation 2021 Lateral",
+      "curriculumStructure": {
+        "totalCreditsRequired": 123,
+        "categories": [
+          {
+            "code": "FC",
+            "name": "Foundation Course",
+            "rule": {
+              "type": "fixed",
+              "value": 12
+            }
+          },
+          {
+            "code": "UE",
+            "name": "University Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 16
+            }
+          },
+          {
+            "code": "PC",
+            "name": "Programme Core",
+            "rule": {
+              "type": "fixed",
+              "value": 44
+            }
+          },
+          {
+            "code": "PE",
+            "name": "Programme Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 24
+            }
+          },
+          {
+            "code": "EC",
+            "name": "Experiential Core",
+            "rule": {
+              "type": "fixed",
+              "value": 16
+            }
+          },
+          {
+            "code": "EE",
+            "name": "Experiential Elective",
+            "rule": {
+              "type": "fixed",
+              "value": 8
+            }
+          },
+          {
+            "code": "CSC",
+            "name": "Complimentary Skill Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
             }
           }
         ]

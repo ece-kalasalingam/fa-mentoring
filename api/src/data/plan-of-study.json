@@ -218,6 +218,202 @@
           "totalCredits": 10
         }
       ]
+    },
+    {
+      "planCode": 3,
+      "planName": "UG Batch 2022 Regular",
+      "regulationCode": "UG-2021",
+      "semesters": [
+        {
+          "semester": 1,
+          "categories": {
+            "FC": 19,
+            "UE": 0,
+            "PC": 0,
+            "PE": 0,
+            "EC": 0,
+            "EE": 0,
+            "CSC": 0
+          },
+          "totalCredits": 19
+        },
+        {
+          "semester": 2,
+          "categories": {
+            "FC": 18,
+            "UE": 0,
+            "PC": 4,
+            "PE": 0,
+            "EC": 0,
+            "EE": 0,
+            "CSC": 0
+          },
+          "totalCredits": 22
+        },
+        {
+          "semester": 3,
+          "categories": {
+            "FC": 5,
+            "UE": 6,
+            "PC": 7,
+            "PE": 4,
+            "EC": 0,
+            "EE": 0,
+            "CSC": 0
+          },
+          "totalCredits": 22
+        },
+        {
+          "semester": 4,
+          "categories": {
+            "FC": 0,
+            "UE": 0,
+            "PC": 15,
+            "PE": 4,
+            "EC": 3,
+            "EE": 0,
+            "CSC": 1
+          },
+          "totalCredits": 23
+        },
+        {
+          "semester": 5,
+          "categories": {
+            "FC": 0,
+            "UE": 0,
+            "PC": 11,
+            "PE": 8,
+            "EC": 0,
+            "EE": 4,
+            "CSC": 0
+          },
+          "totalCredits": 23
+        },
+        {
+          "semester": 6,
+          "categories": {
+            "FC": 2,
+            "UE": 3,
+            "PC": 11,
+            "PE": 4,
+            "EC": 3,
+            "EE": 0,
+            "CSC": 1
+          },
+          "totalCredits": 24
+        },
+        {
+          "semester": 7,
+          "categories": {
+            "FC": 0,
+            "UE": 7,
+            "PC": 4,
+            "PE": 4,
+            "EC": 0,
+            "EE": 4,
+            "CSC": 1
+          },
+          "totalCredits": 20
+        },
+        {
+          "semester": 8,
+          "categories": {
+            "FC": 0,
+            "UE": 0,
+            "PC": 0,
+            "PE": 0,
+            "EC": 10,
+            "EE": 0,
+            "CSC": 0
+          },
+          "totalCredits": 10
+        }
+      ]
+    },
+    {
+      "planCode": 4,
+      "planName": "UG Batch 2022 Lateral",
+      "regulationCode": "UG-2021-LE",
+      "semesters": [
+        {
+          "semester": 3,
+          "categories": {
+            "FC": 9,
+            "UE": 6,
+            "PC": 3,
+            "PE": 4,
+            "EC": 0,
+            "EE": 0,
+            "CSC": 0
+          },
+          "totalCredits": 22
+        },
+        {
+          "semester": 4,
+          "categories": {
+            "FC": 0,
+            "UE": 0,
+            "PC": 15,
+            "PE": 4,
+            "EC": 3,
+            "EE": 0,
+            "CSC": 1
+          },
+          "totalCredits": 23
+        },
+        {
+          "semester": 5,
+          "categories": {
+            "FC": 0,
+            "UE": 0,
+            "PC": 11,
+            "PE": 8,
+            "EC": 0,
+            "EE": 4,
+            "CSC": 0
+          },
+          "totalCredits": 23
+        },
+        {
+          "semester": 6,
+          "categories": {
+            "FC": 3,
+            "UE": 3,
+            "PC": 11,
+            "PE": 4,
+            "EC": 3,
+            "EE": 0,
+            "CSC": 1
+          },
+          "totalCredits": 25
+        },
+        {
+          "semester": 7,
+          "categories": {
+            "FC": 0,
+            "UE": 7,
+            "PC": 4,
+            "PE": 4,
+            "EC": 0,
+            "EE": 4,
+            "CSC": 1
+          },
+          "totalCredits": 20
+        },
+        {
+          "semester": 8,
+          "categories": {
+            "FC": 0,
+            "UE": 0,
+            "PC": 0,
+            "PE": 0,
+            "EC": 10,
+            "EE": 0,
+            "CSC": 0
+          },
+          "totalCredits": 10
+        }
+      ]
     }
   ]
 }

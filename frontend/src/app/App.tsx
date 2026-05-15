@@ -1029,6 +1029,7 @@ function App() {
     setFacultyStudentsFilter(filter);
     setSuperView("students-directory");
     await loadProgrammes();
+    await loadPlansOfStudy();
     await loadFacultyStudents();
   }
 
@@ -1144,26 +1145,40 @@ function App() {
       return;
     }
 
+    const hasHeader = (key: string) => headerIndex.has(key);
     const rows = parsedRows.slice(1).map((cells) => {
       const get = (key: string) => String(cells[headerIndex.get(key) ?? -1] ?? "").trim();
-      return {
-        email: get("email"),
-        registration_number: get("registration_number"),
-        plan_of_study_code: (() => {
-          const raw = get("plan_of_study_code");
-          return raw ? Number(raw) : "";
-        })(),
-        gender: get("gender"),
-        section: get("section"),
-        mobile_number: get("mobile_number"),
-        programme: (() => {
-          const raw = get("programme");
-          return raw ? Number(raw) : 0;
-        })(),
-        batch: get("batch"),
-        programme_duration: get("programme_duration"),
-        mentorEmail: get("mentor_email") || get("mentorEmail"),
-      };
+      const row: Record<string, string | number> = { email: get("email") };
+      if (hasHeader("registration_number")) {
+        row.registration_number = get("registration_number");
+      }
+      if (hasHeader("plan_of_study_code")) {
+        const raw = get("plan_of_study_code");
+        row.plan_of_study_code = raw ? Number(raw) : "";
+      }
+      if (hasHeader("gender")) {
+        row.gender = get("gender");
+      }
+      if (hasHeader("section")) {
+        row.section = get("section");
+      }
+      if (hasHeader("mobile_number")) {
+        row.mobile_number = get("mobile_number");
+      }
+      if (hasHeader("programme")) {
+        const raw = get("programme");
+        row.programme = raw ? Number(raw) : 0;
+      }
+      if (hasHeader("batch")) {
+        row.batch = get("batch");
+      }
+      if (hasHeader("programme_duration")) {
+        row.programme_duration = get("programme_duration");
+      }
+      if (hasHeader("mentor_email") || hasHeader("mentorEmail")) {
+        row.mentorEmail = get("mentor_email") || get("mentorEmail");
+      }
+      return row;
     }).filter((row) => row.email);
 
     if (rows.length === 0) {
@@ -1538,10 +1553,17 @@ function App() {
       return;
     }
     if (programmeOptions.length > 0) {
+      if (plansOfStudy.length > 0) {
+        return;
+      }
+      void loadPlansOfStudy();
       return;
     }
-    void loadProgrammes();
-  }, [principal, superView, programmeOptions.length]);
+    void (async () => {
+      await loadProgrammes();
+      await loadPlansOfStudy();
+    })();
+  }, [principal, superView, programmeOptions.length, plansOfStudy.length]);
 
   useEffect(() => {
     if (!principal || superView !== "students-directory" || !hasFacultyRole) {
@@ -1874,6 +1896,7 @@ function App() {
                   if (await ensureActiveServerSession()) {
                     setSuperView("students-directory");
                     await loadProgrammes({ force: true });
+                    await loadPlansOfStudy();
                     if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
                       setFacultyStudentsFilter("mentoring");
                       await loadFacultyStudents();

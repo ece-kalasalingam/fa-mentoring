@@ -213,6 +213,48 @@ Never use MUI implicit defaults for nav font sizes — always set them explicitl
 - API type-check/build passes.
 - `CHANGELOG.md` includes an entry for the completed change set (including any reverts).
 
+## Production Release Checklist (Compulsory)
+
+Use this checklist for every production rollout or hotfix.
+
+1. Preflight validation
+- Confirm branch is up to date and changes are committed.
+- Run local validation: `npm run build`.
+- Confirm `CHANGELOG.md` has exactly one entry for the task.
+
+2. Cloudflare Worker configuration
+- `api/wrangler.jsonc` MUST define and match production:
+  - `account_id`
+  - `workers_dev` and `preview_urls` policy
+  - custom domain route (`spris-api.eceklu.in`)
+  - non-secret `vars` (`AUTH_PROVIDER`, `ALLOW_INSECURE_AUTH_NONE`, `FRONTEND_ORIGIN`, `GOOGLE_CLIENT_ID`, `TURSO_ORG_NAME`)
+  - observability settings
+- Secrets MUST exist in Worker secrets store and MUST NOT be committed:
+  - `TURSO_DATABASE_URL`
+  - `TURSO_AUTH_TOKEN`
+  - `SETUP_BOOTSTRAP_KEY`
+  - optional `TURSO_API_TOKEN`
+
+3. Cloudflare Pages configuration
+- Pages project is `spris`.
+- Production env vars MUST be set:
+  - `VITE_API_BASE_URL=https://spris-api.eceklu.in`
+  - `VITE_GOOGLE_CLIENT_ID=<google-client-id>`
+- Ensure variable names are exact (for example, `VITE_API_BASE_URL`, not misspelled variants).
+
+4. Deploy sequence (from repo root)
+- Run:
+  - `npm run deploy:worker`
+  - `npm run deploy:pages`
+- Or run:
+  - `npm run deploy:all`
+
+5. Post-deploy verification
+- `https://spris-api.eceklu.in/api/health` returns success JSON.
+- Browser network calls from `https://spris.eceklu.in` target `https://spris-api.eceklu.in/...` (no `localhost` calls).
+- Google sign-in succeeds and `/api/auth/google` does not return `400`.
+- Super admin visibility and mitigation permissions still satisfy Mandatory Product Rules.
+
 ## Changelog Workflow (Compulsory)
 
 1. After making file edits, append exactly one new entry to `CHANGELOG.md`.

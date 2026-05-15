@@ -210,7 +210,10 @@ export async function persistAuthenticatedAdmin(env: Env, principal: AuthPrincip
                     provider_subject = coalesce(?, provider_subject),
                     subject = ?,
                     email = coalesce(?, email),
-                    full_name = coalesce(?, full_name),
+                    full_name = case
+                      when trim(coalesce(full_name, '')) = '' then ?
+                      else full_name
+                    end,
                     roles_json = ?,
                     permissions_json = ?,
                     is_admin = ?,
@@ -236,7 +239,10 @@ export async function persistAuthenticatedAdmin(env: Env, principal: AuthPrincip
                 set provider = ?,
                     subject = ?,
                     email = coalesce(?, email),
-                    full_name = coalesce(?, full_name),
+                    full_name = case
+                      when trim(coalesce(full_name, '')) = '' then ?
+                      else full_name
+                    end,
                     roles_json = ?,
                     permissions_json = ?,
                     is_admin = ?,

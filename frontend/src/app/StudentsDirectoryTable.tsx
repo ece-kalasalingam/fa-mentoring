@@ -75,39 +75,45 @@ export default function StudentsDirectoryTable(props: Props) {
           const option = props.planOfStudyOptions.find((item) => item.code === code);
           return option ? option.name : `Code ${code}`;
         },
-        Edit: ({ cell, row, table }) => (
-          <TextField
-            autoFocus
-            fullWidth
-            select
-            variant="standard"
-            value={cell.getValue<number | null>() == null ? "" : String(cell.getValue<number | null>())}
-            onChange={(e) => {
-              const raw = String(e.target.value ?? "").trim();
-              const next = raw === "" ? null : Number(raw);
-              if (next != null && !Number.isInteger(next)) return;
-              if (next !== row.original.planOfStudyCode) {
-                void props.onUpdateRow(row.original, {
-                  registrationNumber: row.original.registrationNumber,
-                  planOfStudyCode: next,
-                  batch: row.original.batch,
-                  programme: row.original.programme,
-                  duration: row.original.duration,
-                  gender: row.original.gender,
-                  section: row.original.section,
-                  mobileNumber: row.original.mobileNumber,
-                  mentorName: row.original.mentorName,
-                });
-              }
-              table.setEditingCell(null);
-            }}
-          >
-            <MenuItem value="">None</MenuItem>
-            {props.planOfStudyOptions.map((option) => (
-              <MenuItem key={option.code} value={option.code}>{option.name}</MenuItem>
-            ))}
-          </TextField>
-        ),
+        Edit: ({ cell, row, table }) => {
+          const cellValue = cell.getValue<number | null>();
+          const hasMatchingOption =
+            cellValue != null && props.planOfStudyOptions.some((option) => option.code === cellValue);
+          const editValue = hasMatchingOption ? String(cellValue) : "";
+          return (
+            <TextField
+              autoFocus
+              fullWidth
+              select
+              variant="standard"
+              value={editValue}
+              onChange={(e) => {
+                const raw = String(e.target.value ?? "").trim();
+                const next = raw === "" ? null : Number(raw);
+                if (next != null && !Number.isInteger(next)) return;
+                if (next !== row.original.planOfStudyCode) {
+                  void props.onUpdateRow(row.original, {
+                    registrationNumber: row.original.registrationNumber,
+                    planOfStudyCode: next,
+                    batch: row.original.batch,
+                    programme: row.original.programme,
+                    duration: row.original.duration,
+                    gender: row.original.gender,
+                    section: row.original.section,
+                    mobileNumber: row.original.mobileNumber,
+                    mentorName: row.original.mentorName,
+                  });
+                }
+                table.setEditingCell(null);
+              }}
+            >
+              <MenuItem value="">None</MenuItem>
+              {props.planOfStudyOptions.map((option) => (
+                <MenuItem key={option.code} value={option.code}>{option.name}</MenuItem>
+              ))}
+            </TextField>
+          );
+        },
       },
       {
         accessorKey: "gender",
@@ -241,39 +247,45 @@ export default function StudentsDirectoryTable(props: Props) {
           const option = props.programmeOptions.find((item) => item.id === id);
           return option ? option.name : `Code ${id}`;
         },
-        Edit: ({ cell, row, table }) => (
-          <TextField
-            autoFocus
-            fullWidth
-            select
-            variant="standard"
-            value={cell.getValue<number | null>() == null ? "" : String(cell.getValue<number | null>())}
-            onChange={(e) => {
-              const raw = String(e.target.value ?? "").trim();
-              const next = raw === "" ? null : Number(raw);
-              if (next != null && !Number.isInteger(next)) return;
-              if (next !== row.original.programme) {
-                void props.onUpdateRow(row.original, {
-                  registrationNumber: row.original.registrationNumber,
-                  planOfStudyCode: row.original.planOfStudyCode,
-                  batch: row.original.batch,
-                  programme: next,
-                  duration: row.original.duration,
-                  gender: row.original.gender,
-                  section: row.original.section,
-                  mobileNumber: row.original.mobileNumber,
-                  mentorName: row.original.mentorName,
-                });
-              }
-              table.setEditingCell(null);
-            }}
-          >
-            <MenuItem value="">None</MenuItem>
-            {props.programmeOptions.map((option) => (
-              <MenuItem key={option.id} value={option.id}>{option.name}</MenuItem>
-            ))}
-          </TextField>
-        ),
+        Edit: ({ cell, row, table }) => {
+          const cellValue = cell.getValue<number | null>();
+          const hasMatchingOption =
+            cellValue != null && props.programmeOptions.some((option) => option.id === cellValue);
+          const editValue = hasMatchingOption ? String(cellValue) : "";
+          return (
+            <TextField
+              autoFocus
+              fullWidth
+              select
+              variant="standard"
+              value={editValue}
+              onChange={(e) => {
+                const raw = String(e.target.value ?? "").trim();
+                const next = raw === "" ? null : Number(raw);
+                if (next != null && !Number.isInteger(next)) return;
+                if (next !== row.original.programme) {
+                  void props.onUpdateRow(row.original, {
+                    registrationNumber: row.original.registrationNumber,
+                    planOfStudyCode: row.original.planOfStudyCode,
+                    batch: row.original.batch,
+                    programme: next,
+                    duration: row.original.duration,
+                    gender: row.original.gender,
+                    section: row.original.section,
+                    mobileNumber: row.original.mobileNumber,
+                    mentorName: row.original.mentorName,
+                  });
+                }
+                table.setEditingCell(null);
+              }}
+            >
+              <MenuItem value="">None</MenuItem>
+              {props.programmeOptions.map((option) => (
+                <MenuItem key={option.id} value={option.id}>{option.name}</MenuItem>
+              ))}
+            </TextField>
+          );
+        },
       },
       {
         accessorKey: "duration",

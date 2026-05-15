@@ -168,7 +168,10 @@ async function upsertGoogleAccount(env: Env, googleSubject: string, email: strin
                   provider_subject = ?,
                   subject = ?,
                   email = coalesce(?, email),
-                  full_name = coalesce(?, full_name),
+                  full_name = case
+                    when trim(coalesce(full_name, '')) = '' then ?
+                    else full_name
+                  end,
                   active = 1,
                   updated_at = current_timestamp,
                   last_login_at = current_timestamp
@@ -181,7 +184,10 @@ async function upsertGoogleAccount(env: Env, googleSubject: string, email: strin
               set provider = 'google',
                   subject = ?,
                   email = coalesce(?, email),
-                  full_name = coalesce(?, full_name),
+                  full_name = case
+                    when trim(coalesce(full_name, '')) = '' then ?
+                    else full_name
+                  end,
                   active = 1,
                   updated_at = current_timestamp,
                   last_login_at = current_timestamp
