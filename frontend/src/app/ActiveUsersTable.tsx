@@ -1,12 +1,19 @@
 import { useMemo } from "react";
-import { Avatar, Box, Button, Chip, Tooltip, Typography } from "@mui/material";
+import { Avatar, Box, Chip, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { MaterialReactTable, type MRT_ColumnDef } from "material-react-table";
-import DownloadIcon from "@mui/icons-material/Download";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-import { download, generateCsv, mkConfig } from "export-to-csv";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import { getInitials } from "./utils";
+import { mkConfig } from "export-to-csv";
+import {
+  getInitials,
+  ROLE_COLORS,
+  MUI_TABLE_PAPER_PROPS,
+  MUI_TABLE_CONTAINER_PROPS,
+  MUI_TABLE_BODY_PROPS,
+  MUI_TABLE_HEAD_CELL_PROPS,
+  MUI_TABLE_BODY_CELL_PROPS,
+  MUI_TABLE_PAGINATION_PROPS_BASE,
+} from "./utils";
+import ExportToolbar from "./ExportToolbar";
+import { useDateTimeContext } from "./dateTimeContext";
 
 type ActiveUserRow = {
   subject: string;
@@ -35,19 +42,14 @@ type TableRow = {
 type Props = {
   rows: ActiveUserRow[];
   busy: boolean;
-  formatIst: (value: string | null | undefined) => string;
-};
-const ROLE_COLORS: Record<string, "error" | "warning" | "secondary" | "primary" | "success" | "default"> = {
-  admin: "error",
-  moderator: "warning",
-  head: "secondary",
-  faculty: "primary",
-  student: "success",
-  guest: "default",
 };
 const ROLE_OPTIONS = ["admin", "moderator", "head", "faculty", "student", "guest"] as const;
 
 export default function ActiveUsersTable(props: Props) {
+  const { formatIst } = useDateTimeContext();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+
   const csvConfig = useMemo(
     () =>
       mkConfig({
@@ -70,10 +72,10 @@ export default function ActiveUsersTable(props: Props) {
         sessions: row.sessionCount,
         sourceLastSeenAt: row.lastSeenAt,
         sourceLatestExpiry: row.latestExpiry,
-        lastSeen: props.formatIst(row.lastSeenAt),
-        expiresAt: props.formatIst(row.latestExpiry),
+        lastSeen: formatIst(row.lastSeenAt),
+        expiresAt: formatIst(row.latestExpiry),
       })),
-    [props.rows, props.formatIst]
+    [props.rows, formatIst]
   );
 
   const columns = useMemo<MRT_ColumnDef<TableRow>[]>(
@@ -91,6 +93,7 @@ export default function ActiveUsersTable(props: Props) {
           return (
             <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
               <Avatar
+                aria-label={`Avatar for ${name}`}
                 sx={{
                   width: 34,
                   height: 34,
@@ -215,7 +218,7 @@ export default function ActiveUsersTable(props: Props) {
     <MaterialReactTable
       columns={columns}
       data={tableRows}
-      layoutMode="semantic"
+      layoutMode="grid"
       enableEditing={false}
       enableRowSelection
       enableRowNumbers
@@ -223,6 +226,7 @@ export default function ActiveUsersTable(props: Props) {
       enableDensityToggle={false}
       enableFullScreenToggle={false}
       enableColumnResizing={false}
+      enableHiding={isDesktop}
       enableColumnActions
       enableColumnFilters
       enableColumnFilterModes
@@ -232,102 +236,64 @@ export default function ActiveUsersTable(props: Props) {
         "mrt-row-numbers": { size: 48, header: "#" },
         "mrt-row-select": { size: 48 },
       }}
-      state={{ isLoading: props.busy }}
+      state={{
+        isLoading: props.busy,
+        showSkeletons: props.busy && tableRows.length === 0,
+      }}
       renderTopToolbarCustomActions={({ table }) => (
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          <Tooltip title="Export visible or selected rows to CSV" arrow>
-            <span>
-              <Button
-                type="button"
-                size="small"
-                variant="outlined"
-                startIcon={<DownloadIcon fontSize="small" />}
-                onClick={() => {
-                  const hasSelectedRows = table.getIsSomeRowsSelected() || table.getIsAllRowsSelected();
-                  const rows = hasSelectedRows ? table.getSelectedRowModel().rows : table.getPrePaginationRowModel().rows;
-                  const csvRows = rows.map((row) => ({
-                    user: row.original.user,
-                    username: row.original.username,
-                    roles: row.original.roles.join(", "),
-                    sessions: row.original.sessions,
-                    lastSeen: row.original.lastSeen,
-                    expiresAt: row.original.expiresAt,
-                  }));
-                  const csv = generateCsv(csvConfig)(csvRows);
-                  download(csvConfig)(csv);
-                }}
-                disabled={props.busy || table.getPrePaginationRowModel().rows.length === 0}
-              >
-                Export CSV
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title="Export visible or selected rows to PDF" arrow>
-            <span>
-              <Button
-                type="button"
-                size="small"
-                variant="outlined"
-                startIcon={<PictureAsPdfIcon fontSize="small" />}
-                onClick={() => {
-                  const hasSelectedRows = table.getIsSomeRowsSelected() || table.getIsAllRowsSelected();
-                  const rows = hasSelectedRows ? table.getSelectedRowModel().rows : table.getPrePaginationRowModel().rows;
-                  const body = rows.map((row) => [
-                    row.original.user,
-                    row.original.username,
-                    row.original.roles.join(", "),
-                    String(row.original.sessions),
-                    row.original.lastSeen,
-                    row.original.expiresAt,
-                  ]);
-                  const doc = new jsPDF({ orientation: "landscape" });
-                  autoTable(doc, {
-                    head: [["User", "Username", "Roles", "Sessions", "Last Seen", "Expires"]],
-                    body,
-                  });
-                  doc.save("active-users-export.pdf");
-                }}
-                disabled={props.busy || table.getPrePaginationRowModel().rows.length === 0}
-              >
-                Export PDF
-              </Button>
-            </span>
-          </Tooltip>
-        </Box>
+        <ExportToolbar
+          table={table}
+          busy={props.busy}
+          csvConfig={csvConfig}
+          getCsvRows={(rows) =>
+            rows.map((r) => ({
+              user: r.user,
+              username: r.username,
+              roles: r.roles.join(", "),
+              sessions: r.sessions,
+              lastSeen: r.lastSeen,
+              expiresAt: r.expiresAt,
+            }))
+          }
+          pdfFilename="active-users-export.pdf"
+          pdfHeaders={["User", "Username", "Roles", "Sessions", "Last Seen", "Expires"]}
+          getPdfBody={(rows) =>
+            rows.map((r) => [
+              r.user,
+              r.username,
+              r.roles.join(", "),
+              String(r.sessions),
+              r.lastSeen,
+              r.expiresAt,
+            ])
+          }
+        />
       )}
-      muiTablePaperProps={{
-        elevation: 0,
-        sx: { border: "1px solid", borderColor: "divider", borderRadius: 2 },
-      }}
-      muiTableContainerProps={{
-        sx: { overflowX: "auto" },
-      }}
-      muiTableBodyProps={{
-        sx: {
-          "& tr:nth-of-type(odd) > td": { backgroundColor: "action.hover" },
-        },
-      }}
-      muiTableHeadCellProps={{
-        sx: { fontWeight: 700, fontSize: "0.75rem", py: 1.25, whiteSpace: "nowrap" },
-      }}
-      muiTableBodyCellProps={{
-        sx: { py: 1 },
-      }}
+      muiTablePaperProps={MUI_TABLE_PAPER_PROPS}
+      muiTableContainerProps={MUI_TABLE_CONTAINER_PROPS}
+      muiTableBodyProps={MUI_TABLE_BODY_PROPS}
+      muiTableHeadCellProps={MUI_TABLE_HEAD_CELL_PROPS}
+      muiTableBodyCellProps={MUI_TABLE_BODY_CELL_PROPS}
       initialState={{
         pagination: { pageIndex: 0, pageSize: 10 },
         showColumnFilters: false,
+        showGlobalFilter: false,
+        columnVisibility: isDesktop ? {} : { lastSeen: false, expiresAt: false, username: false },
       }}
-      muiPaginationProps={{
-        rowsPerPageOptions: [
-          10,
-          25,
-          50,
-        ],
-      }}
+      muiPaginationProps={{ rowsPerPageOptions: [...MUI_TABLE_PAGINATION_PROPS_BASE] }}
+      renderBottomToolbarCustomActions={({ table }) => (
+        <Box
+          aria-live="polite"
+          aria-atomic="true"
+          sx={{ position: "absolute", width: 1, height: 1, p: 0, m: "-1px", overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}
+        >
+          {`${table.getFilteredRowModel().rows.length} active users`}
+        </Box>
+      )}
       renderEmptyRowsFallback={() => (
         <Box sx={{ py: 5, textAlign: "center" }}>
           <Typography variant="body2" color="text.disabled">
-            No active users found.
+            No active users found. Try adjusting or clearing your filters.
           </Typography>
         </Box>
       )}

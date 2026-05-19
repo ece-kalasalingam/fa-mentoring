@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Divider, Drawer, FormControl, IconButton, InputAdornment, InputLabel, LinearProgress, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputAdornment, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -28,6 +28,7 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
+import PersonOffIcon from "@mui/icons-material/PersonOff";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import { callApi, setCsrfToken } from "../shared/api/client";
@@ -37,6 +38,8 @@ import {
   ADMIN_CACHE_TTL_MS,
   ADMIN_DRAWER_WIDTH,
   STATUS_AUTO_HIDE_MS,
+  INACTIVITY_LOGOUT_MS,
+  INACTIVITY_WARN_BEFORE_MS,
   GOOGLE_CLIENT_ID,
   GOOGLE_IDP_SCRIPT_SRC,
   TAB_SESSION_MARKER_KEY,
@@ -47,7 +50,8 @@ import {
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
-import { getInitials } from "./utils";
+import { getInitials, ROLE_COLORS } from "./utils";
+import { DateTimeProvider } from "./dateTimeContext";
 import type {
   ActiveUserRow,
   AdminCacheEntry,
@@ -74,6 +78,24 @@ const ManageUsersTable = lazy(() => import("./ManageUsersTable"));
 const ActiveUsersTable = lazy(() => import("./ActiveUsersTable"));
 const FailedLoginsTable = lazy(() => import("./FailedLoginsTable"));
 const StudentsDirectoryTable = lazy(() => import("./StudentsDirectoryTable"));
+const LOCAL_DENSE_CACHE_PREFIX = "fa_dense_cache_v1";
+const STATIC_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
+  "dashboard",
+  "logs:error:first",
+  "logs:warn:first",
+  "activity:first",
+  "active-users:first",
+  "login-activity:first",
+  "users:first",
+  "students-directory:first",
+  "faculty-students:first",
+];
+type BrowserCacheEnvelope<T> = {
+  cachedAt: number;
+  payload: T;
+  sessionKey: string;
+};
 
 function App() {
   const [busy, setBusy] = useState(false);
@@ -112,6 +134,7 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [sessionTarget, setSessionTarget] = useState("");
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [logRows, setLogRows] = useState<LogRow[]>([]);
   const [logCursor, setLogCursor] = useState<string | null>(null);
   const [logHasMore, setLogHasMore] = useState(false);
@@ -142,8 +165,6 @@ function App() {
   const [plansOfStudy, setPlansOfStudy] = useState<PlanOfStudy[]>([]);
   const [plansValidationReport, setPlansValidationReport] = useState<PlansValidationReport | null>(null);
   const [planOfStudyTab, setPlanOfStudyTab] = useState(0);
-  const [userCursor, setUserCursor] = useState<string | null>(null);
-  const [userHasMore, setUserHasMore] = useState(false);
   const [studentsDirectoryCursor, setStudentsDirectoryCursor] = useState<string | null>(null);
   const [studentsDirectoryHasMore, setStudentsDirectoryHasMore] = useState(false);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
@@ -152,14 +173,26 @@ function App() {
   const [newUserUsername, setNewUserUsername] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [newUserRoles, setNewUserRoles] = useState<string[]>(["student"]);
+  const [addUserErrors, setAddUserErrors] = useState<{ fullName?: string; username?: string; password?: string }>({});
   const [bulkCsvFileName, setBulkCsvFileName] = useState("");
+  const [bulkStatusCsvFileName, setBulkStatusCsvFileName] = useState("");
   const [studentsCsvFileName, setStudentsCsvFileName] = useState("");
   const [userGlobalFilter, setUserGlobalFilter] = useState("");
+  const [apiError, setApiError] = useState<{ message: string; retryFn: (() => Promise<void>) | null } | null>(null);
+  const [csvImportResult, setCsvImportResult] = useState<{ created: number; failed: number; errors: string[] } | null>(null);
+  const [prevSuperView, setPrevSuperView] = useState<typeof superView | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<UserRow | null>(null);
+  const [resetPasswordValue, setResetPasswordValue] = useState("");
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
+  const [resetPasswordError, setResetPasswordError] = useState("");
   const sessionCheckRef = useRef<{ checkedAt: number; ok: boolean }>({ checkedAt: 0, ok: false });
   const strictRevalidateRef = useRef(0);
   const tabIdRef = useRef("");
   const authSyncInFlightRef = useRef(false);
   const googleIdpInitializedRef = useRef(false);
+  const lastActivityAtRef = useRef(Date.now());
+  const inactivityWarnedRef = useRef(false);
+  const inactivityLogoutInFlightRef = useRef(false);
   const adminReadCacheRef = useRef<Partial<Record<AdminCacheKey, AdminCacheEntry>>>({});
   const adminCacheSessionKeyRef = useRef<string | null>(null);
 
@@ -170,6 +203,21 @@ function App() {
   const hasHeadRole = useMemo(() => Boolean(principal?.roles.includes("head")), [principal]);
   const hasModeratorRole = useMemo(() => Boolean(principal?.roles.includes("moderator")), [principal]);
   const hasGuestRole = useMemo(() => Boolean(principal?.roles.includes("guest")), [principal]);
+
+  function navigateTo(view: typeof superView) {
+    setApiError(null);
+    setPrevSuperView(superView);
+    setSuperView(view);
+  }
+
+  function goBack() {
+    if (prevSuperView) {
+      setApiError(null);
+      setSuperView(prevSuperView);
+      setPrevSuperView(null);
+    }
+  }
+
   const theme = useTheme();
   const echartsTheme = theme.palette.mode === "dark" ? "dark" : undefined;
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
@@ -207,22 +255,39 @@ function App() {
 
   function getCachedAdminPayload<T>(key: AdminCacheKey, ttlMs: number): T | null {
     const entry = adminReadCacheRef.current[key];
-    if (!entry) return null;
-    if (Date.now() - entry.cachedAt > ttlMs) return null;
-    return entry.payload as T;
+    if (entry && Date.now() - entry.cachedAt <= ttlMs) {
+      return entry.payload as T;
+    }
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) return null;
+    const cached = readLocalScopedCache<T>(key, sessionKey, ttlMs);
+    if (!cached) return null;
+    adminReadCacheRef.current[key] = { cachedAt: Date.now(), payload: cached };
+    return cached;
   }
 
   function setCachedAdminPayload<T>(key: AdminCacheKey, payload: T) {
     adminReadCacheRef.current[key] = { cachedAt: Date.now(), payload };
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) return;
+    writeLocalScopedCache(key, sessionKey, payload);
   }
 
   function invalidateAdminCache(keys?: AdminCacheKey[]) {
+    const sessionKey = adminCacheSessionKeyRef.current;
     if (!keys) {
       adminReadCacheRef.current = {};
+      if (!sessionKey) return;
+      for (const key of ADMIN_CACHE_KEYS) {
+        removeLocalScopedCache(key, sessionKey);
+      }
       return;
     }
     for (const key of keys) {
       delete adminReadCacheRef.current[key];
+      if (sessionKey) {
+        removeLocalScopedCache(key, sessionKey);
+      }
     }
   }
 
@@ -234,34 +299,71 @@ function App() {
   function bindAdminCacheToSession(nextPrincipal: Principal | null | undefined) {
     const nextKey = getPrincipalCacheSessionKey(nextPrincipal);
     if (adminCacheSessionKeyRef.current !== nextKey) {
+      clearSessionDataCaches(adminCacheSessionKeyRef.current);
       invalidateAdminCache();
       adminCacheSessionKeyRef.current = nextKey;
     }
   }
 
-  function readSessionJson<T>(key: string): T | null {
+  function getLocalScopedCacheStorageKey(key: string, sessionKey: string): string {
+    return `${LOCAL_DENSE_CACHE_PREFIX}:${sessionKey}:${key}`;
+  }
+
+  function readLocalScopedCache<T>(key: string, sessionKey: string, ttlMs: number): T | null {
     try {
-      const raw = sessionStorage.getItem(key);
+      const storageKey = getLocalScopedCacheStorageKey(key, sessionKey);
+      const raw = localStorage.getItem(storageKey);
       if (!raw) return null;
-      return JSON.parse(raw) as T;
+      const parsed = JSON.parse(raw) as BrowserCacheEnvelope<T>;
+      if (!parsed || typeof parsed.cachedAt !== "number" || parsed.sessionKey !== sessionKey) return null;
+      if (Date.now() - parsed.cachedAt > ttlMs) return null;
+      return parsed.payload;
     } catch {
       return null;
     }
   }
 
-  function writeSessionJson<T>(key: string, payload: T) {
+  function writeLocalScopedCache<T>(key: string, sessionKey: string, payload: T) {
     try {
-      sessionStorage.setItem(key, JSON.stringify(payload));
+      const storageKey = getLocalScopedCacheStorageKey(key, sessionKey);
+      const envelope: BrowserCacheEnvelope<T> = {
+        cachedAt: Date.now(),
+        payload,
+        sessionKey,
+      };
+      localStorage.setItem(storageKey, JSON.stringify(envelope));
     } catch {
       // Best-effort cache write; ignore storage quota or availability errors.
     }
   }
 
-  function clearSessionDataCaches() {
-    sessionStorage.removeItem(SESSION_REGULATIONS_CACHE_KEY);
-    sessionStorage.removeItem(SESSION_PLAN_OF_STUDY_CACHE_KEY);
-    sessionStorage.removeItem(SESSION_PLAN_VALIDATION_CACHE_KEY);
-    sessionStorage.removeItem(SESSION_PROGRAMMES_CACHE_KEY);
+  function removeLocalScopedCache(key: string, sessionKey: string) {
+    try {
+      localStorage.removeItem(getLocalScopedCacheStorageKey(key, sessionKey));
+    } catch {
+      // Ignore localStorage unavailability.
+    }
+  }
+
+  function readSessionJson<T>(key: string): T | null {
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) return null;
+    return readLocalScopedCache<T>(key, sessionKey, STATIC_CACHE_TTL_MS);
+  }
+
+  function writeSessionJson<T>(key: string, payload: T) {
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) return;
+    writeLocalScopedCache(key, sessionKey, payload);
+  }
+
+  function clearSessionDataCaches(sessionKey?: string | null) {
+    const resolvedSessionKey = sessionKey ?? adminCacheSessionKeyRef.current;
+    if (!resolvedSessionKey) return;
+    removeLocalScopedCache(SESSION_REGULATIONS_CACHE_KEY, resolvedSessionKey);
+    removeLocalScopedCache(SESSION_PLAN_OF_STUDY_CACHE_KEY, resolvedSessionKey);
+    removeLocalScopedCache(SESSION_PLAN_VALIDATION_CACHE_KEY, resolvedSessionKey);
+    removeLocalScopedCache(SESSION_PROGRAMMES_CACHE_KEY, resolvedSessionKey);
   }
 
   const userSummary = useMemo(() => {
@@ -304,7 +406,7 @@ function App() {
       googleApi.accounts.id.renderButton(container, {
         theme: "outline",
         size: "large",
-        width: 360,
+        width: container.offsetWidth || 360,
         text: "signin_with",
       });
     };
@@ -682,6 +784,12 @@ function App() {
       }
     }
     const res = await callApi("/api/admin/dashboard", "GET");
+    if (!res.ok) {
+      const msg = `Unable to load dashboard: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadDashboard({ force: true }) });
+      return;
+    }
     if (res.ok) {
       const nextDashboard: AdminDashboard = {
         generatedAt: res.generatedAt,
@@ -711,7 +819,9 @@ function App() {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const res = await callApi(`/api/logs?limit=20&sinceHours=48&level=${level}${cursorQuery}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load logs: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load logs: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadLogs(level) });
       return;
     }
     const rows = (res.rows ?? []) as unknown as LogRow[];
@@ -743,7 +853,9 @@ function App() {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const res = await callApi(`/api/logs?limit=50&sinceHours=all${cursorQuery}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load activity logs: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load activity logs: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: async () => { await loadActivityLogs(); } });
       return { ok: false, rowsAdded: 0 };
     }
     const rows = (res.rows ?? []) as unknown as LogRow[];
@@ -819,7 +931,9 @@ function App() {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const res = await callApi(`/api/admin/active-users?limit=20${cursorQuery}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load active users: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load active users: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadActiveUsers() });
       return;
     }
     const rows = (res.rows ?? []) as unknown as ActiveUserRow[];
@@ -852,7 +966,9 @@ function App() {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const res = await callApi(`/api/admin/login-attempts?limit=20&sinceHours=48${cursorQuery}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load login activity: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load login activity: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadLoginActivity() });
       return;
     }
     const rows = (res.rows ?? []) as unknown as FailedLoginRow[];
@@ -872,7 +988,7 @@ function App() {
     if (!(await ensureActiveServerSession())) {
       return;
     }
-    setSuperView("login-activity");
+    navigateTo("login-activity");
     await loadLoginActivity();
   }
 
@@ -883,8 +999,6 @@ function App() {
       const cached = getCachedAdminPayload<{ rows: UserRow[]; nextCursor: string | null; hasMore: boolean }>(cacheKey, ADMIN_CACHE_TTL_MS.users);
       if (cached) {
         setUserRows(cached.rows);
-        setUserCursor(cached.nextCursor);
-        setUserHasMore(cached.hasMore);
         return;
       }
     }
@@ -895,13 +1009,13 @@ function App() {
     if (searchParam) query.set("q", searchParam);
     const res = await callApi(`/api/admin/users?${query.toString()}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load users: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load users: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadUsers() });
       return;
     }
     const rows = (res.rows ?? []) as unknown as UserRow[];
     setUserRows((prev) => (cursor ? [...prev, ...rows] : rows));
-    setUserCursor(res.page?.nextCursor ?? null);
-    setUserHasMore(Boolean(res.page?.hasMore));
     if (!cursor) {
       setCachedAdminPayload(cacheKey, {
         rows,
@@ -922,7 +1036,9 @@ function App() {
     }
     const res = await callApi("/api/regulations", "GET");
     if (!res.ok) {
-      setStatus(`Unable to load regulations: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load regulations: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadRegulations() });
       return;
     }
     const nextRegulations = (res.regulations ?? []) as Regulation[];
@@ -943,7 +1059,9 @@ function App() {
     }
     const res = await callApi("/api/plans-of-study", "GET");
     if (!res.ok) {
-      setStatus(`Unable to load plans of study: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load plans of study: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadPlansOfStudy() });
       return;
     }
     const nextPlans = (res.plansOfStudy ?? []) as PlanOfStudy[];
@@ -954,7 +1072,10 @@ function App() {
     if (nextValidation) {
       writeSessionJson(SESSION_PLAN_VALIDATION_CACHE_KEY, nextValidation);
     } else {
-      sessionStorage.removeItem(SESSION_PLAN_VALIDATION_CACHE_KEY);
+      const sessionKey = adminCacheSessionKeyRef.current;
+      if (sessionKey) {
+        removeLocalScopedCache(SESSION_PLAN_VALIDATION_CACHE_KEY, sessionKey);
+      }
     }
   }
 
@@ -977,7 +1098,9 @@ function App() {
     const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
     const res = await callApi(`/api/students-directory?limit=100${cursorQuery}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load students directory: ${res.error ?? "Unknown error"}`);
+      const msg = `Unable to load students directory: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadStudentsDirectory() });
       return;
     }
     const rows = (res.rows ?? []) as unknown as StudentDirectoryRow[];
@@ -1033,7 +1156,7 @@ function App() {
 
   async function openFacultyStudentsDirectory(filter: "mentoring" | "completed") {
     setFacultyStudentsFilter(filter);
-    setSuperView("students-directory");
+    navigateTo("students-directory");
     await loadProgrammes();
     await loadPlansOfStudy();
     await loadFacultyStudents();
@@ -1066,44 +1189,32 @@ function App() {
     writeSessionJson(SESSION_PROGRAMMES_CACHE_KEY, next);
   }
 
-  async function updateStudentsDirectoryRow(
-    row: StudentDirectoryRow,
-    patch: Pick<StudentDirectoryRow, "registrationNumber" | "planOfStudyCode" | "gender" | "section" | "mobileNumber" | "batch" | "programme" | "duration" | "mentorName">
+  async function submitStudentsDirectoryRows(
+    updates: Array<
+      Pick<StudentDirectoryRow, "userId" | "registrationNumber" | "planOfStudyCode" | "gender" | "section" | "mobileNumber" | "batch" | "programme" | "duration" | "mentorName">
+    >
   ) {
+    if (updates.length === 0) return;
     if (!(await ensureActiveServerSession())) return;
-    const registrationNumber = String(patch.registrationNumber ?? "").trim() || "Not Allotted";
-    const planOfStudyCode =
-      typeof patch.planOfStudyCode === "number" && Number.isInteger(patch.planOfStudyCode)
-        ? patch.planOfStudyCode
-        : null;
-    const batch = typeof patch.batch === "number" && Number.isFinite(patch.batch) ? patch.batch : 2010;
-    const programme =
-      typeof patch.programme === "number" && Number.isInteger(patch.programme)
-        ? patch.programme
-        : 0;
-    const duration = typeof patch.duration === "number" && Number.isFinite(patch.duration) ? patch.duration : 0;
-    const gender = String(patch.gender ?? "").trim();
-    const section = String(patch.section ?? "").trim();
-    const mobileNumber = String(patch.mobileNumber ?? "").trim();
-    const mentorName = String(patch.mentorName ?? "").trim();
+    const payload = updates.map((update) => ({
+      userId: update.userId,
+      registrationNumber: String(update.registrationNumber ?? "").trim() || "Not Allotted",
+      planOfStudyCode: typeof update.planOfStudyCode === "number" && Number.isInteger(update.planOfStudyCode) ? update.planOfStudyCode : null,
+      batch: typeof update.batch === "number" && Number.isFinite(update.batch) ? update.batch : 2010,
+      programme: typeof update.programme === "number" && Number.isInteger(update.programme) ? update.programme : 0,
+      duration: typeof update.duration === "number" && Number.isFinite(update.duration) ? update.duration : 0,
+      gender: String(update.gender ?? "").trim(),
+      section: String(update.section ?? "").trim(),
+      mobileNumber: String(update.mobileNumber ?? "").trim(),
+      mentorName: String(update.mentorName ?? "").trim(),
+    }));
     try {
       setBusy(true);
-      const res = await callApi("/api/students-directory/update", "POST", undefined, {
-        userId: row.userId,
-        registrationNumber,
-        planOfStudyCode,
-        gender,
-        section,
-        mobileNumber,
-        batch,
-        programme,
-        duration,
-        mentorName,
-      });
+      const res = await callApi("/api/students-directory/update-batch", "POST", undefined, { updates: payload });
       if (!res.ok) {
-        throw new Error(res.error ?? "Student update failed");
+        throw new Error(res.error ?? "Student batch update failed");
       }
-      setStatus("Student updated.");
+      setStatus(`Students updated (${payload.length} row${payload.length === 1 ? "" : "s"}).`);
       invalidateAdminCache(["students-directory:first", "dashboard"]);
       await loadStudentsDirectory(undefined, { force: true });
     } catch (err) {
@@ -1234,10 +1345,23 @@ function App() {
       password: newUserPassword,
       roles: payloadRoles
     };
-    if (!payload.fullName || !payload.username || !payload.password || payload.roles.length === 0) {
-      setStatus("Fill full name, username, password, and at least one role.");
+    const errors: { fullName?: string; username?: string; password?: string } = {};
+    if (!payload.fullName) errors.fullName = "Full name is required.";
+    if (!payload.username) {
+      errors.username = "Username is required.";
+    } else if (!/^[a-z0-9_.-]+$/.test(payload.username)) {
+      errors.username = "Only lowercase letters, numbers, _ . - allowed.";
+    }
+    if (!payload.password) {
+      errors.password = "Password is required.";
+    } else if (payload.password.length < 8) {
+      errors.password = "Password must be at least 8 characters.";
+    }
+    if (Object.keys(errors).length > 0) {
+      setAddUserErrors(errors);
       return;
     }
+    setAddUserErrors({});
     if (!(await ensureActiveServerSession())) {
       return;
     }
@@ -1255,6 +1379,7 @@ function App() {
       setNewUserUsername("");
       setNewUserPassword("");
       setNewUserRoles(["student"]);
+      setAddUserErrors({});
       setShowAddUserForm(false);
       invalidateAdminCache(["users:first", "dashboard"]);
       await loadUsers(undefined, { force: true });
@@ -1320,37 +1445,10 @@ function App() {
         invalidateAdminCache(["users:first", "dashboard"]);
         await loadUsers(undefined, { force: true });
       }
-      const errorSuffix = errors.length > 0 ? ` First error: ${errors[0]}` : "";
-      setStatus(`CSV import complete. Created: ${createdCount}, Failed: ${failedCount}.${errorSuffix}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function resetUserPassword(row: UserRow) {
-    if (row.provider !== "local") {
-      setStatus("Password reset is available only for local users.");
-      return;
-    }
-    if (!(await ensureActiveServerSession())) {
-      return;
-    }
-    const newPassword = window.prompt(`Enter new password for ${row.username || row.subject}`);
-    if (!newPassword) {
-      return;
-    }
-    setBusy(true);
-    setStatus("Resetting password...");
-    try {
-      const res = await callApi("/api/admin/users/reset-password", "POST", undefined, {
-        subject: row.subject,
-        newPassword
-      });
-      if (!res.ok) {
-        setStatus(`Password reset failed: ${res.error ?? "Unknown error"}`);
-        return;
+      setStatus(`CSV import complete. Created: ${createdCount}, Failed: ${failedCount}.`);
+      if (errors.length > 0) {
+        setCsvImportResult({ created: createdCount, failed: failedCount, errors });
       }
-      setStatus("Password reset completed.");
     } finally {
       setBusy(false);
     }
@@ -1358,7 +1456,11 @@ function App() {
 
   type EditableUserRow = Partial<Pick<UserRow, "subject" | "fullName" | "email" | "username" | "roles" | "active">>;
 
-  async function processUserGridRowUpdate(newRow: EditableUserRow, oldRow: EditableUserRow) {
+  async function processUserGridRowUpdate(
+    newRow: EditableUserRow,
+    oldRow: EditableUserRow,
+    options?: { suppressReload?: boolean; suppressStatus?: boolean }
+  ) {
     if (!(await ensureActiveServerSession())) {
       throw new Error("Session expired");
     }
@@ -1414,32 +1516,156 @@ function App() {
       }
     }
 
-    setStatus("User updated.");
-    invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
-    await loadUsers(undefined, { force: true });
+    if (!options?.suppressStatus) {
+      setStatus("User updated.");
+    }
+    if (!options?.suppressReload) {
+      invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
+      await loadUsers(undefined, { force: true });
+    }
     return newRow;
   }
 
-  async function updateUserRow(row: UserRow, patch: Partial<{ fullName: string; email: string; username: string; roles: string[]; active: boolean }>) {
-    const nextRow: EditableUserRow = {
-      subject: row.subject,
-      fullName: patch.fullName ?? (row.fullName || row.email || row.subject),
-      roles: patch.roles ?? (row.roles.length > 0 ? row.roles : ["guest"]),
-      active: patch.active ?? row.active,
-      ...(patch.email !== undefined ? { email: patch.email } : {}),
-      ...(patch.username !== undefined ? { username: patch.username } : {}),
+  function resetUserPassword(row: UserRow) {
+    if (row.provider !== "local") {
+      setStatus("Password reset is available only for local users.");
+      return;
+    }
+    setResetPasswordTarget(row);
+    setResetPasswordValue("");
+    setResetPasswordConfirm("");
+    setResetPasswordError("");
+  }
+
+  async function submitPasswordReset() {
+    if (!resetPasswordTarget) return;
+    if (resetPasswordValue.length < 8) {
+      setResetPasswordError("Password must be at least 8 characters.");
+      return;
+    }
+    if (resetPasswordValue !== resetPasswordConfirm) {
+      setResetPasswordError("Passwords do not match.");
+      return;
+    }
+    if (!(await ensureActiveServerSession())) return;
+    setBusy(true);
+    setStatus("Resetting password...");
+    try {
+      const res = await callApi("/api/admin/users/reset-password", "POST", undefined, {
+        subject: resetPasswordTarget.subject,
+        newPassword: resetPasswordValue,
+      });
+      if (!res.ok) {
+        setResetPasswordError(res.error ?? "Unknown error");
+        return;
+      }
+      setStatus("Password reset completed.");
+      setResetPasswordTarget(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateUserStatusesFromCsvFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!(await ensureActiveServerSession())) {
+      return;
+    }
+    setBulkStatusCsvFileName(file.name);
+    const csvText = await file.text();
+    const parsedRows = parseCsvRecords(csvText).filter((row) => row.some((cell) => String(cell ?? "").trim() !== ""));
+    if (parsedRows.length < 2) {
+      setStatus("CSV must contain a header row and at least one user row.");
+      return;
+    }
+    const headers = parsedRows[0].map((header) => String(header ?? "").trim().toLowerCase().replace(/\s+/g, ""));
+    const headerIndex = new Map<string, number>();
+    headers.forEach((header, index) => headerIndex.set(header, index));
+    if (!headerIndex.has("username")) {
+      setStatus("CSV is missing required column: username");
+      return;
+    }
+    const statusKey = headerIndex.has("active")
+      ? "active"
+      : headerIndex.has("status")
+        ? "status"
+        : "";
+    if (!statusKey) {
+      setStatus("CSV must include status column: active or status");
+      return;
+    }
+
+    const parseActive = (raw: string): boolean | null => {
+      const value = raw.trim().toLowerCase();
+      if (["1", "true", "active", "enabled", "yes"].includes(value)) return true;
+      if (["0", "false", "inactive", "disabled", "no"].includes(value)) return false;
+      return null;
     };
-    const oldRow: EditableUserRow = {
-      subject: row.subject,
-      fullName: row.fullName || row.email || row.subject,
-      roles: row.roles.length > 0 ? row.roles : ["guest"],
-      active: row.active,
-    };
+
+    const updates: Array<{ username: string; active: boolean }> = [];
+    for (let i = 1; i < parsedRows.length; i += 1) {
+      const row = parsedRows[i];
+      const username = String(row[headerIndex.get("username") ?? -1] ?? "").trim().toLowerCase();
+      const parsedActive = parseActive(String(row[headerIndex.get(statusKey) ?? -1] ?? ""));
+      if (!username || parsedActive == null) {
+        continue;
+      }
+      updates.push({ username, active: parsedActive });
+    }
+    if (updates.length === 0) {
+      setStatus("No valid status rows found. Use columns: username and active/status.");
+      return;
+    }
+    if (updates.length > 100) {
+      setStatus("CSV has too many status rows. Maximum supported per upload is 100.");
+      return;
+    }
+
+    setBusy(true);
+    setStatus("Updating user statuses from CSV...");
+    try {
+      const res = await callApi("/api/admin/users/set-active-batch", "POST", undefined, { updates });
+      if (!res.ok) {
+        setStatus(`Status CSV update failed: ${res.error ?? "Unknown error"}`);
+        return;
+      }
+      invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
+      await loadUsers(undefined, { force: true });
+      setStatus(`Status CSV update complete. Updated: ${updates.length}.`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitUserRows(updates: Array<{ row: UserRow; patch: Partial<{ fullName: string; email: string; username: string; roles: string[]; active: boolean }> }>) {
+    if (updates.length === 0) return;
+    if (!(await ensureActiveServerSession())) return;
     try {
       setBusy(true);
-      await processUserGridRowUpdate(nextRow, oldRow);
+      for (const item of updates) {
+        const nextRow: EditableUserRow = {
+          subject: item.row.subject,
+          fullName: item.patch.fullName ?? (item.row.fullName || item.row.email || item.row.subject),
+          roles: item.patch.roles ?? (item.row.roles.length > 0 ? item.row.roles : ["guest"]),
+          active: item.patch.active ?? item.row.active,
+          ...(item.patch.email !== undefined ? { email: item.patch.email } : {}),
+          ...(item.patch.username !== undefined ? { username: item.patch.username } : {}),
+        };
+        const oldRow: EditableUserRow = {
+          subject: item.row.subject,
+          fullName: item.row.fullName || item.row.email || item.row.subject,
+          roles: item.row.roles.length > 0 ? item.row.roles : ["guest"],
+          active: item.row.active,
+        };
+        await processUserGridRowUpdate(nextRow, oldRow, { suppressReload: true, suppressStatus: true });
+      }
+      invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
+      await loadUsers(undefined, { force: true });
+      setStatus(`Users updated (${updates.length} row${updates.length === 1 ? "" : "s"}).`);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Inline update failed");
+      setStatus(err instanceof Error ? err.message : "User batch update failed");
     } finally {
       setBusy(false);
     }
@@ -1499,6 +1725,64 @@ function App() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [sessionTakenOver]);
+
+  useEffect(() => {
+    if (!principal) {
+      inactivityWarnedRef.current = false;
+      inactivityLogoutInFlightRef.current = false;
+      return;
+    }
+
+    const touchActivity = () => {
+      lastActivityAtRef.current = Date.now();
+      inactivityWarnedRef.current = false;
+    };
+
+    const onActivity = () => {
+      if (sessionStorage.getItem(TAB_SESSION_MARKER_KEY) !== "1") return;
+      if (sessionTakenOver) return;
+      touchActivity();
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"];
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, onActivity, { passive: true });
+    }
+
+    touchActivity();
+    const timerId = window.setInterval(() => {
+      if (!principal) return;
+      if (sessionStorage.getItem(TAB_SESSION_MARKER_KEY) !== "1") return;
+      if (sessionTakenOver) return;
+
+      const now = Date.now();
+      const idleMs = now - lastActivityAtRef.current;
+      const warnAtMs = INACTIVITY_LOGOUT_MS - INACTIVITY_WARN_BEFORE_MS;
+
+      if (!inactivityWarnedRef.current && idleMs >= warnAtMs && idleMs < INACTIVITY_LOGOUT_MS) {
+        inactivityWarnedRef.current = true;
+        const idleMinutes = Math.max(0, Math.floor(warnAtMs / 60_000));
+        const graceMinutes = Math.max(1, Math.floor(INACTIVITY_WARN_BEFORE_MS / 60_000));
+        const keepSession = window.confirm(`You have been inactive for ${idleMinutes} minute${idleMinutes === 1 ? "" : "s"}. You will be signed out in ${graceMinutes} minute${graceMinutes === 1 ? "" : "s"} due to inactivity.\n\nPress OK to stay signed in.`);
+        if (keepSession) {
+          touchActivity();
+          void revalidateSessionStrict();
+        }
+      }
+
+      if (idleMs >= INACTIVITY_LOGOUT_MS && !inactivityLogoutInFlightRef.current) {
+        inactivityLogoutInFlightRef.current = true;
+        void logout("Logged out due to 15 minutes of inactivity.");
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timerId);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, onActivity);
+      }
+    };
+  }, [principal, sessionTakenOver]);
 
   useEffect(() => {
     void (async () => {
@@ -1737,6 +2021,9 @@ function App() {
     sessionStorage.setItem(TAB_SESSION_MARKER_KEY, "1");
     localStorage.setItem("fa_last_login_tab", tabIdRef.current || crypto.randomUUID());
     setSessionTakenOver(false);
+    lastActivityAtRef.current = Date.now();
+    inactivityWarnedRef.current = false;
+    inactivityLogoutInFlightRef.current = false;
     await loadSessionPrincipal();
     await loadMyAccount();
     await loadOtherSessionsCount();
@@ -1765,10 +2052,12 @@ function App() {
     }
   }
 
-  async function logout() {
+  async function logout(reason?: string) {
     await callApi("/api/auth/logout", "POST");
     sessionCheckRef.current = { checkedAt: Date.now(), ok: false };
     setSessionTakenOver(false);
+    inactivityWarnedRef.current = false;
+    inactivityLogoutInFlightRef.current = false;
     sessionStorage.removeItem(TAB_SESSION_MARKER_KEY);
     clearSessionDataCaches();
     invalidateAdminCache();
@@ -1779,7 +2068,7 @@ function App() {
     setOtherSessionsCount(0);
     setOpenGroups({});
     setMenuAnchors({});
-    setStatus("Logged out");
+    setStatus(reason ?? "Logged out");
   }
 
   async function saveMyAccountName() {
@@ -1907,7 +2196,7 @@ function App() {
         onClick: () => {
           void (async () => {
             if (await ensureActiveServerSession()) {
-              setSuperView("dashboard");
+              navigateTo("dashboard");
               if (isAdmin) {
                 await loadDashboard();
               }
@@ -1932,7 +2221,7 @@ function App() {
               onClick: () => {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
-                    setSuperView("regulations");
+                    navigateTo("regulations");
                     await loadRegulations();
                     await loadPlansOfStudy();
                   }
@@ -1947,7 +2236,7 @@ function App() {
               onClick: () => {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
-                    setSuperView("students-directory");
+                    navigateTo("students-directory");
                     await loadProgrammes({ force: true });
                     await loadPlansOfStudy();
                     if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
@@ -1980,7 +2269,7 @@ function App() {
               onClick: () => {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
-                    setSuperView("logs");
+                    navigateTo("logs");
                     setLogLevel("error");
                     await loadLogs("error");
                   }
@@ -1995,7 +2284,7 @@ function App() {
               onClick: () => {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
-                    setSuperView("activity-logs");
+                    navigateTo("activity-logs");
                     await loadActivityLogs();
                   }
                 })();
@@ -2049,7 +2338,7 @@ function App() {
             onClick: () => {
               void (async () => {
                 if (await ensureActiveServerSession()) {
-                  setSuperView("all-users");
+                  navigateTo("all-users");
                   await loadUsers();
                 }
               })();
@@ -2063,7 +2352,7 @@ function App() {
             onClick: () => {
               void (async () => {
                 if (await ensureActiveServerSession()) {
-                  setSuperView("login-activity");
+                  navigateTo("login-activity");
                   await loadLoginActivity();
                 }
               })();
@@ -2077,7 +2366,7 @@ function App() {
             onClick: () => {
               void (async () => {
                 if (await ensureActiveServerSession()) {
-                  setSuperView("active-users");
+                  navigateTo("active-users");
                   await loadActiveUsers();
                 }
               })();
@@ -2091,7 +2380,7 @@ function App() {
             onClick: () => {
               void (async () => {
                 if (await ensureActiveServerSession()) {
-                  setSuperView("session-admin");
+                  navigateTo("session-admin");
                 }
               })();
             },
@@ -2382,7 +2671,7 @@ function App() {
         </Stack>
         <Box sx={{ mt: "auto", pt: 1.5, pb: 0.5, borderTop: "1px solid", borderColor: "divider" }}>
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap" }}>
-            <Typography variant="caption" color="text.disabled">{status}</Typography>
+            <Typography variant="caption" color="text.disabled" aria-live="polite" aria-atomic="true">{status}</Typography>
             <Typography variant="caption" color="text.disabled" sx={{ ml: "auto", textAlign: "right" }}>
               {`© ${new Date().getFullYear()} ${ORG_NAME}`}
             </Typography>
@@ -2393,6 +2682,7 @@ function App() {
   }
 
   return (
+    <DateTimeProvider formatIst={formatIst}>
     <Box sx={{ minHeight: "100vh", bgcolor: shellColors.pageBg, color: shellColors.textPrimary }}>
       <AppBar
         position="fixed"
@@ -2441,7 +2731,7 @@ function App() {
                 <MenuItem
                   sx={{ fontSize: "0.8rem" }}
                   onClick={() => {
-                    setSuperView("account");
+                    navigateTo("account");
                     setAccountView("profile");
                     setProfileAnchorEl(null);
                     void ensureActiveServerSession();
@@ -2573,15 +2863,8 @@ function App() {
         )}
 
         {hasSuperAdmin && !principal && (
-          <Box
-            sx={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 9999,
-              display: "flex",
-              bgcolor: "#f0f4f8",
-            }}
-          >
+          <Box sx={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex" }}>
+
             {/* Left branding panel — desktop only */}
             <Box
               sx={{
@@ -2601,145 +2884,70 @@ function App() {
               <Box sx={{ position: "absolute", width: 450, height: 450, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.07)", top: -100, left: -100 }} />
               <Box sx={{ position: "absolute", width: 320, height: 320, borderRadius: "50%", border: "1px solid rgba(255,255,255,0.05)", bottom: -70, right: -70 }} />
               <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 96, height: 96, mb: 1, position: "relative" }} />
-              <Typography variant="h3" sx={{ fontWeight: 800, letterSpacing: -0.5, position: "relative", textAlign: "center" }}>
-                {APP_NAME_SHORT}
-              </Typography>
-              <Typography variant="subtitle1" sx={{ opacity: 0.82, maxWidth: 340, position: "relative", textAlign: "center" }}>
-                {APP_NAME_FULL}
-              </Typography>
+              <Typography variant="h3" align="center" sx={{ fontWeight: 800, letterSpacing: -0.5, position: "relative" }}>{APP_NAME_SHORT}</Typography>
+              <Typography variant="subtitle1" align="center" sx={{ opacity: 0.82, maxWidth: 340, position: "relative" }}>{APP_NAME_FULL}</Typography>
               <Box sx={{ width: 48, height: 3, borderRadius: 2, bgcolor: "rgba(255,255,255,0.38)", my: 0.5, position: "relative" }} />
-              <Typography variant="body2" sx={{ opacity: 0.65, letterSpacing: 1.2, textTransform: "uppercase", fontSize: "0.7rem", position: "relative" }}>
-                {ORG_NAME}
-              </Typography>
-              <Typography variant="body2" sx={{ opacity: 0.48, mt: 0.25, position: "relative" }}>
-                Academic Management Portal
-              </Typography>
+              <Typography variant="body2" align="center" sx={{ opacity: 0.65, letterSpacing: 1.2, textTransform: "uppercase", fontSize: "0.7rem", position: "relative" }}>{ORG_NAME}</Typography>
+              <Typography variant="body2" align="center" sx={{ opacity: 0.48, position: "relative" }}>Academic Management Portal</Typography>
             </Box>
 
-            {/* Right login panel */}
+            {/* Right form panel */}
             <Box
               sx={{
-                width: { xs: "100%", md: 480 },
+                width: { xs: "100%", md: 500 },
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "center",
                 alignItems: "center",
-                bgcolor: "#fff",
+                bgcolor: "background.paper",
+                borderLeft: 1,
+                borderColor: "divider",
                 p: { xs: 3, sm: 5 },
               }}
             >
               {/* Mobile-only branding */}
-              <Box sx={{ display: { xs: "block", md: "none" }, textAlign: "center", mb: 3 }}>
-                <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 60, height: 60, mb: 1.5 }} />
-                <Typography variant="h6" sx={{ fontWeight: 700 }}>{APP_NAME_SHORT}</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{ORG_NAME}</Typography>
+              <Box sx={{ display: { xs: "flex", md: "none" }, flexDirection: "column", alignItems: "center", mb: 4, gap: 0.5 }}>
+                <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 48, height: 48, mb: 1 }} />
+                <Typography variant="h6" fontWeight={700} align="center">{APP_NAME_SHORT}</Typography>
+                <Typography variant="body2" color="text.secondary" align="center">{ORG_NAME}</Typography>
               </Box>
 
               <Box sx={{ width: "100%", maxWidth: 360 }}>
-                <Typography variant="h5" gutterBottom sx={{ fontWeight: 700, textAlign: "center" }}>
-                  Welcome back
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5, textAlign: "center" }}>
-                  Sign in to your academic portal
-                </Typography>
+                <Typography variant="h5" fontWeight={700} align="center" gutterBottom>Welcome back</Typography>
+                <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 3 }}>Sign in to continue</Typography>
 
-                <Stack spacing={1.25}>
-                  {/* Primary: SSO / OAuth buttons */}
+                <Stack spacing={2}>
                   {GOOGLE_CLIENT_ID ? (
                     <Box sx={{ display: "flex", justifyContent: "center" }}>
                       <Box id="google-signin-button" sx={{ width: "100%" }} />
                     </Box>
                   ) : null}
 
-                  {/* Divider between SSO and local login */}
                   {GOOGLE_CLIENT_ID ? (
-                    <Divider sx={{ my: 0.25 }}>
-                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.7rem" }}>or</Typography>
-                    </Divider>
+                    <Divider><Typography variant="caption" color="text.disabled">or</Typography></Divider>
                   ) : null}
 
-                  {/* Secondary: local credentials — toggle link when SSO is available */}
                   {GOOGLE_CLIENT_ID && !showLocalLogin ? (
-                    <Box sx={{ textAlign: "center" }}>
-                      <Typography
-                        component="button"
-                        variant="caption"
-                        onClick={() => setShowLocalLogin(true)}
-                        sx={{ color: "text.disabled", fontSize: "0.72rem", cursor: "pointer", background: "none", border: "none", p: 0, "&:hover": { color: "text.secondary", textDecoration: "underline" } }}
-                      >
+                    <Typography align="center" component="div">
+                      <Link component="button" variant="caption" color="text.secondary" underline="hover" onClick={() => setShowLocalLogin(true)} sx={{ fontSize: "0.65rem" }}>
                         Sign in with username &amp; password
-                      </Typography>
-                    </Box>
+                      </Link>
+                    </Typography>
                   ) : (
                     <Collapse in={showLocalLogin} unmountOnExit>
-                      <form onSubmit={onLogin}>
+                      <form onSubmit={onLogin} aria-label="Sign in with username and password">
                         <Stack spacing={2}>
-                          <TextField
-                            variant="outlined"
-                            fullWidth
-                            type="text"
-                            label="Username"
-                            autoComplete="username"
-                            value={loginUser}
-                            onChange={(e) => setLoginUser(e.target.value)}
-                            slotProps={{
-                              input: {
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <PersonIcon sx={{ fontSize: 18, color: "text.disabled" }} />
-                                  </InputAdornment>
-                                ),
-                              },
-                            }}
+                          <TextField label="Username" fullWidth autoComplete="username" value={loginUser} onChange={(e) => setLoginUser(e.target.value)}
+                            slotProps={{ htmlInput: { sx: { "&:-webkit-autofill, &:-webkit-autofill:hover, &:-webkit-autofill:focus": { WebkitBoxShadow: `0 0 0 1000px ${theme.palette.background.paper} inset`, WebkitTextFillColor: theme.palette.text.primary } } } }}
                           />
-                          <TextField
-                            variant="outlined"
-                            fullWidth
-                            type="password"
-                            label="Password"
-                            autoComplete="current-password"
-                            value={loginPass}
-                            onChange={(e) => setLoginPass(e.target.value)}
-                            slotProps={{
-                              input: {
-                                startAdornment: (
-                                  <InputAdornment position="start">
-                                    <LockPersonIcon sx={{ fontSize: 18, color: "text.disabled" }} />
-                                  </InputAdornment>
-                                ),
-                              },
-                            }}
+                          <TextField label="Password" fullWidth type="password" autoComplete="current-password" value={loginPass} onChange={(e) => setLoginPass(e.target.value)}
+                            slotProps={{ htmlInput: { sx: { "&:-webkit-autofill, &:-webkit-autofill:hover, &:-webkit-autofill:focus": { WebkitBoxShadow: `0 0 0 1000px ${theme.palette.background.paper} inset`, WebkitTextFillColor: theme.palette.text.primary } } } }}
                           />
-                          <Button
-                            fullWidth
-                            variant="contained"
-                            size="large"
-                            disabled={busy}
-                            type="submit"
-                            sx={{
-                              py: 1.5,
-                              fontWeight: 600,
-                              fontSize: "1rem",
-                              borderRadius: 2,
-                              background: "linear-gradient(90deg, #0d1b5e 0%, #1a3a8a 100%)",
-                              boxShadow: "0 4px 14px rgba(13,27,94,0.30)",
-                              "&:hover": {
-                                background: "linear-gradient(90deg, #1a3a8a 0%, #2d52a0 100%)",
-                                boxShadow: "0 6px 18px rgba(13,27,94,0.40)",
-                              },
-                            }}
-                          >
-                            Sign In
-                          </Button>
+                          <Button fullWidth variant="contained" size="large" disabled={busy} type="submit">Sign In</Button>
                           {GOOGLE_CLIENT_ID ? (
-                            <Box sx={{ textAlign: "center" }}>
-                              <Button
-                                variant="text"
-                                size="small"
-                                onClick={() => setShowLocalLogin(false)}
-                                sx={{ color: "text.disabled", fontSize: "0.75rem", textTransform: "none", "&:hover": { color: "text.secondary", bgcolor: "transparent" } }}
-                              >
-                                ← Back to sign-in options
+                            <Box textAlign="center">
+                              <Button variant="text" size="small" startIcon={<ChevronLeftIcon />} onClick={() => setShowLocalLogin(false)}>
+                                Back to sign-in options
                               </Button>
                             </Box>
                           ) : null}
@@ -2749,18 +2957,51 @@ function App() {
                   )}
                 </Stack>
 
-                <Box sx={{ mt: 5, pt: 3, borderTop: "1px solid", borderColor: "divider", textAlign: "center" }}>
-                  <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 0.75 }}>
-                    {APP_NAME_FULL}
-                  </Typography>
-                  <Typography variant="caption" color="text.disabled" sx={{ display: "block" }}>
-                    {ORG_NAME} · Academic Management Portal
-                  </Typography>
-                </Box>
+                <Divider sx={{ mt: 3 }} />
+                <Typography variant="caption" color="text.disabled" align="center" sx={{ display: "block", mt: 1.5 }}>{APP_NAME_FULL}</Typography>
+                <Typography variant="caption" color="text.disabled" align="center" sx={{ display: "block", mt: 0.5 }}>
+                  {`© ${new Date().getFullYear()} ${ORG_NAME}`}
+                </Typography>
               </Box>
             </Box>
+
           </Box>
         )}
+
+        {principal && apiError ? (
+          <Alert
+            severity="error"
+            action={
+              apiError.retryFn ? (
+                <Button
+                  size="small"
+                  color="inherit"
+                  onClick={() => { setApiError(null); void apiError.retryFn?.(); }}
+                >
+                  Retry
+                </Button>
+              ) : undefined
+            }
+            onClose={() => setApiError(null)}
+            sx={{ mb: 2 }}
+          >
+            {apiError.message}
+          </Alert>
+        ) : null}
+
+        {principal && prevSuperView !== null ? (
+          <Box sx={{ mb: 1 }}>
+            <Button
+              type="button"
+              size="small"
+              startIcon={<ChevronLeftIcon />}
+              onClick={goBack}
+              sx={{ fontWeight: 500 }}
+            >
+              Back
+            </Button>
+          </Box>
+        ) : null}
 
         {principal && superView === "dashboard" ? (
           <Box>
@@ -2790,7 +3031,7 @@ function App() {
               </Stack>
               <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
                 {principal.roles.map((role) => (
-                  <Chip key={role} size="small" label={role} />
+                  <Chip key={role} size="small" label={role} color={ROLE_COLORS[role] ?? "default"} />
                 ))}
                 {isSuperAdmin ? <Chip size="small" color="error" label="superadmin" /> : null}
               </Box>
@@ -2861,8 +3102,9 @@ function App() {
                         <Button
                           type="button"
                           size="small"
+                          endIcon={<ArrowForwardIcon />}
                           sx={{ p: 0, mt: 0.5 }}
-                          onClick={() => { void (async () => { if (await ensureActiveServerSession()) { setSuperView("all-users"); await loadUsers(); } })(); }}
+                          onClick={() => { void (async () => { if (await ensureActiveServerSession()) { navigateTo("all-users"); await loadUsers(); } })(); }}
                         >
                           View all accounts
                         </Button>
@@ -2879,12 +3121,13 @@ function App() {
                         <Button
                           type="button"
                           size="small"
+                          endIcon={<ArrowForwardIcon />}
                           sx={{ p: 0, mt: 0.5 }}
                           onClick={() => {
                             void (async () => {
                               if (await ensureActiveServerSession()) {
                                 setUserGlobalFilter("guest");
-                                setSuperView("all-users");
+                                navigateTo("all-users");
                               }
                             })();
                           }}
@@ -2904,8 +3147,9 @@ function App() {
                         <Button
                           type="button"
                           size="small"
+                          endIcon={<ArrowForwardIcon />}
                           sx={{ p: 0, mt: 0.5 }}
-                          onClick={() => { void (async () => { if (await ensureActiveServerSession()) { setSuperView("active-users"); await loadActiveUsers(); } })(); }}
+                          onClick={() => { void (async () => { if (await ensureActiveServerSession()) { navigateTo("active-users"); await loadActiveUsers(); } })(); }}
                         >
                           View active sessions
                         </Button>
@@ -2959,6 +3203,7 @@ function App() {
                                 value={pct}
                                 color={pct > 80 ? "error" : pct > 50 ? "warning" : "primary"}
                                 sx={{ height: 6, borderRadius: 1 }}
+                                aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
                               />
                               <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.25, textAlign: "right" }}>
                                 {pct.toFixed(1)}%
@@ -3008,7 +3253,7 @@ function App() {
                           onClick={() => {
                             void (async () => {
                               if (await ensureActiveServerSession()) {
-                                setSuperView("logs");
+                                navigateTo("logs");
                                 setLogLevel("error");
                                 await loadLogs("error");
                               }
@@ -3036,7 +3281,7 @@ function App() {
                           onClick={() => {
                             void (async () => {
                               if (await ensureActiveServerSession()) {
-                                setSuperView("logs");
+                                navigateTo("logs");
                                 setLogLevel("warn");
                                 await loadLogs("warn");
                               }
@@ -3065,7 +3310,11 @@ function App() {
                     <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
                       <Typography variant="subtitle2">Login Activity Timeline</Typography>
                       <Typography variant="caption" color="text.secondary">X-axis in IST (UTC+05:30). Click a data point to jump to that filter.</Typography>
-                      <Box sx={{ height: 220, mt: 1 }}>
+                      <Box
+                        sx={{ height: 220, mt: 1 }}
+                        role="img"
+                        aria-label={`Login activity timeline: ${dashboardLoginTotal.toLocaleString()} total attempts — ${dashboardLoginSuccess.toLocaleString()} succeeded, ${dashboardLoginFailed.toLocaleString()} failed in the last 48 hours`}
+                      >
                         <ReactECharts
                           theme={echartsTheme}
                           option={loginActivityChartOption}
@@ -3091,7 +3340,7 @@ function App() {
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Student</Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Learning dashboard and assigned mentoring actions will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { setSuperView("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
+                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -3109,7 +3358,7 @@ function App() {
                           </Typography>
                         </Box>
                         <Tooltip title="Refresh counts">
-                          <IconButton size="small" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
+                          <IconButton size="small" aria-label="Refresh student counts" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
                             <RefreshIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -3121,11 +3370,7 @@ function App() {
                           gap: 2,
                         }}
                       >
-                        <Paper
-                          variant="outlined"
-                          sx={{ borderRadius: 2, px: 3, py: 2.5, cursor: "pointer", transition: "box-shadow 0.15s", "&:hover": { boxShadow: 3 } }}
-                          onClick={() => { void openFacultyStudentsDirectory("mentoring"); }}
-                        >
+                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                             <SchoolIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
                             <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
@@ -3140,16 +3385,12 @@ function App() {
                             size="small"
                             endIcon={<ArrowForwardIcon />}
                             sx={{ p: 0, mt: 1 }}
-                            onClick={(e) => { e.stopPropagation(); void openFacultyStudentsDirectory("mentoring"); }}
+                            onClick={() => { void openFacultyStudentsDirectory("mentoring"); }}
                           >
                             View students
                           </Button>
                         </Paper>
-                        <Paper
-                          variant="outlined"
-                          sx={{ borderRadius: 2, px: 3, py: 2.5, cursor: "pointer", transition: "box-shadow 0.15s", "&:hover": { boxShadow: 3 } }}
-                          onClick={() => { void openFacultyStudentsDirectory("completed"); }}
-                        >
+                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                             <CheckCircleOutlineIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
                             <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
@@ -3164,7 +3405,7 @@ function App() {
                             size="small"
                             endIcon={<ArrowForwardIcon />}
                             sx={{ p: 0, mt: 1 }}
-                            onClick={(e) => { e.stopPropagation(); void openFacultyStudentsDirectory("completed"); }}
+                            onClick={() => { void openFacultyStudentsDirectory("completed"); }}
                           >
                             View students
                           </Button>
@@ -3178,7 +3419,7 @@ function App() {
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Head</Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Department-level rollups and escalation insights will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { setSuperView("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
+                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -3187,7 +3428,7 @@ function App() {
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Moderator</Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Moderation review items and flagged activity summary will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { setSuperView("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
+                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -3288,7 +3529,7 @@ function App() {
                   </Stack>
                 </Stack>
 
-                <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }} role="group" aria-label="Log type filters">
                   <Chip
                     size="small"
                     clickable
@@ -3296,6 +3537,7 @@ function App() {
                     color={hasAnyLogTypeFilter ? "default" : "primary"}
                     variant={hasAnyLogTypeFilter ? "outlined" : "filled"}
                     label={`All: ${visibleLogRows.length}`}
+                    aria-pressed={!hasAnyLogTypeFilter}
                   />
                   <Chip
                     size="small"
@@ -3304,6 +3546,7 @@ function App() {
                     variant={isLogTypeSelected("status5xx") ? "filled" : "outlined"}
                     color="error"
                     label={`5xx: ${visibleLogRowsByType.status5xx.length}`}
+                    aria-pressed={isLogTypeSelected("status5xx")}
                   />
                   <Chip
                     size="small"
@@ -3312,6 +3555,7 @@ function App() {
                     variant={isLogTypeSelected("status4xx") ? "filled" : "outlined"}
                     color="warning"
                     label={`4xx: ${visibleLogRowsByType.status4xx.length}`}
+                    aria-pressed={isLogTypeSelected("status4xx")}
                   />
                   <Chip
                     size="small"
@@ -3320,6 +3564,7 @@ function App() {
                     variant={isLogTypeSelected("slow") ? "filled" : "outlined"}
                     color="info"
                     label={`Slow >1s: ${visibleLogRowsByType.slow.length}`}
+                    aria-pressed={isLogTypeSelected("slow")}
                   />
                 </Box>
               </Box>
@@ -3338,7 +3583,7 @@ function App() {
                     <TableHead>
                       <TableRow sx={{ "& th": { bgcolor: "background.paper", borderBottom: "1px solid", borderColor: "divider" } }}>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>Time</TableCell>
-                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Full name</TableCell>
+                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>User / Subject</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Level</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Method</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Route</TableCell>
@@ -3413,6 +3658,7 @@ function App() {
                                 value={Math.min(100, (row.durationMs / 3000) * 100)}
                                 color={row.durationMs > 1000 ? "error" : row.durationMs > 300 ? "warning" : "success"}
                                 sx={{ height: 3, borderRadius: 1, mt: 0.25 }}
+                                aria-label={`Request duration: ${row.durationMs}ms`}
                               />
                             </Box>
                           </TableCell>
@@ -3424,7 +3670,7 @@ function App() {
                           <TableCell sx={{ maxWidth: 200 }}>
                             {row.meta ? (
                               <Tooltip title={<Box component="pre" sx={{ m: 0, fontSize: "0.7rem" }}>{JSON.stringify(row.meta, null, 2)}</Box>} placement="left" arrow>
-                                <Typography variant="caption" sx={{ fontFamily: "monospace", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, cursor: "help" }}>
+                                <Typography tabIndex={0} variant="caption" sx={{ fontFamily: "monospace", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, cursor: "help" }}>
                                   {JSON.stringify(row.meta)}
                                 </Typography>
                               </Tooltip>
@@ -3493,6 +3739,7 @@ function App() {
                       <span>
                         <IconButton
                           size="small"
+                          aria-label="Refresh activity logs"
                           disabled={busy}
                           onClick={() => { void loadActivityLogs(undefined, { force: true }); }}
                         >
@@ -3508,13 +3755,14 @@ function App() {
                     </Tooltip>
                   </Stack>
                 </Stack>
-                <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
+                <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }} role="group" aria-label="Activity log filters">
                   <Chip
                     size="small"
                     clickable
                     color={!hasAnyActivityLevelFilter && !hasAnyActivityStatusFilter && !hasAnyActivityEventFilter ? "primary" : "default"}
                     variant={!hasAnyActivityLevelFilter && !hasAnyActivityStatusFilter && !hasAnyActivityEventFilter ? "filled" : "outlined"}
                     label={`Total: ${activityLogRows.length}`}
+                    aria-pressed={!hasAnyActivityLevelFilter && !hasAnyActivityStatusFilter && !hasAnyActivityEventFilter}
                     onClick={() => {
                       setActivityLevelFilters([]);
                       setActivityStatusFilters([]);
@@ -3529,6 +3777,7 @@ function App() {
                       color={level === "error" ? "error" : level === "warn" ? "warning" : "info"}
                       variant={activityLevelFilters.includes(level) ? "filled" : "outlined"}
                       label={`${level.toUpperCase()}: ${activityLevelCounts.get(level) ?? 0}`}
+                      aria-pressed={activityLevelFilters.includes(level)}
                       onClick={() => toggleActivityLevelFilter(level)}
                     />
                   ))}
@@ -3548,6 +3797,7 @@ function App() {
                       }
                       variant={activityStatusFilters.includes(statusFamily) ? "filled" : "outlined"}
                       label={`${statusFamily}: ${activityStatusCounts.get(statusFamily) ?? 0}`}
+                      aria-pressed={activityStatusFilters.includes(statusFamily)}
                       onClick={() => toggleActivityStatusFilter(statusFamily)}
                     />
                   ))}
@@ -3568,7 +3818,7 @@ function App() {
                     <TableHead>
                       <TableRow sx={{ "& th": { bgcolor: "background.paper", borderBottom: "1px solid", borderColor: "divider" } }}>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>Time</TableCell>
-                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Full name</TableCell>
+                        <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>User / Subject</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Level</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Action</TableCell>
                         <TableCell component="th" scope="col" sx={{ fontWeight: 700 }}>Method</TableCell>
@@ -3648,13 +3898,14 @@ function App() {
                                 value={Math.min(100, (row.durationMs / 3000) * 100)}
                                 color={row.durationMs > 1000 ? "error" : row.durationMs > 300 ? "warning" : "success"}
                                 sx={{ height: 3, borderRadius: 1, mt: 0.25 }}
+                                aria-label={`Request duration: ${row.durationMs}ms`}
                               />
                             </Box>
                           </TableCell>
                           <TableCell sx={{ maxWidth: 200 }}>
                             {row.meta ? (
                               <Tooltip title={<Box component="pre" sx={{ m: 0, fontSize: "0.7rem" }}>{JSON.stringify(row.meta, null, 2)}</Box>} placement="left" arrow>
-                                <Typography variant="caption" sx={{ fontFamily: "monospace", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, cursor: "help" }}>
+                                <Typography tabIndex={0} variant="caption" sx={{ fontFamily: "monospace", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, cursor: "help" }}>
                                   {JSON.stringify(row.meta)}
                                 </Typography>
                               </Tooltip>
@@ -3721,6 +3972,7 @@ function App() {
                         <span>
                           <IconButton
                             size="small"
+                            aria-label="Refresh active users"
                             disabled={busy}
                             onClick={() => { void loadActiveUsers(undefined, { force: true }); }}
                           >
@@ -3740,15 +3992,14 @@ function App() {
                     {`${activeUserRows.length} records loaded · ${activeLiveUsersCount} live`}
                   </Typography>
                 </Box>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading active-users table...</Typography>}>
-                    <ActiveUsersTable rows={activeUserRows} busy={busy} formatIst={formatIst} />
-                  </Suspense>
-                </Paper>
+                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading active-users table...</Typography>}>
+                  <ActiveUsersTable rows={activeUserRows} busy={busy} />
+                </Suspense>
                 {activeUserHasMore ? (
                   <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
                     <Button
                       type="button"
+                      variant="outlined"
                       onClick={() => {
                         void loadActiveUsers(activeUserCursor);
                       }}
@@ -3776,6 +4027,7 @@ function App() {
                       <span>
                         <IconButton
                           size="small"
+                          aria-label="Refresh login activity"
                           disabled={busy}
                           onClick={() => { void loadLoginActivity(undefined, { force: true }); }}
                         >
@@ -3794,15 +4046,14 @@ function App() {
                     {`${loginActivityRows.length} records loaded.`}
                   </Typography>
                 </Box>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading failed-login table...</Typography>}>
-                    <FailedLoginsTable rows={loginActivityRows} busy={busy} formatIst={formatIst} />
-                  </Suspense>
-                </Paper>
+                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading failed-login table...</Typography>}>
+                  <FailedLoginsTable rows={loginActivityRows} busy={busy} />
+                </Suspense>
                 {loginActivityHasMore ? (
                   <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
                     <Button
                       type="button"
+                      variant="outlined"
                       onClick={() => {
                         void loadLoginActivity(loginActivityCursor);
                       }}
@@ -3837,6 +4088,7 @@ function App() {
                         <span>
                           <IconButton
                             size="small"
+                            aria-label="Refresh user list"
                             disabled={busy}
                             onClick={() => { void loadUsers(undefined, { force: true }); }}
                           >
@@ -3860,15 +4112,27 @@ function App() {
                     <Typography variant="caption" color="text.secondary">
                       Use table column filters and search to refine user results.
                     </Typography>
-                    <Button
-                      type="button"
-                      variant={showAddUserForm ? "outlined" : "contained"}
-                      startIcon={<PersonAddIcon />}
-                      onClick={() => setShowAddUserForm((v) => !v)}
-                      sx={{ alignSelf: { xs: "flex-end", sm: "center" } }}
-                    >
-                      {showAddUserForm ? "Close Form" : "Add New User"}
-                    </Button>
+                    <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignSelf: { xs: "flex-end", sm: "center" } }}>
+                      <Button
+                        component="label"
+                        type="button"
+                        variant="outlined"
+                        disabled={busy}
+                        sx={{ whiteSpace: "nowrap" }}
+                      >
+                        Bulk Update Status CSV
+                        <input hidden accept=".csv,text/csv" type="file" onChange={updateUserStatusesFromCsvFile} />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={showAddUserForm ? "outlined" : "contained"}
+                        startIcon={<PersonAddIcon />}
+                        onClick={() => setShowAddUserForm((v) => !v)}
+                        sx={{ whiteSpace: "nowrap" }}
+                      >
+                        {showAddUserForm ? "Hide User Form" : "Add User"}
+                      </Button>
+                    </Box>
                   </Stack>
                 </Box>
 
@@ -3908,15 +4172,56 @@ function App() {
                       </Box>
                     </Box>
 
-                    <form onSubmit={createUser}>
+                    <form onSubmit={createUser} aria-label="Create local user account">
                       <Stack spacing={2.5} sx={{ p: 2.5 }}>
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
-                          <TextField variant="standard" size="small" fullWidth type="text" label="Full name" value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} />
-                          <TextField variant="standard" size="small" fullWidth type="text" label="Email (optional)" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} />
-                          <TextField variant="standard" size="small" fullWidth type="text" label="Username" value={newUserUsername} onChange={(e) => setNewUserUsername(e.target.value)} />
+                          <TextField
+                            variant="standard" size="small" fullWidth type="text" label="Full name *"
+                            autoComplete="name" value={newUserFullName}
+                            error={Boolean(addUserErrors.fullName)}
+                            helperText={addUserErrors.fullName ?? " "}
+                            onChange={(e) => { setNewUserFullName(e.target.value); setAddUserErrors((prev) => ({ ...prev, fullName: undefined })); }}
+                          />
+                          <TextField
+                            variant="standard" size="small" fullWidth type="email" label="Email (optional)"
+                            autoComplete="email" value={newUserEmail}
+                            helperText=" "
+                            onChange={(e) => setNewUserEmail(e.target.value)}
+                          />
+                          <TextField
+                            variant="standard" size="small" fullWidth type="text" label="Username *"
+                            autoComplete="username" value={newUserUsername}
+                            error={Boolean(addUserErrors.username)}
+                            helperText={addUserErrors.username ?? " "}
+                            onChange={(e) => { setNewUserUsername(e.target.value.toLowerCase()); setAddUserErrors((prev) => ({ ...prev, username: undefined })); }}
+                          />
                         </Stack>
                         <Stack direction={{ xs: "column", md: "row" }} spacing={1.5}>
-                          <TextField variant="standard" size="small" fullWidth type="password" label="Password" value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
+                          <Box sx={{ flexGrow: 1, flexShrink: 1, flexBasis: "auto", minWidth: 0 }}>
+                            <TextField
+                              variant="standard" size="small" fullWidth type="password" label="Password *"
+                              autoComplete="new-password" value={newUserPassword}
+                              error={Boolean(addUserErrors.password)}
+                              helperText={
+                                addUserErrors.password
+                                  ? addUserErrors.password
+                                  : newUserPassword.length > 0
+                                    ? newUserPassword.length < 8
+                                      ? `${newUserPassword.length}/8 characters minimum`
+                                      : "Strength: good"
+                                    : " "
+                              }
+                              onChange={(e) => { setNewUserPassword(e.target.value); setAddUserErrors((prev) => ({ ...prev, password: undefined })); }}
+                            />
+                            {newUserPassword.length > 0 && (
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.min(100, (newUserPassword.length / 12) * 100)}
+                                color={newUserPassword.length < 8 ? "error" : newUserPassword.length < 12 ? "warning" : "success"}
+                                sx={{ mt: 0.5, height: 3, borderRadius: 2 }}
+                              />
+                            )}
+                          </Box>
                           <FormControl variant="standard" size="small" fullWidth>
                             <InputLabel id="new-user-roles-label">Roles</InputLabel>
                             <Select
@@ -3942,7 +4247,7 @@ function App() {
                         </Stack>
                         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
                           <Button type="submit" variant="contained" startIcon={<PersonAddIcon />} disabled={busy}>
-                            Create User
+                            {busy ? "Creating..." : "Create User"}
                           </Button>
                         </Box>
                       </Stack>
@@ -3966,6 +4271,9 @@ function App() {
                         <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
                           <b>Bulk import via CSV.</b> Required: <code>fullName</code>, <code>username</code>, <code>password</code>. Optional: <code>email</code>, <code>role</code>.
                         </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
+                          <b>Bulk status CSV.</b> Required: <code>username</code> and <code>active</code> (or <code>status</code>) using values like <code>true/false</code> or <code>active/disabled</code>.
+                        </Typography>
                         {bulkCsvFileName ? (
                           <Typography variant="caption" color="primary.main">
                             Selected: {bulkCsvFileName}
@@ -3973,42 +4281,28 @@ function App() {
                         ) : null}
                       </Box>
                       <Button component="label" variant="outlined" size="small" disabled={busy}>
-                        Upload CSV
+                        Import Users CSV
                         <input hidden accept=".csv,text/csv" type="file" onChange={createUsersFromCsvFile} />
                       </Button>
                     </Box>
+                    {bulkStatusCsvFileName ? (
+                      <Typography variant="caption" color="primary.main" sx={{ px: 2.5, pb: 1.25, display: "block" }}>
+                        Status CSV selected: {bulkStatusCsvFileName}
+                      </Typography>
+                    ) : null}
                   </Paper>
                 ) : null}
 
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading users table...</Typography>}>
-                    <ManageUsersTable
-                      rows={userRows}
-                      busy={busy}
-                      globalFilter={userGlobalFilter}
-                      onGlobalFilterChange={(value) => setUserGlobalFilter(value)}
-                      onResetPassword={(row) => {
-                        void resetUserPassword(row);
-                      }}
-                      onUpdateRow={async (row, patch) => {
-                        await updateUserRow(row, patch);
-                      }}
-                      formatIst={formatIst}
-                    />
-                  </Suspense>
-                </Paper>
-                {userHasMore ? (
-                  <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
-                    <Button
-                      type="button"
-                      onClick={() => {
-                        void loadUsers(userCursor);
-                      }}
-                    >
-                      Load More
-                    </Button>
-                  </Stack>
-                ) : null}
+                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading users table...</Typography>}>
+                  <ManageUsersTable
+                    rows={userRows}
+                    busy={busy}
+                    onResetPassword={(row) => resetUserPassword(row)}
+                    onSubmitRows={async (updates) => {
+                      await submitUserRows(updates);
+                    }}
+                  />
+                </Suspense>
               </Stack>
             </CardContent>
           </Card>
@@ -4037,6 +4331,7 @@ function App() {
                         <span>
                           <IconButton
                             size="small"
+                            aria-label="Refresh students directory"
                             disabled={busy}
                             onClick={() => {
                               void (async () => {
@@ -4049,7 +4344,13 @@ function App() {
                               })();
                             }}
                           >
-                            <RefreshIcon fontSize="small" />
+                            <RefreshIcon
+                              fontSize="small"
+                              sx={{
+                                "@keyframes spin": { from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } },
+                                animation: busy ? "spin 0.8s linear infinite" : "none",
+                              }}
+                            />
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -4087,7 +4388,7 @@ function App() {
                         </Box>
                         {(isAdmin || hasModeratorRole) ? (
                           <Button component="label" variant="contained" color="primary" size="small" disabled={busy}>
-                            Upload CSV
+                            Update Student Details via CSV
                             <input hidden accept=".csv,text/csv" type="file" onChange={importStudentsFromCsvFile} />
                           </Button>
                         ) : null}
@@ -4110,24 +4411,22 @@ function App() {
                   ) : null}
                 </Box>
 
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading students directory table...</Typography>}>
-                    <StudentsDirectoryTable
-                      rows={hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows}
-                      busy={busy}
-                      planOfStudyOptions={planOfStudyOptions}
-                      mentorNameOptions={mentorNameOptions}
-                      programmeOptions={programmeOptions}
-                      canEdit={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
-                      onUpdateRow={async (row, patch) => {
-                        await updateStudentsDirectoryRow(row, patch);
-                      }}
-                    />
-                  </Suspense>
-                </Paper>
+                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading students directory table...</Typography>}>
+                  <StudentsDirectoryTable
+                    rows={hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows}
+                    busy={busy}
+                    planOfStudyOptions={planOfStudyOptions}
+                    mentorNameOptions={mentorNameOptions}
+                    programmeOptions={programmeOptions}
+                    canEdit={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
+                    onSubmitRows={async (updates) => {
+                      await submitStudentsDirectoryRows(updates);
+                    }}
+                  />
+                </Suspense>
                 {studentsDirectoryHasMore && !(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) ? (
                   <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
-                    <Button type="button" onClick={() => { void loadStudentsDirectory(studentsDirectoryCursor); }}>
+                    <Button type="button" variant="outlined" onClick={() => { void loadStudentsDirectory(studentsDirectoryCursor); }}>
                       Load More
                     </Button>
                   </Stack>
@@ -4158,6 +4457,7 @@ function App() {
                         <span>
                           <IconButton
                             size="small"
+                            aria-label="Refresh regulations"
                             disabled={busy}
                             onClick={() => {
                               void loadRegulations({ force: true });
@@ -4509,7 +4809,7 @@ function App() {
                             }}
                           >
                             {myAccount.roles.map((role) => (
-                              <Chip key={role} label={role} size="small" color="primary" />
+                              <Chip key={role} label={role} size="small" color={ROLE_COLORS[role] ?? "default"} />
                             ))}
                             {myAccount.provider ? (
                               <Chip
@@ -4553,6 +4853,7 @@ function App() {
                                   variant="standard"
                                   size="small"
                                   fullWidth
+                                  label="Full name"
                                   autoFocus
                                   value={fullNameInput}
                                   onChange={(e) => setFullNameInput(e.target.value)}
@@ -4677,7 +4978,7 @@ function App() {
                         </Box>
                       </Box>
 
-                      <form onSubmit={changePassword}>
+                      <form onSubmit={changePassword} aria-label="Change password">
                         <Paper variant="outlined" sx={{ mb: 2.5 }}>
                           <Stack divider={<Divider />}>
                             <Box sx={{ px: 2.5, py: 2, display: "flex", alignItems: "center", gap: 2 }}>
@@ -4915,7 +5216,7 @@ function App() {
                     </Box>
                   </Box>
 
-                  <form onSubmit={forceLogoutAllSessionsForUser}>
+                  <form onSubmit={forceLogoutAllSessionsForUser} aria-label="Revoke user sessions">
                     <Stack spacing={2} sx={{ p: 2 }}>
                       {/* Warning callout */}
                       <Box
@@ -4944,19 +5245,46 @@ function App() {
                         type="text"
                         placeholder="user@example.com · local-username · subject-id"
                         value={sessionTarget}
-                        onChange={(e) => setSessionTarget(e.target.value)}
+                        onChange={(e) => { setSessionTarget(e.target.value); setConfirmRevoke(false); }}
                       />
 
-                      <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
-                        <Button
-                          type="submit"
-                          variant="contained"
-                          color="error"
-                          startIcon={<LogoutIcon />}
-                          disabled={busy || !sessionTarget.trim()}
-                        >
-                          Revoke All Sessions
-                        </Button>
+                      <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+                        {confirmRevoke ? (
+                          <>
+                            <Typography variant="caption" color="error.main" sx={{ fontWeight: 600 }}>
+                              This cannot be undone. Confirm?
+                            </Typography>
+                            <Button
+                              type="button"
+                              variant="outlined"
+                              size="small"
+                              onClick={() => setConfirmRevoke(false)}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="submit"
+                              variant="contained"
+                              color="error"
+                              size="small"
+                              startIcon={<PersonOffIcon />}
+                              disabled={busy}
+                            >
+                              Confirm Revoke
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="contained"
+                            color="error"
+                            startIcon={<PersonOffIcon />}
+                            disabled={busy || !sessionTarget.trim()}
+                            onClick={() => setConfirmRevoke(true)}
+                          >
+                            Revoke All Sessions
+                          </Button>
+                        )}
                       </Box>
                     </Stack>
                   </form>
@@ -4968,14 +5296,106 @@ function App() {
         </Box>
         <Box sx={{ mt: "auto", pt: 1.5, pb: 0.5, borderTop: "1px solid", borderColor: "divider" }}>
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap" }}>
-            <Typography variant="caption" color="text.disabled">{status}</Typography>
+            <Typography variant="caption" color="text.disabled" aria-live="polite" aria-atomic="true">{status}</Typography>
             <Typography variant="caption" color="text.disabled" sx={{ ml: "auto", textAlign: "right" }}>
               {`© ${new Date().getFullYear()} ${ORG_NAME}`}
             </Typography>
           </Box>
         </Box>
       </Box>
+
+      {/* Password reset dialog — replaces window.prompt() */}
+      <Dialog
+        open={Boolean(resetPasswordTarget)}
+        onClose={() => setResetPasswordTarget(null)}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="reset-password-dialog-title"
+      >
+        <DialogTitle id="reset-password-dialog-title">
+          Reset Password
+          {resetPasswordTarget ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              {resetPasswordTarget.username || resetPasswordTarget.subject}
+            </Typography>
+          ) : null}
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              autoFocus
+              fullWidth
+              label="New password"
+              type="password"
+              value={resetPasswordValue}
+              onChange={(e) => { setResetPasswordValue(e.target.value); setResetPasswordError(""); }}
+              error={Boolean(resetPasswordError)}
+              helperText={
+                resetPasswordError
+                  ? resetPasswordError
+                  : resetPasswordValue.length > 0 && resetPasswordValue.length < 8
+                    ? `${resetPasswordValue.length}/8 characters minimum`
+                    : resetPasswordValue.length >= 8
+                      ? "Strength: good"
+                      : "At least 8 characters"
+              }
+              slotProps={{ input: { autoComplete: "new-password" } }}
+            />
+            <TextField
+              fullWidth
+              label="Confirm new password"
+              type="password"
+              value={resetPasswordConfirm}
+              onChange={(e) => { setResetPasswordConfirm(e.target.value); setResetPasswordError(""); }}
+              error={Boolean(resetPasswordError && resetPasswordConfirm.length > 0)}
+              helperText={
+                resetPasswordConfirm.length > 0 && resetPasswordValue !== resetPasswordConfirm
+                  ? "Passwords do not match"
+                  : " "
+              }
+              slotProps={{ input: { autoComplete: "new-password" } }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetPasswordTarget(null)} disabled={busy}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            disabled={busy || resetPasswordValue.length < 8 || resetPasswordValue !== resetPasswordConfirm}
+            onClick={() => { void submitPasswordReset(); }}
+          >
+            Reset Password
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(csvImportResult)}
+        onClose={() => setCsvImportResult(null)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="csv-import-result-dialog-title"
+      >
+        <DialogTitle id="csv-import-result-dialog-title">CSV Import Result</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            {csvImportResult?.created ?? 0} created · {csvImportResult?.failed ?? 0} failed
+          </Typography>
+          {csvImportResult && csvImportResult.errors.length > 0 ? (
+            <Box sx={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0.75 }}>
+              {csvImportResult.errors.map((err, i) => (
+                <Alert key={i} severity="warning" sx={{ py: 0.25 }}>{err}</Alert>
+              ))}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCsvImportResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
+    </DateTimeProvider>
   );
 }
 

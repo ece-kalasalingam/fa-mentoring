@@ -8,7 +8,9 @@ export const GOOGLE_IDP_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 
 export const ACTIVITY_LOGS_PAGE_SIZE = 25;
 export const ADMIN_DRAWER_WIDTH = 240;
-export const STATUS_AUTO_HIDE_MS = 8_000;
+export const STATUS_AUTO_HIDE_MS = 15_000;
+export const INACTIVITY_LOGOUT_MS = 15 * 60 * 1000;
+export const INACTIVITY_WARN_BEFORE_MS = 60 * 1000;
 export const ADMIN_CACHE_TTL_MS = {
   dashboard: 60_000,
   logs: 20_000,

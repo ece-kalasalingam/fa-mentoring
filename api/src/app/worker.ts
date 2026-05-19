@@ -49,6 +49,7 @@ const ROOT_ENDPOINTS = [
   "/api/admin/users/update",
   "/api/admin/users/reset-password",
   "/api/admin/users/set-active",
+  "/api/admin/users/set-active-batch",
   "/api/admin/users/logout-all-sessions",
   "/api/startup-warnings",
   "/api/setup/wizard-status",
@@ -78,6 +79,7 @@ const ROOT_ENDPOINTS = [
   "/api/students",
   "/api/students-directory",
   "/api/students-directory/update",
+  "/api/students-directory/update-batch",
   "/api/students/stats",
   "/api/import/students"
 ];
@@ -418,6 +420,53 @@ export const worker = {
         statusCode = 200;
         event = active ? "admin.user.activated" : "admin.user.deactivated";
         return respond({ ok: true, message: active ? "User activated." : "User deactivated." });
+      }
+
+      if (pathname === "/api/admin/users/set-active-batch" && request.method === "POST") {
+        if (!principal) {
+          statusCode = 401;
+          event = "request.unauthorized";
+          return respond({ ok: false, error: "Unauthorized" }, 401);
+        }
+        if (!principal.roles.includes("admin")) {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Admin access required." }, 403);
+        }
+        const body = await request.json();
+        const updates = isObject(body) && Array.isArray(body.updates) ? body.updates : null;
+        if (!updates || updates.length === 0) {
+          statusCode = 400;
+          event = "request.validation_failed";
+          return respond({ ok: false, error: "updates[] is required" }, 400);
+        }
+        if (updates.length > 100) {
+          statusCode = 400;
+          event = "request.validation_failed";
+          return respond({ ok: false, error: "updates[] cannot exceed 100 rows per request" }, 400);
+        }
+        const db = getDb(env);
+        let updated = 0;
+        for (const item of updates) {
+          const username = isObject(item) ? String(item.username ?? "").trim().toLowerCase() : "";
+          const active = isObject(item) ? Boolean(item.active) : false;
+          if (!username) {
+            throw new Error("username is required for each update row");
+          }
+          const userLookup = await db.execute({
+            sql: "select subject from user_accounts where lower(trim(coalesce(username, ''))) = ? limit 1",
+            args: [username],
+          });
+          if (userLookup.rows.length === 0) {
+            throw new Error(`User not found for username: ${username}`);
+          }
+          const subject = String(userLookup.rows[0]?.subject ?? "").trim();
+          await setUserActiveByAdmin(env, principal, subject, active);
+          updated += 1;
+        }
+        statusCode = 200;
+        event = "admin.users_active_bulk_updated";
+        return respond({ ok: true, updated, message: `Updated ${updated} user status row(s).` });
       }
 
       if (pathname === "/api/admin/users/logout-all-sessions" && request.method === "POST") {
@@ -897,6 +946,57 @@ export const worker = {
         statusCode = 200;
         event = "students.directory.updated";
         return respond({ ok: true, message: "Student updated." });
+      }
+
+      if (pathname === "/api/students-directory/update-batch" && request.method === "POST") {
+        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head"))) {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
+        const body = await request.json();
+        const updates = isObject(body) && Array.isArray(body.updates) ? body.updates : null;
+        if (!updates || updates.length === 0) {
+          statusCode = 400;
+          event = "request.validation_failed";
+          return respond({ ok: false, error: "updates[] is required" }, 400);
+        }
+        if (updates.length > 100) {
+          statusCode = 400;
+          event = "request.validation_failed";
+          return respond({ ok: false, error: "updates[] cannot exceed 100 rows per request" }, 400);
+        }
+        for (const item of updates) {
+          const userId = isObject(item) ? String(item.userId ?? "") : "";
+          const registrationNumber = isObject(item) ? String(item.registrationNumber ?? "") : "";
+          const planOfStudyCode = isObject(item) && "planOfStudyCode" in item && item.planOfStudyCode !== null && item.planOfStudyCode !== ""
+            ? Number(item.planOfStudyCode)
+            : null;
+          const gender = isObject(item) ? String(item.gender ?? "") : "";
+          const section = isObject(item) ? String(item.section ?? "") : "";
+          const mobileNumber = isObject(item) ? String(item.mobileNumber ?? "") : "";
+          const batch = isObject(item) && "batch" in item ? Number(item.batch) : null;
+          const programme = isObject(item) && "programme" in item && item.programme !== null && item.programme !== ""
+            ? Number(item.programme)
+            : null;
+          const duration = isObject(item) && "duration" in item ? Number(item.duration) : null;
+          const mentorName = isObject(item) ? String(item.mentorName ?? "") : "";
+          await upsertStudentDirectoryRow(env, {
+            userId,
+            registrationNumber,
+            planOfStudyCode,
+            gender,
+            section,
+            mobileNumber,
+            batch,
+            programme,
+            duration,
+            mentorName,
+          });
+        }
+        statusCode = 200;
+        event = "students.directory.batch_updated";
+        return respond({ ok: true, updated: updates.length, message: "Students updated." });
       }
 
       if (pathname === "/api/students/stats" && request.method === "GET") {

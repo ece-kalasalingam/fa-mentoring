@@ -1,11 +1,20 @@
 import { useMemo } from "react";
-import { Box, Button, Chip, Tooltip, Typography } from "@mui/material";
+import { Box, Chip, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
+import { useDateTimeContext } from "./dateTimeContext";
 import { MaterialReactTable, type MRT_ColumnDef } from "material-react-table";
-import DownloadIcon from "@mui/icons-material/Download";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-import { download, generateCsv, mkConfig } from "export-to-csv";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ErrorIcon from "@mui/icons-material/Error";
+import { mkConfig } from "export-to-csv";
+import {
+  MUI_TABLE_PAPER_PROPS,
+  MUI_TABLE_CONTAINER_PROPS,
+  MUI_TABLE_BODY_PROPS,
+  MUI_TABLE_HEAD_CELL_PROPS,
+  MUI_TABLE_BODY_CELL_PROPS,
+  MUI_TABLE_PAGINATION_PROPS_BASE,
+} from "./utils";
+import ExportToolbar from "./ExportToolbar";
 
 type FailedLoginRow = {
   attemptRef: number;
@@ -18,7 +27,6 @@ type FailedLoginRow = {
 type Props = {
   rows: FailedLoginRow[];
   busy: boolean;
-  formatIst: (value: string | null | undefined) => string;
 };
 
 type TableRow = {
@@ -31,6 +39,9 @@ type TableRow = {
   success: boolean;
 };
 export default function FailedLoginsTable(props: Props) {
+  const { formatIst } = useDateTimeContext();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const csvConfig = useMemo(
     () =>
       mkConfig({
@@ -47,13 +58,13 @@ export default function FailedLoginsTable(props: Props) {
       props.rows.map((row) => ({
         id: `${row.attemptRef}-${row.attemptedAt}`,
         attemptedAtRaw: row.attemptedAt,
-        time: props.formatIst(row.attemptedAt),
+        time: formatIst(row.attemptedAt),
         username: row.username || "—",
         ipAddress: row.ipAddress || "—",
         status: row.success ? "Success" : "Failed",
         success: row.success,
       })),
-    [props.rows, props.formatIst]
+    [props.rows, formatIst]
   );
 
   const columns = useMemo<MRT_ColumnDef<TableRow>[]>(
@@ -110,17 +121,23 @@ export default function FailedLoginsTable(props: Props) {
         id: "status",
         accessorFn: (row) => (row.success ? "true" : "false"),
         header: "Status",
-        size: 110,
+        size: 120,
         enableColumnFilterModes: false,
         filterVariant: "checkbox",
         Cell: ({ row }) => (
-          <Chip
-            label={row.original.status}
-            size="small"
-            color={row.original.success ? "success" : "error"}
-            variant={row.original.success ? "filled" : "outlined"}
-            sx={{ fontWeight: 500, fontSize: "0.7rem" }}
-          />
+          <Tooltip title={row.original.success ? "Login succeeded" : "Login failed"} arrow>
+            <Chip
+              label={row.original.status}
+              size="small"
+              color={row.original.success ? "success" : "error"}
+              variant={row.original.success ? "filled" : "outlined"}
+              icon={row.original.success
+                ? <CheckCircleIcon fontSize="small" aria-hidden="true" />
+                : <ErrorIcon fontSize="small" aria-hidden="true" />
+              }
+              sx={{ fontWeight: 500, fontSize: "0.7rem" }}
+            />
+          </Tooltip>
         ),
       },
     ],
@@ -131,13 +148,14 @@ export default function FailedLoginsTable(props: Props) {
     <MaterialReactTable
       columns={columns}
       data={tableRows}
-      layoutMode="semantic"
+      layoutMode="grid"
       enableRowSelection
       enableRowNumbers
       rowNumberDisplayMode="static"
       enableDensityToggle={false}
       enableFullScreenToggle={false}
       enableColumnResizing={false}
+      enableHiding={isDesktop}
       enableColumnActions
       enableColumnFilters
       enableColumnFilterModes
@@ -147,98 +165,55 @@ export default function FailedLoginsTable(props: Props) {
         "mrt-row-numbers": { size: 48, header: "#" },
         "mrt-row-select": { size: 48 },
       }}
-      state={{ isLoading: props.busy }}
+      state={{
+        isLoading: props.busy,
+        showSkeletons: props.busy && tableRows.length === 0,
+      }}
       renderTopToolbarCustomActions={({ table }) => (
-        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-          <Tooltip title="Export visible or selected rows to CSV" arrow>
-            <span>
-              <Button
-                type="button"
-                size="small"
-                variant="outlined"
-                startIcon={<DownloadIcon fontSize="small" />}
-                onClick={() => {
-                  const hasSelectedRows = table.getIsSomeRowsSelected() || table.getIsAllRowsSelected();
-                  const rows = hasSelectedRows ? table.getSelectedRowModel().rows : table.getPrePaginationRowModel().rows;
-                  const csvRows = rows.map((row) => ({
-                    time: row.original.time,
-                    username: row.original.username,
-                    ipAddress: row.original.ipAddress,
-                    status: row.original.status,
-                  }));
-                  const csv = generateCsv(csvConfig)(csvRows);
-                  download(csvConfig)(csv);
-                }}
-                disabled={props.busy || table.getPrePaginationRowModel().rows.length === 0}
-              >
-                Export CSV
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title="Export visible or selected rows to PDF" arrow>
-            <span>
-              <Button
-                type="button"
-                size="small"
-                variant="outlined"
-                startIcon={<PictureAsPdfIcon fontSize="small" />}
-                onClick={() => {
-                  const hasSelectedRows = table.getIsSomeRowsSelected() || table.getIsAllRowsSelected();
-                  const rows = hasSelectedRows ? table.getSelectedRowModel().rows : table.getPrePaginationRowModel().rows;
-                  const body = rows.map((row) => [
-                    row.original.time,
-                    row.original.username,
-                    row.original.ipAddress,
-                    row.original.status,
-                  ]);
-                  const doc = new jsPDF({ orientation: "landscape" });
-                  autoTable(doc, {
-                    head: [["Time", "Username", "IP Address", "Status"]],
-                    body,
-                  });
-                  doc.save("login-activity-export.pdf");
-                }}
-                disabled={props.busy || table.getPrePaginationRowModel().rows.length === 0}
-              >
-                Export PDF
-              </Button>
-            </span>
-          </Tooltip>
-        </Box>
+        <ExportToolbar
+          table={table}
+          busy={props.busy}
+          csvConfig={csvConfig}
+          getCsvRows={(rows) =>
+            rows.map((r) => ({
+              time: r.time,
+              username: r.username,
+              ipAddress: r.ipAddress,
+              status: r.status,
+            }))
+          }
+          pdfFilename="login-activity-export.pdf"
+          pdfHeaders={["Time", "Username", "IP Address", "Status"]}
+          getPdfBody={(rows) =>
+            rows.map((r) => [r.time, r.username, r.ipAddress, r.status])
+          }
+        />
       )}
-      muiTablePaperProps={{
-        elevation: 0,
-        sx: { border: "1px solid", borderColor: "divider", borderRadius: 2 },
-      }}
-      muiTableContainerProps={{
-        sx: { overflowX: "auto" },
-      }}
-      muiTableBodyProps={{
-        sx: {
-          "& tr:nth-of-type(odd) > td": { backgroundColor: "action.hover" },
-        },
-      }}
-      muiTableHeadCellProps={{
-        sx: { fontWeight: 700, fontSize: "0.75rem", py: 1.25, whiteSpace: "nowrap" },
-      }}
-      muiTableBodyCellProps={{
-        sx: { py: 1 },
-      }}
+      muiTablePaperProps={MUI_TABLE_PAPER_PROPS}
+      muiTableContainerProps={MUI_TABLE_CONTAINER_PROPS}
+      muiTableBodyProps={MUI_TABLE_BODY_PROPS}
+      muiTableHeadCellProps={MUI_TABLE_HEAD_CELL_PROPS}
+      muiTableBodyCellProps={MUI_TABLE_BODY_CELL_PROPS}
       initialState={{
         pagination: { pageIndex: 0, pageSize: 10 },
         showColumnFilters: false,
+        showGlobalFilter: false,
+        columnVisibility: isDesktop ? {} : { ipAddress: false },
       }}
-      muiPaginationProps={{
-        rowsPerPageOptions: [
-          10,
-          25,
-          50,
-        ],
-      }}
+      muiPaginationProps={{ rowsPerPageOptions: [...MUI_TABLE_PAGINATION_PROPS_BASE] }}
+      renderBottomToolbarCustomActions={({ table }) => (
+        <Box
+          aria-live="polite"
+          aria-atomic="true"
+          sx={{ position: "absolute", width: 1, height: 1, p: 0, m: "-1px", overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}
+        >
+          {`${table.getFilteredRowModel().rows.length} login records`}
+        </Box>
+      )}
       renderEmptyRowsFallback={() => (
         <Box sx={{ py: 5, textAlign: "center" }}>
           <Typography variant="body2" color="text.disabled">
-            No login activity matches current filters.
+            No login activity found. Try adjusting or clearing your filters.
           </Typography>
         </Box>
       )}

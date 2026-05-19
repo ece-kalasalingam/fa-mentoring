@@ -2542,3 +2542,131 @@ px tsc --noEmit.
   - Keeps password controls hidden for all non-local accounts and for super admin accounts per requirement.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-18 16:31 IST | codex | change
+- Summary: Switched Students Directory edits to local staging with one batched submit request to reduce per-click Worker calls.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/App.tsx, api/src/app/worker.ts, api/src/modules/auth/policy.ts, CHANGELOG.md
+- Details:
+  - Reworked Students Directory table editing to stage cell changes in local component state instead of sending API requests on each edit interaction.
+  - Added a `Submit (N)` toolbar action that sends all staged row updates in one request and clears staged state after success.
+  - Added new API endpoint `POST /api/students-directory/update-batch` with role checks (`admin`, `moderator`, `head`) and bounded batch size (`<=100`).
+  - Added route policy entry for `/api/students-directory/update-batch` to keep authorization behavior explicit and deterministic.
+  - Preserved existing `/api/students-directory/update` endpoint behavior for compatibility.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npm run build` at repo root (includes API tests + frontend build).
+- Revert: none
+## 2026-05-18 16:35 IST | codex | change
+- Summary: Switched Students Directory MRT inline editing to native row Save/Cancel controls while keeping batched submit.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Replaced per-cell blur editing flow with MRT native `editDisplayMode: "row"` so each row edit uses built-in Save/Cancel actions.
+  - Added row action edit trigger using MUI `IconButton` and MRT `setEditingRow`, reducing custom edit state complexity.
+  - Kept local draft/pending staging in React state; row `Save` now stages row changes, row `Cancel` discards edit-mode changes.
+  - Preserved single batched network write flow through existing `Submit (N)` toolbar button.
+  - Reduced custom input wiring by using MRT-native edit variants (`select`, numeric text fields) and table callbacks.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npm run build` at repo root.
+- Revert: none
+## 2026-05-18 16:39 IST | codex | change
+- Summary: Moved MRT actions/edit column to appear immediately after the row-select checkbox in editable tables.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/ManageUsersTable.tsx, CHANGELOG.md
+- Details:
+  - Students Directory table: changed `positionActionsColumn` to `"first"` and set explicit `initialState.columnOrder` so columns start as checkbox -> actions -> row number.
+  - Manage Users table: changed `positionActionsColumn` to `"first"` and reordered `initialState.columnOrder` to checkbox -> actions -> row number.
+  - Keeps existing MRT native editing behavior and all existing toolbar/filter/export features unchanged.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-18 16:43 IST | codex | change
+- Summary: Removed inline row Save/Cancel controls from Students Directory and switched to staged cell edits with diff-only submit payload.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Removed MRT row editing action flow (`editDisplayMode: "row"`, row actions, and inline Save/Cancel controls).
+  - Restored inline cell editing (`editDisplayMode: "cell"`) with local React state staging per edited cell.
+  - Added patch comparison logic against original `props.rows` so unchanged rows are automatically excluded from pending state.
+  - Submit now passes only genuinely updated rows from staged state.
+  - Preserved MRT built-in filtering/search/export features and existing single batched submit request flow.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npm run build` at repo root.
+- Revert: none
+## 2026-05-18 16:48 IST | codex | change
+- Summary: Applied staged local editing + diff-only submit flow to Manage Users MRT with one-click submit processing.
+- Files: frontend/src/app/ManageUsersTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Reworked Manage Users table edits to stage changes locally in React state instead of sending requests on each inline interaction.
+  - Added pending-change tracking by `subject` with value comparison against original rows; unchanged rows are automatically removed from pending set.
+  - Added `Submit (N)` action in Manage Users toolbar to send only changed rows.
+  - Updated app-level handler to process staged user updates in one submit flow, suppressing per-row reload/status and refreshing users once after all updates complete.
+  - Preserved MRT native filtering/search/export behavior and existing reset-password action.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npm run build` at repo root.
+- Revert: none
+## 2026-05-18 16:51 IST | codex | change
+- Summary: Added Manage Users CSV bulk-status action by username with single batch API request.
+- Files: api/src/app/worker.ts, api/src/modules/auth/policy.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added new admin API endpoint `POST /api/admin/users/set-active-batch` to update user active status in bulk from `username` + `active` rows.
+  - Endpoint validates request shape, enforces admin-only access, caps batch size at 100, resolves each username to subject, and applies status updates server-side.
+  - Added route policy entry for the new batch status endpoint.
+  - Added new Manage Users page action button `Upload Status CSV` with CSV parser and client validation.
+  - CSV format supports columns `username` and `active` (or `status`) with values like `true/false`, `1/0`, `active/disabled`, `yes/no`.
+  - Frontend submits a single request to the new batch endpoint, then refreshes users/cache once.
+  - Verification passed: `npm run build` at repo root (API tests + frontend build).
+- Revert: none
+## 2026-05-18 16:53 IST | codex | change
+- Summary: Renamed Manage Users CSV action labels and moved bulk status CSV action next to Add User control.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated user-import button text from `Upload CSV` to `Import Users CSV` for clearer action meaning.
+  - Updated Add User toggle labels to clearer wording: `Add User` and `Hide User Form`.
+  - Moved status CSV action out of form footer and into the top Manage Users header controls next to Add User.
+  - Renamed status action button to `Bulk Update Status CSV` to clearly represent username-based active/disable updates.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-18 16:54 IST | codex | change
+- Summary: Removed Manage Users load-more control and MRT row action column/actions.
+- Files: frontend/src/app/ManageUsersTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed Manage Users page-level `Load More` button block from All Users view.
+  - Removed MRT row action column configuration from Manage Users table (`enableRowActions`, row-actions display column, and `renderRowActions`).
+  - Removed reset-password row action wiring and unused reset-password handler function from app page.
+  - Removed now-unused `userHasMore` UI state reads/writes in user list loading flow.
+  - Preserved staged inline editing, submit batching, and table export/filter behavior.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-18 16:57 IST | codex | change
+- Summary: Restored Manage Users row-level reset-password action while keeping Load More removed.
+- Files: frontend/src/app/ManageUsersTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Re-added Manage Users MRT row action column and reset-password button for local users.
+  - Restored `resetUserPassword` handler and callback wiring from app page to Manage Users table.
+  - Kept previous removal of All Users `Load More` control intact.
+  - Removed now-unused users cursor state references created by load-more removal cleanup.
+  - Verification passed: `npm run build` at repo root.
+- Revert: partial correction of prior change; reset-password action restored per clarification.
+## 2026-05-18 18:39 IST | codex | change
+- Summary: Enforced dense session-scoped browser caching in App state using localStorage-backed TTL cache for read-heavy views.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added a session-bound local cache envelope (`cachedAt`, `sessionKey`, `payload`) backed by `localStorage`, keyed by `provider|subject`.
+  - Upgraded admin first-page caches to hydrate from in-memory first, then localStorage fallback, and write-through on successful fetches.
+  - Added deterministic cache invalidation/removal for both full and key-specific admin cache clears, including localStorage eviction.
+  - Migrated static data caches (regulations, plans of study, validation report, programmes) from session-only storage behavior to dense localStorage TTL caching via shared helpers.
+  - Ensured cache cleanup on identity/session changes by clearing scoped dataset caches when principal session key changes.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-18 18:41 IST | codex | change
+- Summary: Added 15-minute inactivity auto-logout with a pre-timeout user prompt to keep the session active.
+- Files: frontend/src/app/constants.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added inactivity configuration constants for logout threshold (`15m`) and warning lead time (`1m`) in app constants.
+  - Implemented client-side activity tracking for keyboard/mouse/touch/scroll events while authenticated.
+  - Added one-time warning prompt before timeout asking user to stay signed in; confirming resets activity timer and revalidates session.
+  - Added forced logout path when inactivity exceeds 15 minutes, with explicit status message.
+  - Reset inactivity warning/logout guard refs on successful login and logout to keep behavior deterministic per session.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 00:21 IST | codex | change
+- Summary: Moved MRT staged-edits action before exports and renamed it to a save-oriented label with change count.
+- Files: frontend/src/app/ExportToolbar.tsx, frontend/src/app/ManageUsersTable.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated shared `ExportToolbar` render order so custom action buttons are shown before export actions.
+  - Renamed Manage Users staged action from `Submit (N)` to `Save the edits (N)` and updated tooltip text accordingly.
+  - Renamed Students Directory staged action from `Submit (N)` to `Save the edits (N)` and updated tooltip text accordingly.
+  - This places save action first, followed by `Export CSV` and `Export PDF`, matching requested MRT toolbar behavior.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

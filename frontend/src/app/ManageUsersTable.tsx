@@ -1,34 +1,46 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   MaterialReactTable,
   useMaterialReactTable,
   type MRT_ColumnDef,
 } from "material-react-table";
 import {
+  Alert,
   Avatar,
   Box,
   Button,
   Checkbox,
   Chip,
-  Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   IconButton,
   ListItemText,
   MenuList,
   MenuItem,
-  Popover,
+  Snackbar,
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import KeyIcon from "@mui/icons-material/Key";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
-import DownloadIcon from "@mui/icons-material/Download";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
-import { download, generateCsv, mkConfig } from "export-to-csv";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import { getInitials } from "./utils";
+import { mkConfig } from "export-to-csv";
+import {
+  getInitials,
+  ROLE_COLORS,
+  MUI_TABLE_PAPER_PROPS,
+  MUI_TABLE_CONTAINER_PROPS,
+  MUI_TABLE_BODY_PROPS,
+  MUI_TABLE_HEAD_CELL_PROPS,
+  MUI_TABLE_PAGINATION_PROPS_BASE,
+} from "./utils";
+import ExportToolbar from "./ExportToolbar";
+import { useDateTimeContext } from "./dateTimeContext";
 
 type UserRow = {
   subject: string;
@@ -43,17 +55,13 @@ type UserRow = {
   lastLoginAt: string | null;
 };
 
+type UserPatch = Partial<{ fullName: string; email: string; username: string; roles: string[]; active: boolean }>;
+
 type Props = {
   rows: UserRow[];
   busy: boolean;
   onResetPassword: (row: UserRow) => void;
-  onUpdateRow: (
-    row: UserRow,
-    patch: Partial<{ fullName: string; email: string; username: string; roles: string[]; active: boolean }>
-  ) => Promise<void>;
-  formatIst: (value: string | null | undefined) => string;
-  globalFilter: string;
-  onGlobalFilterChange: (value: string) => void;
+  onSubmitRows: (updates: Array<{ row: UserRow; patch: UserPatch }>) => Promise<void>;
 };
 
 type TableRow = {
@@ -70,25 +78,34 @@ type TableRow = {
 
 const ROLE_OPTIONS = ["admin", "moderator", "head", "faculty", "student", "guest"] as const;
 const PROVIDER_OPTIONS = ["local", "google"] as const;
-const ROLE_COLORS: Record<string, "error" | "warning" | "secondary" | "primary" | "success" | "default"> = {
-  admin: "error",
-  moderator: "warning",
-  head: "secondary",
-  faculty: "primary",
-  student: "success",
-  guest: "default",
-};
 
 export default function ManageUsersTable(props: Props) {
-  // Always-current ref — fixes the stale closure problem where columns ([] deps)
-  // captured the first-render onUpdateRow whose processUserGridRowUpdate had an
-  // empty userRows array and silently returned without hitting the DB.
-  const onUpdateRowRef = useRef(props.onUpdateRow);
-  onUpdateRowRef.current = props.onUpdateRow;
+  const { formatIst } = useDateTimeContext();
+  const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
 
-  const [rolesPopover, setRolesPopover] = useState<{ anchorTop: number; anchorLeft: number; row: TableRow } | null>(null);
+  const [draftRows, setDraftRows] = useState<UserRow[]>(props.rows);
+  const [pendingBySubject, setPendingBySubject] = useState<Record<string, UserPatch>>({});
+  const [rolesDialog, setRolesDialog] = useState<TableRow | null>(null);
   const [pendingRoles, setPendingRoles] = useState<string[]>([]);
-  const [showGlobalFilter, setShowGlobalFilter] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const pendingCount = Object.keys(pendingBySubject).length;
+
+  useEffect(() => {
+    setDraftRows(props.rows);
+    setPendingBySubject({});
+  }, [props.rows]);
+
+  // Warn before navigating away with unsaved changes
+  useEffect(() => {
+    if (pendingCount === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [pendingCount]);
 
   const csvConfig = useMemo(
     () =>
@@ -101,9 +118,65 @@ export default function ManageUsersTable(props: Props) {
     []
   );
 
+  const normalizeRoles = (input: unknown): string[] => {
+    const roles = Array.isArray(input) ? input : [];
+    const normalized = roles
+      .map((role) => String(role ?? "").trim().toLowerCase())
+      .filter((role): role is string => role.length > 0);
+    const unique = Array.from(new Set(normalized));
+    return unique.length > 0 ? unique : ["guest"];
+  };
+
+  const toPatch = (row: UserRow): UserPatch => ({
+    fullName: String(row.fullName ?? row.email ?? row.subject).trim(),
+    email: String(row.email ?? "").trim().toLowerCase(),
+    username: String(row.username ?? "").trim().toLowerCase(),
+    roles: normalizeRoles(row.roles),
+    active: Boolean(row.active),
+  });
+
+  const patchesEqual = (a: UserPatch, b: UserPatch): boolean => {
+    const rolesA = normalizeRoles(a.roles ?? []);
+    const rolesB = normalizeRoles(b.roles ?? []);
+    return String(a.fullName ?? "") === String(b.fullName ?? "")
+      && String(a.email ?? "") === String(b.email ?? "")
+      && String(a.username ?? "") === String(b.username ?? "")
+      && Boolean(a.active) === Boolean(b.active)
+      && rolesA.length === rolesB.length
+      && rolesA.every((role, idx) => role === rolesB[idx]);
+  };
+
+  const stageUserPatch = (subject: string, patch: UserPatch) => {
+    const sourceRow = draftRows.find((row) => row.subject === subject);
+    if (!sourceRow) return;
+    const merged: UserRow = {
+      ...sourceRow,
+      ...(patch.fullName !== undefined ? { fullName: patch.fullName } : {}),
+      ...(patch.email !== undefined ? { email: patch.email || null } : {}),
+      ...(patch.username !== undefined ? { username: patch.username || null } : {}),
+      ...(patch.roles !== undefined ? { roles: normalizeRoles(patch.roles) } : {}),
+      ...(patch.active !== undefined ? { active: Boolean(patch.active) } : {}),
+    };
+
+    setDraftRows((prev) => prev.map((row) => (row.subject === subject ? merged : row)));
+
+    const original = props.rows.find((row) => row.subject === subject);
+    if (!original) return;
+    const mergedPatch = toPatch(merged);
+    const originalPatch = toPatch(original);
+
+    setPendingBySubject((prev) => {
+      if (patchesEqual(mergedPatch, originalPatch)) {
+        const { [subject]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [subject]: mergedPatch };
+    });
+  };
+
   const tableRows = useMemo<TableRow[]>(
     () =>
-      props.rows.map((row) => ({
+      draftRows.map((row) => ({
         id: row.subject,
         fullName: row.fullName || row.subject,
         email: row.email,
@@ -113,25 +186,25 @@ export default function ManageUsersTable(props: Props) {
         provider: row.provider,
         lastLogin:
           row.lastLoginAt && row.createdAt !== row.lastLoginAt
-            ? props.formatIst(row.lastLoginAt)
+            ? formatIst(row.lastLoginAt)
             : "--",
         source: row,
       })),
-    [props.rows, props.formatIst]
+    [draftRows, formatIst]
   );
 
-  const handleRolesClose = async () => {
-    if (rolesPopover) {
+  const handleRolesClose = () => {
+    if (rolesDialog) {
       const normalized = pendingRoles.length > 0 ? pendingRoles : ["guest"];
-      const currentSet = new Set(rolesPopover.row.roles);
+      const currentSet = new Set(rolesDialog.roles);
       const changed =
         normalized.length !== currentSet.size ||
         normalized.some((r) => !currentSet.has(r));
       if (changed) {
-        await onUpdateRowRef.current(rolesPopover.row.source, { roles: normalized });
+        stageUserPatch(rolesDialog.source.subject, { roles: normalized });
       }
     }
-    setRolesPopover(null);
+    setRolesDialog(null);
   };
 
   const columns = useMemo<MRT_ColumnDef<TableRow>[]>(
@@ -147,7 +220,7 @@ export default function ManageUsersTable(props: Props) {
             <TextField
               autoFocus
               fullWidth
-              label="First name"
+              label="Full name"
               type="text"
               defaultValue={row.original.fullName}
               size="small"
@@ -156,7 +229,7 @@ export default function ManageUsersTable(props: Props) {
               onBlur={(e) => {
                 const value = e.currentTarget.value.trim();
                 if (value && value !== row.original.fullName) {
-                  void onUpdateRowRef.current(row.original.source, { fullName: value });
+                  stageUserPatch(row.original.source.subject, { fullName: value });
                 }
               }}
               onKeyDown={(e) => {
@@ -175,9 +248,9 @@ export default function ManageUsersTable(props: Props) {
               disabled={row.original.source.provider !== "local"}
               slotProps={{ htmlInput: { autoComplete: "off" } }}
               onBlur={(e) => {
-                const value = e.currentTarget.value.trim();
-                if (value !== (row.original.email ?? "")) {
-                  void onUpdateRowRef.current(row.original.source, { email: value });
+                const value = e.currentTarget.value.trim().toLowerCase();
+                if (value !== String(row.original.email ?? "").trim().toLowerCase()) {
+                  stageUserPatch(row.original.source.subject, { email: value });
                 }
               }}
               onKeyDown={(e) => {
@@ -196,6 +269,7 @@ export default function ManageUsersTable(props: Props) {
         Cell: ({ row }) => (
           <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
             <Avatar
+              aria-label={`Avatar for ${row.original.fullName}`}
               sx={{
                 width: 34,
                 height: 34,
@@ -208,19 +282,10 @@ export default function ManageUsersTable(props: Props) {
               {getInitials(row.original.fullName)}
             </Avatar>
             <Box sx={{ minWidth: 0 }}>
-              <Typography
-                variant="body2"
-                sx={{ fontSize: "0.875rem", fontWeight: 500 }}
-                noWrap
-              >
+              <Typography variant="body2" sx={{ fontSize: "0.875rem", fontWeight: 500 }} noWrap>
                 {row.original.fullName}
               </Typography>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ display: "block", fontSize: "0.75rem" }}
-                noWrap
-              >
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontSize: "0.75rem" }} noWrap>
                 {row.original.email || "—"}
               </Typography>
             </Box>
@@ -243,10 +308,10 @@ export default function ManageUsersTable(props: Props) {
             variant="standard"
             slotProps={{ htmlInput: { autoComplete: "off" } }}
             onBlur={(e) => {
-              const value = e.currentTarget.value.trim();
+              const value = e.currentTarget.value.trim().toLowerCase();
               const current = row.original.username === "—" ? "" : row.original.username;
               if (value !== current) {
-                void onUpdateRowRef.current(row.original.source, { username: value });
+                stageUserPatch(row.original.source.subject, { username: value });
               }
               table.setEditingCell(null);
             }}
@@ -257,13 +322,11 @@ export default function ManageUsersTable(props: Props) {
             }}
           />
         ),
-        Cell: ({ row }) =>
-          <Typography
-            variant="body2"
-            color={row.original.username === "—" ? "text.disabled" : "text.primary"}
-          >
+        Cell: ({ row }) => (
+          <Typography variant="body2" color={row.original.username === "—" ? "text.disabled" : "text.primary"}>
             {row.original.username}
-          </Typography>,
+          </Typography>
+        ),
       },
       {
         accessorKey: "roles",
@@ -277,23 +340,22 @@ export default function ManageUsersTable(props: Props) {
           return (
             <Tooltip title="Click to edit roles" arrow>
               <Box
-                sx={{
-                  display: "flex",
-                  gap: 0.5,
-                  flexWrap: "wrap",
-                  cursor: "pointer",
-                  minHeight: 24,
-                  alignItems: "center",
-                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Roles: ${roles.join(", ")}. Click to edit.`}
+                sx={{ display: "flex", gap: 0.5, flexWrap: "wrap", cursor: "pointer", minHeight: 24, alignItems: "center" }}
                 onClick={(e) => {
-                  e.stopPropagation(); // prevent MRT cell-click handler
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setRolesPopover({
-                    anchorTop: rect.bottom + window.scrollY,
-                    anchorLeft: rect.left + window.scrollX,
-                    row: row.original,
-                  });
+                  e.stopPropagation();
+                  setRolesDialog(row.original);
                   setPendingRoles(roles);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRolesDialog(row.original);
+                    setPendingRoles(roles);
+                  }
                 }}
               >
                 {roles.map((role) => (
@@ -310,51 +372,17 @@ export default function ManageUsersTable(props: Props) {
             </Tooltip>
           );
         },
-        // Keep array-aware role matching while using native MRT multi-select UI.
         filterFn: (row, _id, filterValue) => {
           if (!Array.isArray(filterValue) || filterValue.length === 0) return true;
-          const rowRoles = (row.original.source.roles ?? []).map((r) =>
-            String(r ?? "").trim().toLowerCase()
-          );
-          return filterValue.some((sel) =>
-            rowRoles.includes(String(sel).trim().toLowerCase())
-          );
+          const rowRoles = (row.original.source.roles ?? []).map((r) => String(r ?? "").trim().toLowerCase());
+          return filterValue.some((sel) => rowRoles.includes(String(sel).trim().toLowerCase()));
         },
-      },
-      {
-        id: "active",
-        accessorFn: (originalRow) => (originalRow.active ? "true" : "false"),
-        header: "Status",
-        size: 80,
-        enableColumnFilterModes: false,
-        filterVariant: "checkbox",
-        // Toggle active/inactive by clicking the lock icon directly
-        Cell: ({ row }) => (
-          <Tooltip
-            title={row.original.active ? "Click to deactivate" : "Click to activate"}
-            arrow
-          >
-            <IconButton
-              size="small"
-              onClick={() =>
-                void onUpdateRowRef.current(row.original.source, {
-                  active: !row.original.active,
-                })
-              }
-            >
-              {row.original.active ? (
-                <LockOpenIcon fontSize="small" color="success" />
-              ) : (
-                <LockIcon fontSize="small" color="error" />
-              )}
-            </IconButton>
-          </Tooltip>
-        ),
       },
       {
         accessorKey: "provider",
         header: "Provider",
         size: 100,
+        enableEditing: false,
         enableColumnFilterModes: false,
         filterVariant: "select",
         filterSelectOptions: [...PROVIDER_OPTIONS],
@@ -372,28 +400,23 @@ export default function ManageUsersTable(props: Props) {
         },
       },
       {
-        accessorFn: (row) =>
-          row.source.lastLoginAt && row.source.createdAt !== row.source.lastLoginAt
-            ? new Date(row.source.lastLoginAt)
-            : null,
+        accessorFn: (row) => row.source.lastLoginAt && row.source.createdAt !== row.source.lastLoginAt ? new Date(row.source.lastLoginAt) : null,
         id: "lastLogin",
         header: "Last Login",
         size: 150,
+        enableEditing: false,
         enableColumnFilterModes: false,
         filterFn: "greaterThan",
         filterVariant: "date",
         enableGlobalFilter: false,
         Cell: ({ cell, row }) => (
-          <Typography
-            variant="body2"
-            color={cell.getValue<Date | null>() ? "text.primary" : "text.disabled"}
-          >
+          <Typography variant="body2" color={cell.getValue<Date | null>() ? "text.primary" : "text.disabled"}>
             {cell.getValue<Date | null>() ? row.original.lastLogin : "--"}
           </Typography>
         ),
       },
     ],
-    []
+    [draftRows]
   );
 
   const table = useMaterialReactTable({
@@ -404,8 +427,9 @@ export default function ManageUsersTable(props: Props) {
     enableEditing: true,
     editDisplayMode: "cell",
 
-    layoutMode: "semantic",
+    layoutMode: "grid",
     enableRowActions: true,
+    positionActionsColumn: "first",
     enableRowSelection: true,
     enableRowNumbers: true,
     rowNumberDisplayMode: "static",
@@ -413,6 +437,7 @@ export default function ManageUsersTable(props: Props) {
     enableDensityToggle: false,
     enableFullScreenToggle: false,
     enableColumnResizing: false,
+    enableHiding: isDesktop,
     enableColumnActions: true,
     enableColumnFilters: true,
     enableColumnFilterModes: true,
@@ -422,157 +447,150 @@ export default function ManageUsersTable(props: Props) {
     displayColumnDefOptions: {
       "mrt-row-numbers": { size: 48, header: "#" },
       "mrt-row-select": { size: 48 },
-      "mrt-row-actions": { size: 56, header: "" },
+      "mrt-row-actions": { size: 88, header: "Actions" },
     },
 
     manualFiltering: false,
-    onGlobalFilterChange: (updater) => {
-      const next =
-        typeof updater === "function" ? updater(props.globalFilter) : updater;
-      props.onGlobalFilterChange(String(next ?? ""));
-    },
-    onShowGlobalFilterChange: (updater) => {
-      const next = typeof updater === "function" ? updater(showGlobalFilter) : updater;
-      setShowGlobalFilter(Boolean(next));
-    },
     state: {
       isLoading: props.busy,
-      globalFilter: props.globalFilter,
-      showGlobalFilter,
+      showSkeletons: props.busy && tableRows.length === 0,
     },
 
-    renderRowActions: ({ row }) =>
-      row.original.source.provider === "local" ? (
-        <Tooltip title="Reset password" arrow>
+    renderRowActions: ({ row }) => (
+      <Box sx={{ display: "flex" }}>
+        <Tooltip title={row.original.active ? "Deactivate user" : "Activate user"} arrow>
           <span>
             <IconButton
               size="small"
-              color="warning"
               disabled={props.busy}
-              onClick={() => props.onResetPassword(row.original.source)}
+              aria-label={row.original.active ? "Deactivate user" : "Activate user"}
+              onClick={() => stageUserPatch(row.original.source.subject, { active: !row.original.active })}
             >
-              <KeyIcon fontSize="small" />
+              {row.original.active
+                ? <LockOpenIcon fontSize="small" color="success" />
+                : <LockIcon fontSize="small" color="error" />}
             </IconButton>
           </span>
         </Tooltip>
-      ) : null,
-
-    renderTopToolbarCustomActions: ({ table }) => (
-      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-        <Tooltip title="Export visible or selected rows to CSV" arrow>
-          <span>
-            <Button
-              type="button"
-              size="small"
-              variant="outlined"
-              startIcon={<DownloadIcon fontSize="small" />}
-              disabled={props.busy || table.getPrePaginationRowModel().rows.length === 0}
-              onClick={() => {
-                const hasSel =
-                  table.getIsSomeRowsSelected() || table.getIsAllRowsSelected();
-                const rows = hasSel
-                  ? table.getSelectedRowModel().rows
-                  : table.getPrePaginationRowModel().rows;
-                download(csvConfig)(
-                  generateCsv(csvConfig)(
-                    rows.map((r) => ({
-                      user: `${r.original.fullName} (${r.original.email ?? "—"})`,
-                      username: r.original.username,
-                      roles: r.original.roles.join(", "),
-                      active: r.original.active ? "Active" : "Disabled",
-                      provider: r.original.provider,
-                      lastLogin: r.original.lastLogin,
-                    }))
-                  )
-                );
-              }}
-            >
-              Export CSV
-            </Button>
-          </span>
-        </Tooltip>
-        <Tooltip title="Export visible or selected rows to PDF" arrow>
-          <span>
-            <Button
-              type="button"
-              size="small"
-              variant="outlined"
-              startIcon={<PictureAsPdfIcon fontSize="small" />}
-              disabled={props.busy || table.getPrePaginationRowModel().rows.length === 0}
-              onClick={() => {
-                const hasSel =
-                  table.getIsSomeRowsSelected() || table.getIsAllRowsSelected();
-                const rows = hasSel
-                  ? table.getSelectedRowModel().rows
-                  : table.getPrePaginationRowModel().rows;
-                const doc = new jsPDF({ orientation: "landscape" });
-                autoTable(doc, {
-                  head: [["User", "Username", "Roles", "Status", "Provider", "Last Login"]],
-                  body: rows.map((r) => [
-                    `${r.original.fullName} (${r.original.email ?? "—"})`,
-                    r.original.username,
-                    r.original.roles.join(", "),
-                    r.original.active ? "Active" : "Disabled",
-                    r.original.provider,
-                    r.original.lastLogin,
-                  ]),
-                });
-                doc.save("manage-users-export.pdf");
-              }}
-            >
-              Export PDF
-            </Button>
-          </span>
-        </Tooltip>
+        {row.original.source.provider === "local" && (
+          <Tooltip title="Reset password" arrow>
+            <span>
+              <IconButton
+                size="small"
+                color="warning"
+                disabled={props.busy}
+                aria-label="Reset password"
+                onClick={() => props.onResetPassword(row.original.source)}
+              >
+                <KeyIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
       </Box>
     ),
 
-    muiTablePaperProps: {
-      elevation: 0,
-      sx: { border: "1px solid", borderColor: "divider", borderRadius: 2 },
-    },
-    muiTableContainerProps: { sx: { overflowX: "auto" } },
-    muiTableBodyProps: {
-      sx: { "& tr:nth-of-type(odd) > td": { backgroundColor: "action.hover" } },
-    },
-    muiTableHeadCellProps: {
-      sx: { fontWeight: 700, fontSize: "0.75rem", py: 1.25, whiteSpace: "nowrap" },
-    },
+    renderTopToolbarCustomActions: ({ table: t }) => (
+      <ExportToolbar
+        table={t}
+        busy={props.busy}
+        csvConfig={csvConfig}
+        getCsvRows={(rows) =>
+          rows.map((r) => ({
+            user: `${r.fullName} (${r.email ?? "—"})`,
+            username: r.username,
+            roles: r.roles.join(", "),
+            active: r.active ? "Active" : "Disabled",
+            provider: r.provider,
+            lastLogin: r.lastLogin,
+          }))
+        }
+        pdfFilename="manage-users-export.pdf"
+        pdfHeaders={["User", "Username", "Roles", "Status", "Provider", "Last Login"]}
+        getPdfBody={(rows) =>
+          rows.map((r) => [
+            `${r.fullName} (${r.email ?? "—"})`,
+            r.username,
+            r.roles.join(", "),
+            r.active ? "Active" : "Disabled",
+            r.provider,
+            r.lastLogin,
+          ])
+        }
+      >
+        <Tooltip title="Save all staged user edits" arrow>
+          <span>
+            <Button
+              type="button"
+              size="small"
+              variant="contained"
+              disabled={props.busy || pendingCount === 0}
+              onClick={() => {
+                const updates = Object.entries(pendingBySubject)
+                  .map(([subject, patch]) => {
+                    const row = props.rows.find((item) => item.subject === subject);
+                    if (!row) return null;
+                    return { row, patch };
+                  })
+                  .filter((item): item is { row: UserRow; patch: UserPatch } => item !== null);
+                void props.onSubmitRows(updates).then(() => {
+                  setPendingBySubject({});
+                  setSaveSuccess(true);
+                });
+              }}
+            >
+              Save the edits ({pendingCount})
+            </Button>
+          </span>
+        </Tooltip>
+      </ExportToolbar>
+    ),
+
+    muiTablePaperProps: MUI_TABLE_PAPER_PROPS,
+    muiTableContainerProps: MUI_TABLE_CONTAINER_PROPS,
+    muiTableBodyProps: MUI_TABLE_BODY_PROPS,
+    muiTableHeadCellProps: MUI_TABLE_HEAD_CELL_PROPS,
     muiTableBodyCellProps: { sx: { py: 0.5 } },
 
     initialState: {
       columnOrder: [
         "mrt-row-select",
         "mrt-row-numbers",
+        "mrt-row-actions",
         "user",
         "username",
         "roles",
-        "active",
         "provider",
         "lastLogin",
-        "mrt-row-actions",
       ],
       pagination: { pageIndex: 0, pageSize: 10 },
       showColumnFilters: false,
+      showGlobalFilter: false,
+      columnVisibility: isDesktop ? {} : { lastLogin: false, provider: false },
     },
-    muiPaginationProps: ({ table }) => {
-      const rowCount = table.getRowCount();
-      const fixed = [
-        { label: "10", value: 10 },
-        { label: "25", value: 25 },
-        { label: "50", value: 50 },
-      ];
+    muiPaginationProps: ({ table: t }) => {
+      const rowCount = t.getRowCount();
       return {
         rowsPerPageOptions: rowCount > 50
-          ? [...fixed, { label: "All", value: rowCount }]
-          : fixed,
+          ? [...MUI_TABLE_PAGINATION_PROPS_BASE, { label: "All", value: rowCount }]
+          : [...MUI_TABLE_PAGINATION_PROPS_BASE],
       };
     },
+
+    renderBottomToolbarCustomActions: ({ table: t }) => (
+      <Box
+        aria-live="polite"
+        aria-atomic="true"
+        sx={{ position: "absolute", width: 1, height: 1, p: 0, m: "-1px", overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}
+      >
+        {`${t.getFilteredRowModel().rows.length} users`}
+      </Box>
+    ),
 
     renderEmptyRowsFallback: () => (
       <Box sx={{ py: 5, textAlign: "center" }}>
         <Typography variant="body2" color="text.disabled">
-          No users found for current filters.
+          No users found. Try adjusting or clearing your filters.
         </Typography>
       </Box>
     ),
@@ -582,31 +600,30 @@ export default function ManageUsersTable(props: Props) {
     <>
       <MaterialReactTable table={table} />
 
-      {/* Roles popover — multi-select outside MRT's edit machinery */}
-      {rolesPopover && <Popover
-        open
-        anchorReference="anchorPosition"
-        anchorPosition={{ top: rolesPopover.anchorTop, left: rolesPopover.anchorLeft }}
+      {/* Roles editor — Dialog gives built-in focus trap + Escape handling */}
+      <Dialog
+        open={Boolean(rolesDialog)}
         onClose={handleRolesClose}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="roles-dialog-title"
       >
-        <Box sx={{ minWidth: 180 }}>
-          <Typography
-            variant="caption"
-            sx={{ px: 2, py: 1, display: "block", fontWeight: 600, color: "text.secondary" }}
-          >
-            Assign Roles
-          </Typography>
-          <Divider />
+        <DialogTitle id="roles-dialog-title">
+          Assign Roles
+          {rolesDialog ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+              {rolesDialog.fullName}
+            </Typography>
+          ) : null}
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
           <MenuList dense disablePadding>
             {ROLE_OPTIONS.map((role) => (
               <MenuItem
                 key={role}
                 onClick={() =>
                   setPendingRoles((prev) =>
-                    prev.includes(role)
-                      ? prev.filter((r) => r !== role)
-                      : [...prev, role]
+                    prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
                   )
                 }
               >
@@ -615,8 +632,22 @@ export default function ManageUsersTable(props: Props) {
               </MenuItem>
             ))}
           </MenuList>
-        </Box>
-      </Popover>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleRolesClose} variant="contained" size="small">Done</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={saveSuccess}
+        autoHideDuration={3500}
+        onClose={() => setSaveSuccess(false)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="success" onClose={() => setSaveSuccess(false)} sx={{ width: "100%" }}>
+          Users updated successfully.
+        </Alert>
+      </Snackbar>
     </>
   );
 }

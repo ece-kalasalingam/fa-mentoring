@@ -19,6 +19,7 @@ const ROUTE_POLICIES: Record<string, AccessPolicy> = {
   "POST /api/admin/users/update": { anyRole: ["admin"] },
   "POST /api/admin/users/reset-password": { anyRole: ["admin"] },
   "POST /api/admin/users/set-active": { anyRole: ["admin"] },
+  "POST /api/admin/users/set-active-batch": { anyRole: ["admin"] },
   "POST /api/admin/users/logout-all-sessions": { anyRole: ["admin"] },
   "GET /api/startup-warnings": OPEN_POLICY,
   "GET /api/setup/wizard-status": OPEN_POLICY,
@@ -50,6 +51,7 @@ const ROUTE_POLICIES: Record<string, AccessPolicy> = {
   "GET /api/students": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
   "GET /api/students-directory": { anyRole: ["head", "moderator", "admin"] },
   "POST /api/students-directory/update": { anyRole: ["head", "moderator", "admin"] },
+  "POST /api/students-directory/update-batch": { anyRole: ["head", "moderator", "admin"] },
   "GET /api/students/stats": { anyRole: ["faculty", "head", "admin"] },
   "POST /api/import/students": { anyRole: ["moderator", "admin"] }
 };
