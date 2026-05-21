@@ -28,6 +28,15 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-21 20:56 IST | codex | fix
+- Summary: Fixed first-load Students Directory emptiness when opening from dashboard batch-analytics status chips.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated `openScopedStudentsDirectory` to support `head` context and to load the exact dataset used by the Students Directory view on navigation.
+  - Added deterministic first-load behavior for multi-role sessions by loading global directory data when scoped-only mode is not active.
+  - Updated Head dashboard batch-analytics chip navigation to use the shared directory-open helper instead of only changing view/filter state.
+- Revert: none
+
 ## 2026-05-21 20:50 IST | codex | fix
 - Summary: Scoped desktop left navigation removal to student-only sessions instead of all roles.
 - Files: frontend/src/app/App.tsx, CHANGELOG.md

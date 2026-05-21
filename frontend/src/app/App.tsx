@@ -1575,7 +1575,7 @@ function App() {
   }
 
   async function openScopedStudentsDirectory(
-    scope: "faculty" | "moderator",
+    scope: "faculty" | "moderator" | "head",
     graduatedFilter?: "Yes" | "No" | null,
     creditStatusFilter?: CreditStatus | null,
     batchFilter?: number | null,
@@ -1587,11 +1587,19 @@ function App() {
     await loadProgrammes();
     await loadRegulations();
     await loadPlansOfStudy();
-    if (scope === "moderator") {
-      await loadModeratorStudents();
+    if (isStudentOnlySession) {
+      await loadStudentSelfPlanOfStudy({ force: true });
       return;
     }
-    await loadFacultyStudents();
+    if (isScopedStudentDashboardOnly) {
+      if (scope === "moderator") {
+        await loadModeratorStudents();
+        return;
+      }
+      await loadFacultyStudents();
+      return;
+    }
+    await loadStudentsDirectory();
   }
 
   async function loadProgrammes(options?: { force?: boolean }) {
@@ -4177,10 +4185,7 @@ function App() {
                           regulations={regulations}
                           defaultExpandFirstBatch={false}
                           onViewStudents={(creditStatusFilter, batchFilter) => {
-                            setStudentsDirectoryGraduatedFilter(null);
-                            setStudentsDirectoryCreditStatusFilter(creditStatusFilter);
-                            setStudentsDirectoryBatchFilter(batchFilter);
-                            navigateTo("students-directory");
+                            void openScopedStudentsDirectory("head", null, creditStatusFilter ?? undefined, batchFilter);
                           }}
                         />
                       </Suspense>
