@@ -50,7 +50,7 @@ import {
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
-import { computeCreditStatus, getInitials, ROLE_COLORS } from "./utils";
+import { computeCreditStatus, formatCredits, getInitials, normalizeCredits, ROLE_COLORS } from "./utils";
 import { DateTimeProvider } from "./dateTimeContext";
 import type {
   ActiveUserRow,
@@ -1255,7 +1255,7 @@ function App() {
         graduated: String(data.graduated ?? "").trim().toLowerCase() === "yes" || Number(data.graduated ?? 0) === 1 ? "Yes" : "No",
         categoryId: String(data.categoryId ?? ""),
         semester: Number(data.semester ?? 0),
-        credits: Number(data.credits ?? 0),
+        credits: normalizeCredits(Number(data.credits ?? 0)),
         modifiedByUsername: data.modifiedByUsername == null ? null : String(data.modifiedByUsername),
         modifiedAt: data.modifiedAt == null ? null : String(data.modifiedAt),
       };
@@ -1282,7 +1282,7 @@ function App() {
     if (result.ok && Array.isArray(result.summaries)) {
       const totals: Record<string, number> = {};
       for (const item of result.summaries as Array<{ studentId: string; totalCredits: number }>) {
-        totals[String(item.studentId)] = Number(item.totalCredits ?? 0);
+        totals[String(item.studentId)] = normalizeCredits(Number(item.totalCredits ?? 0));
       }
       setStudentCreditTotals(totals);
       setCreditTotalsLoaded(true);
@@ -1294,7 +1294,7 @@ function App() {
     if (result.ok && result.creditDetails) {
       const bySemester: Record<number, Record<string, number>> = {};
       for (const { semesterTaken, categoryId, credits } of result.creditDetails) {
-        (bySemester[semesterTaken] ??= {})[categoryId] = credits;
+        (bySemester[semesterTaken] ??= {})[categoryId] = normalizeCredits(Number(credits ?? 0));
       }
       setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
       setStudentEarnedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
@@ -1307,7 +1307,7 @@ function App() {
     const entries: Array<{ categoryId: string; semesterTaken: number; credits: number }> = [];
     for (const [sem, bySem] of Object.entries(draft)) {
       for (const [categoryId, credits] of Object.entries(bySem)) {
-        entries.push({ categoryId, semesterTaken: Number(sem), credits: Number(credits) });
+        entries.push({ categoryId, semesterTaken: Number(sem), credits: normalizeCredits(Number(credits)) });
       }
     }
     setStudentCreditsSaving(true);
@@ -1326,13 +1326,14 @@ function App() {
     }
   }
   function setStudentEarnedCredit(userId: string, semester: number, categoryCode: string, value: number) {
+    const normalized = normalizeCredits(Number(value));
     setStudentEarnedCreditsByUser((prev) => ({
       ...prev,
       [userId]: {
         ...(prev[userId] ?? {}),
         [semester]: {
           ...((prev[userId] ?? {})[semester] ?? {}),
-          [categoryCode]: value,
+          [categoryCode]: normalized,
         },
       },
     }));
@@ -4828,7 +4829,7 @@ function App() {
                               <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
                                 <span>{reg.code}</span>
                                 <Chip
-                                  label={`${reg.curriculumStructure.totalCreditsRequired} cr`}
+                                  label={`${formatCredits(reg.curriculumStructure.totalCreditsRequired)} cr`}
                                   size="small"
                                   sx={{ height: 18, fontSize: "0.68rem", pointerEvents: "none", mx: 0.25, my: 0.25 }}
                                 />
@@ -4852,7 +4853,7 @@ function App() {
                               {regulation.name}
                             </Typography>
                             <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", ml: 0.5 }}>
-                              <Chip label={`${total} credits required`} size="small" color="primary" sx={{ m: 0.25 }} />
+                              <Chip label={`${formatCredits(total)} credits required`} size="small" color="primary" sx={{ m: 0.25 }} />
                               <Chip label={`${categories.length} categories`} size="small" variant="outlined" sx={{ m: 0.25 }} />
                               {rangeCount > 0 && (
                                 <Chip label={`${rangeCount} flexible`} size="small" color="warning" variant="outlined" sx={{ m: 0.25 }} />
@@ -4875,7 +4876,7 @@ function App() {
                                   const isRange = category.rule.type === "range";
                                   const creditsText = isRange
                                     ? `${(category.rule as { type: "range"; min: number; max: number }).min}–${(category.rule as { type: "range"; min: number; max: number }).max}`
-                                    : String((category.rule as { type: string; value: number }).value);
+                                    : formatCredits((category.rule as { type: string; value: number }).value);
                                   const barValue = isRange
                                     ? (((category.rule as { type: "range"; min: number; max: number }).min + (category.rule as { type: "range"; min: number; max: number }).max) / 2 / total) * 100
                                     : ((category.rule as { type: string; value: number }).value / total) * 100;
@@ -4956,7 +4957,7 @@ function App() {
                               <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
                                 <span>{plan.planName}</span>
                                 <Chip
-                                  label={`${computedPlanTotalCredits} cr`}
+                                  label={`${formatCredits(computedPlanTotalCredits)} cr`}
                                   size="small"
                                   sx={{ height: 18, fontSize: "0.68rem", pointerEvents: "none", mx: 0.25, my: 0.25 }}
                                 />
@@ -4994,7 +4995,7 @@ function App() {
                               <Chip label={`Code ${plan.planCode}`} size="small" variant="outlined" sx={{ m: 0.25 }} />
                               <Chip label={plan.regulationCode} size="small" variant="outlined" sx={{ m: 0.25 }} />
                               <Chip label={`${plan.semesters.length} semesters`} size="small" variant="outlined" sx={{ m: 0.25 }} />
-                              <Chip label={`${computedPlanTotalCredits} credits planned`} size="small" color="primary" sx={{ m: 0.25 }} />
+                              <Chip label={`${formatCredits(computedPlanTotalCredits)} credits planned`} size="small" color="primary" sx={{ m: 0.25 }} />
                             </Stack>
                           </Stack>
 
@@ -5015,11 +5016,11 @@ function App() {
                                     <TableCell>{semester.semester}</TableCell>
                                     {categoryCodes.map((code) => (
                                       <TableCell key={`${plan.planCode}-sem-${semester.semester}-${code}`} align="right">
-                                        {Number(semester.categories?.[code] ?? 0)}
+                                        {formatCredits(Number(semester.categories?.[code] ?? 0))}
                                       </TableCell>
                                     ))}
                                     <TableCell align="right">
-                                      <Chip label={semester.totalCredits} size="small" sx={{ m: 0.25 }} />
+                                      <Chip label={formatCredits(Number(semester.totalCredits ?? 0))} size="small" sx={{ m: 0.25 }} />
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -5027,11 +5028,11 @@ function App() {
                                   <TableCell>Total</TableCell>
                                   {categoryCodes.map((code) => (
                                     <TableCell key={`${plan.planCode}-tot-${code}`} align="right">
-                                      {Number(computedCategoryTotals[code] ?? 0)}
+                                      {formatCredits(Number(computedCategoryTotals[code] ?? 0))}
                                     </TableCell>
                                   ))}
                                   <TableCell align="right">
-                                    <Chip label={computedPlanTotalCredits} size="small" color="primary" sx={{ m: 0.25 }} />
+                                    <Chip label={formatCredits(computedPlanTotalCredits)} size="small" color="primary" sx={{ m: 0.25 }} />
                                   </TableCell>
                                 </TableRow>
                               </TableBody>

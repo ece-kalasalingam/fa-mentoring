@@ -85,6 +85,11 @@ const ROOT_ENDPOINTS = [
   "/api/import/students"
 ];
 
+function toTwoDecimalNumber(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
 function parseCookieToken(request: Request, name: string): string {
   const cookieHeader = request.headers.get("cookie") ?? "";
   const parts = cookieHeader.split(";").map((part) => part.trim());
@@ -1075,7 +1080,7 @@ export const worker = {
           .map((e) => ({
             categoryId: String(e.categoryId ?? ""),
             semesterTaken: Number(e.semesterTaken ?? 0),
-            credits: Number(e.credits ?? 0),
+            credits: toTwoDecimalNumber(Number(e.credits ?? 0)),
           }))
           .filter((e) => e.categoryId.length > 0 && e.semesterTaken > 0 && e.credits >= 0);
         const scope = resolveStudentScope(principal!);
@@ -1119,7 +1124,7 @@ export const worker = {
             registrationNumber: String(r.registrationNumber ?? "").trim(),
             semester: Number(r.semester ?? 0),
             categoryCode: String(r.categoryCode ?? "").trim(),
-            credits: Number(r.credits ?? 0),
+            credits: toTwoDecimalNumber(Number(r.credits ?? 0)),
           }))
           .filter((r) => r.registrationNumber && r.semester > 0 && r.categoryCode && r.credits >= 0);
         const scope = resolveStudentScope(principal!);

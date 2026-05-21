@@ -62,6 +62,13 @@
 - If a task makes no file changes, no changelog entry is required.
 - Pull requests/tasks are non-compliant if file changes are made without a matching changelog entry.
 
+9. Credit display formatting is mandatory across the entire app UI/UX.
+- Credit values MUST be normalized to 2-decimal precision for calculation/storage paths, then rendered with conditional formatting:
+  - If the value is a whole number, display no decimal part (for example `12`).
+  - If the value has a fractional part, display exactly two decimal digits (for example `12.50`).
+- This rule applies to all credit displays (cards, chips, tables, tooltips, analytics, exports) unless an explicit exception is documented in this file.
+- Frontend credit rendering MUST use the shared formatter in `frontend/src/app/utils.ts` (single source of truth) and MUST NOT duplicate ad-hoc formatting logic.
+
 ### MRT Baseline Exceptions
 - None currently approved.
 

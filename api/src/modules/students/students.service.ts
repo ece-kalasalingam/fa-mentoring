@@ -2,6 +2,11 @@ import { getDb } from "../../core/db";
 import type { Env } from "../../core/types";
 import type { StudentScope } from "../auth/authorization.service";
 
+function toTwoDecimalNumber(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
 function parseLimit(raw: string | null): number {
   const parsed = Number.parseInt(String(raw ?? ""), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -134,7 +139,7 @@ export async function getStudentCreditSummaries(
   });
   return result.rows.map((row) => ({
     studentId: String(row.student_id ?? ""),
-    totalCredits: Number(row.total_credits ?? 0),
+    totalCredits: toTwoDecimalNumber(Number(row.total_credits ?? 0)),
   }));
 }
 
@@ -150,7 +155,7 @@ export async function getStudentCredits(env: Env, studentId: string) {
   return result.rows.map((row) => ({
     categoryId: String(row.category_id ?? ""),
     semesterTaken: Number(row.semester_taken),
-    credits: Number(row.credits),
+    credits: toTwoDecimalNumber(Number(row.credits)),
   }));
 }
 
@@ -191,7 +196,7 @@ export async function listStudentCreditTableByScope(
     graduated: Number(row.graduated ?? 0) === 1 ? "Yes" : "No",
     categoryId: String(row.category_id ?? ""),
     semester: Number(row.semester_taken ?? 0),
-    credits: Number(row.credits ?? 0),
+    credits: toTwoDecimalNumber(Number(row.credits ?? 0)),
     modifiedByUsername: row.modified_by_username == null ? null : String(row.modified_by_username),
     modifiedAt: row.modified_at == null ? null : String(row.modified_at),
   }));
@@ -252,7 +257,8 @@ export async function bulkImportStudentCredits(
     }
     if (row.semester <= 0 || !row.categoryCode.trim() || row.credits < 0) continue;
     const key = `${userId}\0${row.semester}\0${row.categoryCode.trim()}`;
-    aggregated.set(key, (aggregated.get(key) ?? 0) + row.credits);
+    const next = (aggregated.get(key) ?? 0) + row.credits;
+    aggregated.set(key, toTwoDecimalNumber(next));
   }
 
   const byUser = new Map<string, Array<CreditEntry>>();
@@ -284,7 +290,11 @@ export async function upsertStudentCredits(
   if (writeMode !== "replace_all" && writeMode !== "patch") {
     throw new Error("writeMode must be one of: replace_all, patch");
   }
-  const positiveEntries = entries.filter((e) => e.credits > 0);
+  const normalizedEntries = entries.map((e) => ({
+    ...e,
+    credits: toTwoDecimalNumber(Number(e.credits ?? 0)),
+  }));
+  const positiveEntries = normalizedEntries.filter((e) => e.credits > 0);
   await db.execute("begin");
   try {
     if (writeMode === "replace_all") {

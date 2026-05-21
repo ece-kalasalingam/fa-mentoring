@@ -57,6 +57,19 @@ export function computeCreditStatus(
   return "off-track";
 }
 
+export function normalizeCredits(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
+}
+
+export function formatCredits(value: number): string {
+  const normalized = normalizeCredits(value);
+  if (Number.isInteger(normalized)) {
+    return String(normalized);
+  }
+  return normalized.toFixed(2);
+}
+
 export const MUI_TABLE_PAGINATION_PROPS_BASE = [
   { label: "10", value: 10 },
   { label: "25", value: 25 },

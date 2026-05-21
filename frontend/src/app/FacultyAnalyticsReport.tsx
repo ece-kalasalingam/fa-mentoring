@@ -28,7 +28,7 @@ import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import type { CreditStatus, FacultyCreditTableRow, FacultyStudentRow, PlanOfStudy, Regulation } from "./types";
 import { CREDIT_STATUSES, CREDIT_STATUS_LABELS } from "./constants";
-import { computeCreditStatus } from "./utils";
+import { computeCreditStatus, formatCredits, normalizeCredits } from "./utils";
 
 // ── Internal status types ─────────────────────────────────────────────────────
 type OverallStatus = CreditStatus;
@@ -105,7 +105,14 @@ function buildCategoryAnalytics(students: StudentAnalytic[], catNameMap: Map<str
         if (info) { counts[info.status]++; totalRequired += info.required; totalEarned += info.earned; }
       }
       const completionPct = totalRequired > 0 ? Math.round((totalEarned / totalRequired) * 100) : 0;
-      return { code, name: catNameMap.get(code) ?? code, totalRequired, totalEarned, completionPct, counts };
+      return {
+        code,
+        name: catNameMap.get(code) ?? code,
+        totalRequired: normalizeCredits(totalRequired),
+        totalEarned: normalizeCredits(totalEarned),
+        completionPct,
+        counts,
+      };
     })
     .filter((c) => c.totalRequired > 0)
     .sort((a, b) => a.code.localeCompare(b.code));
@@ -315,11 +322,11 @@ function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchP
       sa.registrationNumber, sa.fullName,
       sa.batch?.toString() ?? "", sa.currentSemester?.toString() ?? "",
       sa.graduated, sa.planName,
-      sa.totalRequired.toString(), sa.totalEarned.toString(),
+      formatCredits(sa.totalRequired), formatCredits(sa.totalEarned),
       sa.completionPct.toString(), OVERALL_LABELS[sa.overallStatus],
       ...catCodes.flatMap((c) => {
         const info = sa.categoryStatuses[c];
-        return info ? [info.required.toString(), info.earned.toString(), OVERALL_LABELS[info.status]] : ["0", "0", "—"];
+        return info ? [formatCredits(info.required), formatCredits(info.earned), OVERALL_LABELS[info.status]] : [formatCredits(0), formatCredits(0), "—"];
       }),
     ]);
     const csv = [headers, ...rows].map((row) => row.map((v) => `"${v.replace(/"/g, '""')}"`).join(",")).join("\n");
@@ -398,8 +405,8 @@ function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchP
           <Divider sx={{ my: 1.25 }} />
           <Stack spacing={0.5} sx={{ px: 0.5 }}>
             {[
-              { label: "Credits target", value: grandRequired.toLocaleString(), color: undefined },
-              { label: "Credits earned", value: grandEarned.toLocaleString(), color: "success.main" as const },
+              { label: "Credits target", value: formatCredits(grandRequired), color: undefined },
+              { label: "Credits earned", value: formatCredits(grandEarned), color: "success.main" as const },
               { label: "Completion", value: `${grandPct}%`, color: undefined },
             ].map(({ label, value, color }) => (
               <Stack key={label} direction="row" justifyContent="space-between">
@@ -547,13 +554,13 @@ function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchP
                     <OverflowTooltip text={sa.fullName} sx={{ fontSize: "0.8rem" }} />
                   </TableCell>
                   {!isMobile && <TableCell align="center" sx={{ fontSize: "0.8rem" }}>{sa.currentSemester ?? "—"}</TableCell>}
-                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{sa.totalRequired.toLocaleString()}</TableCell>}
-                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{sa.totalEarned.toLocaleString()}</TableCell>}
+                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.totalRequired)}</TableCell>}
+                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.totalEarned)}</TableCell>}
                   {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem", fontWeight: 700 }}>{sa.completionPct}%</TableCell>}
                   {isMobile  && (
                     <TableCell align="right" sx={{ fontSize: "0.75rem" }}>
-                      <Typography component="span" sx={{ fontWeight: 700, fontSize: "inherit" }}>{sa.totalEarned}</Typography>
-                      <Typography component="span" sx={{ color: "text.secondary", fontSize: "0.7rem" }}> / {sa.totalRequired}</Typography>
+                      <Typography component="span" sx={{ fontWeight: 700, fontSize: "inherit" }}>{formatCredits(sa.totalEarned)}</Typography>
+                      <Typography component="span" sx={{ color: "text.secondary", fontSize: "0.7rem" }}> / {formatCredits(sa.totalRequired)}</Typography>
                     </TableCell>
                   )}
                   <TableCell>
@@ -572,9 +579,9 @@ function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchP
                       : info.status === "marginal" ? theme.palette.warning.main
                       : theme.palette.error.main;
                     return (
-                      <Tooltip key={cat.code} title={`${cat.code}: ${info.earned} / ${info.required} cr — ${OVERALL_LABELS[info.status]}`} placement="top" arrow>
+                      <Tooltip key={cat.code} title={`${cat.code}: ${formatCredits(info.earned)} / ${formatCredits(info.required)} cr — ${OVERALL_LABELS[info.status]}`} placement="top" arrow>
                         <TableCell align="center" sx={{ bgcolor: cellBg, fontSize: "0.72rem", fontWeight: 600, color: cellColor }}>
-                          {info.status === "complete" ? "✓" : info.status === "off-track" ? "—" : `${info.earned}`}
+                          {info.status === "complete" ? "✓" : info.status === "off-track" ? "—" : `${formatCredits(info.earned)}`}
                         </TableCell>
                       </Tooltip>
                     );

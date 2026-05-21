@@ -5,6 +5,7 @@ import { mkConfig } from "export-to-csv";
 import ExportToolbar from "./ExportToolbar";
 import { formatIst } from "./dateTime";
 import {
+  formatCredits,
   MUI_TABLE_BODY_PROPS,
   MUI_TABLE_CONTAINER_PROPS,
   MUI_TABLE_HEAD_CELL_PROPS,
@@ -64,6 +65,7 @@ export default function FacultyCreditDetailsTable(props: Props) {
         accessorKey: "credits",
         header: "Credits",
         enableColumnFilterModes: false,
+        Cell: ({ cell }) => <Typography variant="body2">{formatCredits(Number(cell.getValue<number>() ?? 0))}</Typography>,
       },
       {
         accessorKey: "modifiedByUsername",
@@ -130,7 +132,7 @@ export default function FacultyCreditDetailsTable(props: Props) {
               categoryId: row.categoryId,
               graduated: row.graduated,
               semester: row.semester,
-              credits: row.credits,
+              credits: formatCredits(row.credits),
               modifiedByUsername: row.modifiedByUsername ?? "",
               modifiedTimeIst: formatIst(row.modifiedAt),
             }))
@@ -143,7 +145,7 @@ export default function FacultyCreditDetailsTable(props: Props) {
               row.categoryId,
               row.graduated,
               String(row.semester),
-              String(row.credits),
+              formatCredits(row.credits),
               row.modifiedByUsername ?? "",
               formatIst(row.modifiedAt),
             ])

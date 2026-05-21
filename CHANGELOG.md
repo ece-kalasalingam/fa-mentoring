@@ -3511,3 +3511,24 @@ px tsc --noEmit in rontend/.
   - Positioned identity block directly above the shared account actions at the bottom of the hamburger drawer.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-21 17:12 IST | codex | change
+- Summary: Standardized credit values to two-decimal precision across student credit API flows and frontend credit displays.
+- Files: api/src/modules/students/students.service.ts, api/src/app/worker.ts, frontend/src/app/utils.ts, frontend/src/app/App.tsx, frontend/src/app/FacultyCreditDetailsTable.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Added shared two-decimal normalization in API credit service paths for reads, summaries, import aggregation, and upserts.
+  - Normalized incoming credit payloads in `/api/student-credits` and `/api/student-credits/import-batch` before persistence.
+  - Added frontend credit helpers (`normalizeCredits`, `formatCredits`) and applied them to student-credit loading, saving, and state updates.
+  - Updated Student Credits UI to display credit totals with two decimals and accept decimal input in `0.01` steps.
+  - Updated Faculty Credit Table and Faculty Analytics credit outputs/tooltips/exports to render two-decimal credit values.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`. Workspace `npm run build` still fails due pre-existing unrelated frontend TypeScript issues (for example in `ActiveUsersTable.tsx`, `ExportToolbar.tsx`, and pre-existing `App.tsx` typing).
+- Revert: none
+## 2026-05-21 17:24 IST | codex | change
+- Summary: Made credit display conditional across the UI (integers without decimals; fractional credits with exactly two decimals) and documented this as a mandatory rule in AGENTS.md.
+- Files: frontend/src/app/utils.ts, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, AGENTS.md, CHANGELOG.md
+- Details:
+  - Updated shared `formatCredits` in `frontend/src/app/utils.ts` to render whole-number credits without decimal digits and fractional credits with two digits.
+  - Updated remaining raw credit render paths in `StudentCreditsView` to use shared formatting for semester summary and deficit chip labels.
+  - Updated zero-value fallback in `FacultyAnalyticsReport` exports to use shared credit formatting instead of hardcoded `0.00`.
+  - Added a new mandatory product rule in `AGENTS.md` requiring app-wide credit formatting via shared formatter and prohibiting ad-hoc formatting.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

@@ -9,7 +9,7 @@ import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import SaveIcon from "@mui/icons-material/Save";
 import { alpha } from "@mui/material/styles";
-import { getInitials } from "./utils";
+import { formatCredits, getInitials, normalizeCredits } from "./utils";
 import type { PlanOfStudy, Regulation, StudentDirectoryRow } from "./types";
 
 type Props = {
@@ -294,10 +294,10 @@ export default function StudentCreditsView(props: Props) {
                     color={isComplete ? "success.main" : "text.primary"}
                     aria-label={`${overallEarned} of ${overallRequired} credits earned`}
                   >
-                    {overallEarned}
+                    {formatCredits(overallEarned)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    / {overallRequired} credits
+                    / {formatCredits(overallRequired)} credits
                   </Typography>
                 </Box>
                 <LinearProgress
@@ -315,8 +315,8 @@ export default function StudentCreditsView(props: Props) {
                   {isComplete
                     ? "All credits complete"
                     : overallEarned >= overallRequired && categoryDeficit > 0
-                      ? `${categoryDeficit} credit${categoryDeficit === 1 ? "" : "s"} still needed in specific categories`
-                      : `${Math.round(progressPct)}% · ${remaining} credit${remaining === 1 ? "" : "s"} remaining`}
+                      ? `${formatCredits(categoryDeficit)} credits still needed in specific categories`
+                      : `${Math.round(progressPct)}% · ${formatCredits(remaining)} credits remaining`}
                 </Typography>
                 <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
                   <Tooltip title={isDirty ? "Save credit changes to the database" : "No unsaved changes"} arrow>
@@ -486,8 +486,8 @@ export default function StudentCreditsView(props: Props) {
                       }
                     >
                       {isActiveFuture
-                        ? `${activeSemTarget} cr planned`
-                        : `${activeSemEarned} / ${activeSemTarget} cr`}
+                        ? `${formatCredits(activeSemTarget)} cr planned`
+                        : `${formatCredits(activeSemEarned)} / ${formatCredits(activeSemTarget)} cr`}
                     </Typography>
                   </Box>
 
@@ -573,7 +573,7 @@ export default function StudentCreditsView(props: Props) {
                                 color={target > 0 ? "text.secondary" : "text.disabled"}
                                 sx={{ fontVariantNumeric: "tabular-nums" }}
                               >
-                                {target > 0 ? target : "—"}
+                                {target > 0 ? formatCredits(target) : "—"}
                               </Typography>
                             </TableCell>
 
@@ -585,12 +585,13 @@ export default function StudentCreditsView(props: Props) {
                                   type="number"
                                   value={earned}
                                   aria-label={`${categoryName}, semester ${activeSemNum} — earned.${target > 0 ? ` Plan: ${target}.` : " Unplanned."}`}
+                                  slotProps={{ htmlInput: { min: 0, step: "0.01" } }}
                                   onChange={(e) => {
                                     const parsed = Number(e.target.value);
                                     props.onChangeEarnedCredit(
                                       activeSemNum,
                                       code,
-                                      Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0,
+                                      Number.isFinite(parsed) ? normalizeCredits(Math.max(0, parsed)) : 0,
                                     );
                                   }}
                                   sx={{
@@ -612,13 +613,13 @@ export default function StudentCreditsView(props: Props) {
                                   <CheckCircleIcon sx={{ fontSize: "1rem", color: "success.main", verticalAlign: "middle" }} aria-label="Target met" />
                                 )}
                                 {over && (
-                                  <Typography variant="caption" color="info.main" sx={{ fontVariantNumeric: "tabular-nums" }}>+{diff}</Typography>
+                                  <Typography variant="caption" color="info.main" sx={{ fontVariantNumeric: "tabular-nums" }}>+{formatCredits(diff)}</Typography>
                                 )}
                                 {partial && (
-                                  <Typography variant="caption" color="warning.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{Math.abs(diff)}</Typography>
+                                  <Typography variant="caption" color="warning.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{formatCredits(Math.abs(diff))}</Typography>
                                 )}
                                 {extra && (
-                                  <Typography variant="caption" color="info.main" sx={{ fontVariantNumeric: "tabular-nums" }}>+{earned}</Typography>
+                                  <Typography variant="caption" color="info.main" sx={{ fontVariantNumeric: "tabular-nums" }}>+{formatCredits(earned)}</Typography>
                                 )}
                                 {!met && !partial && !extra && target > 0 && (
                                   <Typography variant="caption" color="text.disabled">—</Typography>
@@ -647,7 +648,7 @@ export default function StudentCreditsView(props: Props) {
                         </TableCell>
                         <TableCell align="right">
                           <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                            {activeSemTarget}
+                            {formatCredits(activeSemTarget)}
                           </Typography>
                         </TableCell>
                         {!isActiveFuture && (
@@ -662,7 +663,7 @@ export default function StudentCreditsView(props: Props) {
                                   : "text.secondary"
                                 }
                               >
-                                {activeSemEarned}
+                                {formatCredits(activeSemEarned)}
                               </Typography>
                             </TableCell>
                             <TableCell align="right" sx={{ pr: 1.5 }}>
@@ -677,8 +678,8 @@ export default function StudentCreditsView(props: Props) {
                                 }
                               >
                                 {activeSemComplete
-                                  ? activeSemEarned > activeSemTarget ? `+${activeSemEarned - activeSemTarget}` : "✓"
-                                  : activeSemEarned > 0 ? `−${activeSemTarget - activeSemEarned}` : "—"}
+                                  ? activeSemEarned > activeSemTarget ? `+${formatCredits(activeSemEarned - activeSemTarget)}` : "✓"
+                                  : activeSemEarned > 0 ? `−${formatCredits(activeSemTarget - activeSemEarned)}` : "—"}
                               </Typography>
                             </TableCell>
                           </>
@@ -701,14 +702,14 @@ export default function StudentCreditsView(props: Props) {
                 }}
               >
                 <Typography variant="caption" color={isComplete ? "success.main" : "text.secondary"}>
-                  {isComplete ? "All requirements met" : `${remaining} cr. remaining · ${Math.round(progressPct)}%`}
+                  {isComplete ? "All requirements met" : `${formatCredits(remaining)} cr. remaining · ${Math.round(progressPct)}%`}
                 </Typography>
                 <Typography
                   variant="caption"
                   sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
                   color={isComplete ? "success.main" : "text.secondary"}
                 >
-                  {overallEarned} / {overallRequired} total
+                  {formatCredits(overallEarned)} / {formatCredits(overallRequired)} total
                 </Typography>
               </Box>
             </Stack>
@@ -751,7 +752,7 @@ export default function StudentCreditsView(props: Props) {
                       sx={{ fontWeight: 800, m: 0, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}
                       color={color}
                     >
-                      {value}
+                      {formatCredits(value)}
                     </Typography>
                     <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.125 }}>
                       {sub}
@@ -813,7 +814,7 @@ export default function StudentCreditsView(props: Props) {
                             />
                           ) : deficit > 0 ? (
                             <Chip
-                              label={`−${deficit} cr`}
+                              label={`−${formatCredits(deficit)} cr`}
                               size="small"
                               color="error"
                               variant="outlined"
@@ -881,7 +882,7 @@ export default function StudentCreditsView(props: Props) {
                               sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
                               color={color}
                             >
-                              {value > 0 ? value : "—"}
+                              {value > 0 ? formatCredits(value) : "—"}
                             </Typography>
                           </Box>
                         ))}
@@ -925,7 +926,7 @@ export default function StudentCreditsView(props: Props) {
                             <Typography variant="caption" color="text.disabled" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>{code}</Typography>
                           </TableCell>
                           <TableCell align="right">
-                            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{planTotal}</Typography>
+                            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{formatCredits(planTotal)}</Typography>
                           </TableCell>
                           <TableCell align="right">
                             <Typography
@@ -933,7 +934,7 @@ export default function StudentCreditsView(props: Props) {
                               sx={{ fontWeight: complete ? 700 : 400, fontVariantNumeric: "tabular-nums" }}
                               color={complete ? "success.main" : earnedTotal > 0 ? "text.primary" : "text.secondary"}
                             >
-                              {earnedTotal}
+                              {formatCredits(earnedTotal)}
                             </Typography>
                           </TableCell>
                           <TableCell align="right">
@@ -942,7 +943,7 @@ export default function StudentCreditsView(props: Props) {
                               color={onStudy > 0 ? "info.main" : "text.disabled"}
                               sx={{ fontVariantNumeric: "tabular-nums" }}
                             >
-                              {onStudy > 0 ? onStudy : "—"}
+                              {onStudy > 0 ? formatCredits(onStudy) : "—"}
                             </Typography>
                           </TableCell>
                           <TableCell>
@@ -955,7 +956,7 @@ export default function StudentCreditsView(props: Props) {
                             />
                             {onStudy > 0 && !complete && (
                               <Typography variant="caption" color="info.main" sx={{ fontSize: "0.62rem" }}>
-                                +{onStudy} on study
+                                +{formatCredits(onStudy)} on study
                               </Typography>
                             )}
                           </TableCell>
@@ -966,7 +967,7 @@ export default function StudentCreditsView(props: Props) {
                                 <Typography variant="body2" color="success.main" sx={{ fontWeight: 700 }}>Done</Typography>
                               </Box>
                             ) : deficit > 0 ? (
-                              <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{deficit}</Typography>
+                              <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{formatCredits(deficit)}</Typography>
                             ) : (
                               <Typography variant="body2" color="text.disabled">—</Typography>
                             )}
