@@ -4646,7 +4646,7 @@ function App() {
                           ) : null}
 
                           {/* Quick actions */}
-                          <Stack direction="row" spacing={1.5} flexWrap="wrap">
+                          <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
                             <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { openStudentCredits(studentSelf); }}>
                               View My Credits
                             </Button>
