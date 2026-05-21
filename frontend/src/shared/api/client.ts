@@ -32,9 +32,11 @@ export type ApiResult = {
     name: string;
     curriculumStructure: {
       totalCreditsRequired: number;
+      totalUnitsRequired?: number;
       categories: Array<{
         code: string;
         name: string;
+        measure: "credits" | "units";
         rule:
           | { type: "fixed"; value: number }
           | { type: "minimum"; value: number }
@@ -51,9 +53,11 @@ export type ApiResult = {
       semester: number;
       categories: Record<string, number>;
       totalCredits: number;
+      totalUnits?: number;
     }>;
     categoryTotals?: Record<string, number>;
     totalCredits?: number;
+    totalUnits?: number;
   }>;
   validation?: {
     hasErrors: boolean;
@@ -67,10 +71,12 @@ export type ApiResult = {
         code:
           | "REGULATION_NOT_FOUND"
           | "PLAN_TOTAL_MISMATCH"
+          | "PLAN_TOTAL_UNITS_MISMATCH"
           | "PLAN_CATEGORY_CODE_INVALID"
           | "PLAN_CATEGORY_MISSING"
           | "PLAN_CATEGORY_RULE_VIOLATION"
-          | "SEMESTER_TOTAL_MISMATCH";
+          | "SEMESTER_TOTAL_MISMATCH"
+          | "SEMESTER_TOTAL_UNITS_MISMATCH";
         message: string;
         planCode: number;
         planName: string;
@@ -164,10 +170,12 @@ export type ApiResult = {
         code:
           | "REGULATION_NOT_FOUND"
           | "PLAN_TOTAL_MISMATCH"
+          | "PLAN_TOTAL_UNITS_MISMATCH"
           | "PLAN_CATEGORY_CODE_INVALID"
           | "PLAN_CATEGORY_MISSING"
           | "PLAN_CATEGORY_RULE_VIOLATION"
-          | "SEMESTER_TOTAL_MISMATCH";
+          | "SEMESTER_TOTAL_MISMATCH"
+          | "SEMESTER_TOTAL_UNITS_MISMATCH";
         message: string;
         planCode: number;
         planName: string;
@@ -211,6 +219,7 @@ export type ApiResult = {
     isCurrent: boolean;
   }>;
   creditDetails?: Array<{ categoryId: string; semesterTaken: number; credits: number }>;
+  unitDetails?: Array<{ categoryId: string; unitsEarned: number }>;
   imported?: number;
   failed?: number;
   total?: number;

@@ -19,6 +19,7 @@ import {
 import { mkConfig } from "export-to-csv";
 import {
   getInitials,
+  formatCredits,
   MUI_TABLE_PAPER_PROPS,
   MUI_TABLE_CONTAINER_PROPS,
   MUI_TABLE_BODY_PROPS,
@@ -59,7 +60,7 @@ type Props = {
 
 const MOBILE_HIDDEN_COLUMNS: Record<string, boolean> = {
   email: false, planOfStudyCode: false, batch: false, programme: false, graduated: false, mentorName: false,
-  crTarget: false, crEarned: false, crPercent: false, deficient: false,
+  crTarget: false, crEarned: false, crPercent: false, crDeficient: false, utDeficient: false,
 };
 
 const STATUS_ORDER: Record<CreditStatus, number> = {
@@ -608,19 +609,23 @@ export default function StudentsDirectoryTable(props: Props) {
       },
       {
         id: "crTarget",
-        header: "Cr. Target",
+        header: "Target (Cr+Ut)",
         enableEditing: false,
         enableColumnFilterModes: true,
         accessorFn: (row) => props.creditSummaries?.[row.userId]?.target ?? -1,
         Cell: ({ row }) => {
           const s = props.creditSummaries?.[row.original.userId];
           if (!s) return <Typography variant="body2" color="text.disabled">—</Typography>;
-          return <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{s.target}</Typography>;
+          return (
+            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {formatCredits(s.targetCredits)}+{formatCredits(s.targetUnits)}
+            </Typography>
+          );
         },
       },
       {
         id: "crEarned",
-        header: "Cr. Earned",
+        header: "Earned (Cr+Ut)",
         enableEditing: false,
         enableColumnFilterModes: true,
         accessorFn: (row) => props.creditSummaries?.[row.userId]?.earned ?? -1,
@@ -633,7 +638,7 @@ export default function StudentsDirectoryTable(props: Props) {
               sx={{ fontVariantNumeric: "tabular-nums" }}
               color={s.status === "complete" ? "success.main" : s.earned > 0 ? "text.primary" : "text.secondary"}
             >
-              {s.earned}
+              {formatCredits(s.earnedCredits)}+{formatCredits(s.earnedUnits)}
             </Typography>
           );
         },
@@ -660,17 +665,33 @@ export default function StudentsDirectoryTable(props: Props) {
         },
       },
       {
-        id: "deficient",
-        header: "Deficient",
+        id: "crDeficient",
+        header: "Cr. Deficient",
         enableEditing: false,
-        enableColumnFilterModes: false,
-        accessorFn: (row) => props.creditSummaries?.[row.userId]?.deficit ?? -1,
+        enableColumnFilterModes: true,
+        accessorFn: (row) => props.creditSummaries?.[row.userId]?.deficitCredits ?? -1,
         Cell: ({ row }) => {
           const s = props.creditSummaries?.[row.original.userId];
-          if (!s || s.deficit === 0) return <Typography variant="body2" color="text.disabled">—</Typography>;
+          if (!s || s.deficitCredits <= 0) return <Typography variant="body2" color="text.disabled">—</Typography>;
           return (
             <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>
-              −{s.deficit}
+              {formatCredits(s.deficitCredits)}
+            </Typography>
+          );
+        },
+      },
+      {
+        id: "utDeficient",
+        header: "Ut. Deficient",
+        enableEditing: false,
+        enableColumnFilterModes: true,
+        accessorFn: (row) => props.creditSummaries?.[row.userId]?.deficitUnits ?? -1,
+        Cell: ({ row }) => {
+          const s = props.creditSummaries?.[row.original.userId];
+          if (!s || s.deficitUnits <= 0) return <Typography variant="body2" color="text.disabled">—</Typography>;
+          return (
+            <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {formatCredits(s.deficitUnits)}
             </Typography>
           );
         },

@@ -168,6 +168,7 @@ export type RegulationCreditRule =
 export type RegulationCategory = {
   code: string;
   name: string;
+  measure: "credits" | "units";
   rule: RegulationCreditRule;
 };
 
@@ -176,6 +177,7 @@ export type Regulation = {
   name: string;
   curriculumStructure: {
     totalCreditsRequired: number;
+    totalUnitsRequired?: number;
     categories: RegulationCategory[];
   };
 };
@@ -188,19 +190,23 @@ export type PlanOfStudy = {
     semester: number;
     categories: Record<string, number>;
     totalCredits: number;
+    totalUnits?: number;
   }>;
   categoryTotals?: Record<string, number>;
   totalCredits?: number;
+  totalUnits?: number;
 };
 
 export type PlanValidationError = {
   code:
     | "REGULATION_NOT_FOUND"
     | "PLAN_TOTAL_MISMATCH"
+    | "PLAN_TOTAL_UNITS_MISMATCH"
     | "PLAN_CATEGORY_CODE_INVALID"
     | "PLAN_CATEGORY_MISSING"
     | "PLAN_CATEGORY_RULE_VIOLATION"
-    | "SEMESTER_TOTAL_MISMATCH";
+    | "SEMESTER_TOTAL_MISMATCH"
+    | "SEMESTER_TOTAL_UNITS_MISMATCH";
   message: string;
   planCode: number;
   planName: string;
@@ -228,6 +234,12 @@ export type StudentCreditSummary = {
   earned: number;
   expected: number;
   deficit: number;
+  deficitCredits: number;
+  deficitUnits: number;
+  targetCredits: number;
+  targetUnits: number;
+  earnedCredits: number;
+  earnedUnits: number;
   status: CreditStatus;
 };
 

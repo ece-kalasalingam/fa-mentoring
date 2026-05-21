@@ -46,7 +46,6 @@
   - Export PDF action in top toolbar.
   - Export behavior: if any rows are selected, export selected rows only; otherwise export all current table rows.
   - Rows-per-page selector must include an `All` option.
-  - Outer table border should be removed (borderless table shell).
   - Any MRT column that represents date/time values MUST use the same filtering pattern as Manage Users `Last Login`: date value accessor, `filterVariant: "date"`, `filterFn: "greaterThan"`, and `enableGlobalFilter: false`.
   - Any MRT column titled `Full Name` MUST use the same filter behavior as Manage Users `Full Name` (column filter modes enabled and text-style filtering).
   - Any MRT column titled `User`, `Username`, or `Email` MUST follow the same filter mode/type behavior as Manage Users `Full Name` (text-style filter with column filter modes enabled).

@@ -10,6 +10,7 @@ type RegulationCreditRule =
 type RegulationCategory = {
   code: string;
   name: string;
+  measure: "credits" | "units";
   rule: RegulationCreditRule;
 };
 
@@ -18,6 +19,7 @@ type Regulation = {
   name: string;
   curriculumStructure: {
     totalCreditsRequired: number;
+    totalUnitsRequired?: number;
     categories: RegulationCategory[];
   };
 };
@@ -30,19 +32,23 @@ type PlanOfStudy = {
     semester: number;
     categories: Record<string, number>;
     totalCredits: number;
+    totalUnits?: number;
   }>;
   categoryTotals?: Record<string, number>;
   totalCredits?: number;
+  totalUnits?: number;
 };
 
 export type PlanValidationError = {
   code:
     | "REGULATION_NOT_FOUND"
     | "PLAN_TOTAL_MISMATCH"
+    | "PLAN_TOTAL_UNITS_MISMATCH"
     | "PLAN_CATEGORY_CODE_INVALID"
     | "PLAN_CATEGORY_MISSING"
     | "PLAN_CATEGORY_RULE_VIOLATION"
-    | "SEMESTER_TOTAL_MISMATCH";
+    | "SEMESTER_TOTAL_MISMATCH"
+    | "SEMESTER_TOTAL_UNITS_MISMATCH";
   message: string;
   planCode: number;
   planName: string;
@@ -98,6 +104,10 @@ export async function validatePlansOfStudyAgainstRegulations(): Promise<PlansVal
       (acc, semester) => acc + Number(semester.totalCredits ?? 0),
       0
     );
+    const computedPlanTotalUnits = (plan.semesters ?? []).reduce(
+      (acc, semester) => acc + Number(semester.totalUnits ?? 0),
+      0
+    );
 
     if (!regulation) {
       errors.push({
@@ -125,13 +135,40 @@ export async function validatePlansOfStudyAgainstRegulations(): Promise<PlansVal
         regulationCode: plan.regulationCode,
       });
     }
+    if (computedPlanTotalUnits !== Number(regulation.curriculumStructure.totalUnitsRequired ?? 0)) {
+      errors.push({
+        code: "PLAN_TOTAL_UNITS_MISMATCH",
+        message: `Plan units total ${computedPlanTotalUnits} does not match regulation units total ${regulation.curriculumStructure.totalUnitsRequired ?? 0}.`,
+        planCode: plan.planCode,
+        planName: plan.planName,
+        regulationCode: plan.regulationCode,
+      });
+    }
 
     for (const semester of plan.semesters ?? []) {
-      const sum = Object.values(semester.categories ?? {}).reduce((acc, v) => acc + Number(v ?? 0), 0);
-      if (Number(semester.totalCredits ?? 0) !== sum) {
+      const regulationByCode = new Map((regulation.curriculumStructure.categories ?? []).map((c) => [c.code, c]));
+      let creditsSum = 0;
+      let unitsSum = 0;
+      for (const [code, raw] of Object.entries(semester.categories ?? {})) {
+        const value = Number(raw ?? 0);
+        const measure = regulationByCode.get(code)?.measure ?? "credits";
+        if (measure === "units") unitsSum += value;
+        else creditsSum += value;
+      }
+      if (Number(semester.totalCredits ?? 0) !== creditsSum) {
         errors.push({
           code: "SEMESTER_TOTAL_MISMATCH",
-          message: `Semester ${semester.semester} total ${semester.totalCredits} does not match category sum ${sum}.`,
+          message: `Semester ${semester.semester} credits total ${semester.totalCredits} does not match credit-category sum ${creditsSum}.`,
+          planCode: plan.planCode,
+          planName: plan.planName,
+          regulationCode: plan.regulationCode,
+          semester: semester.semester,
+        });
+      }
+      if (Number(semester.totalUnits ?? 0) !== unitsSum) {
+        errors.push({
+          code: "SEMESTER_TOTAL_UNITS_MISMATCH",
+          message: `Semester ${semester.semester} units total ${semester.totalUnits ?? 0} does not match units-category sum ${unitsSum}.`,
           planCode: plan.planCode,
           planName: plan.planName,
           regulationCode: plan.regulationCode,
@@ -188,7 +225,7 @@ export async function validatePlansOfStudyAgainstRegulations(): Promise<PlansVal
       if (!satisfiesRule(value, category.rule)) {
         errors.push({
           code: "PLAN_CATEGORY_RULE_VIOLATION",
-          message: `Category '${category.code}' has ${value} credits; expected ${ruleLabel(category.rule)}.`,
+          message: `Category '${category.code}' has ${value} ${category.measure}; expected ${ruleLabel(category.rule)}.`,
           planCode: plan.planCode,
           planName: plan.planName,
           regulationCode: plan.regulationCode,

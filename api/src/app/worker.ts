@@ -36,7 +36,7 @@ import { fetchProgrammesFromJson } from "../modules/programmes/programmes.servic
 import { fetchRegulationsFromJson } from "../modules/regulations/regulations.service";
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
-import { assertStudentCanAccessOwnUserId, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits } from "../modules/students/students.service";
+import { assertStudentCanAccessOwnUserId, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, getStudentUnits, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits, upsertStudentUnits } from "../modules/students/students.service";
 import { assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
@@ -1092,8 +1092,9 @@ export const worker = {
           await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
         }
         const credits = await getStudentCredits(env, studentId);
+        const units = await getStudentUnits(env, studentId);
         statusCode = 200;
-        return respond({ ok: true, creditDetails: credits });
+        return respond({ ok: true, creditDetails: credits, unitDetails: units });
       }
 
       if (pathname === "/api/student-credits" && request.method === "POST") {
@@ -1116,6 +1117,14 @@ export const worker = {
             credits: toTwoDecimalNumber(Number(e.credits ?? 0)),
           }))
           .filter((e) => e.categoryId.length > 0 && e.semesterTaken > 0 && e.credits >= 0);
+        const rawUnitEntries = isObject(body) && Array.isArray(body.unitEntries) ? body.unitEntries : [];
+        const unitEntries = (rawUnitEntries as unknown[])
+          .filter((e): e is Record<string, unknown> => isObject(e))
+          .map((e) => ({
+            categoryId: String(e.categoryId ?? ""),
+            unitsEarned: toTwoDecimalNumber(Number(e.unitsEarned ?? 0)),
+          }))
+          .filter((e) => e.categoryId.length > 0 && e.unitsEarned >= 0);
         const scope = resolveScopedStudentAccess(principal!);
         if (scope.type === "none") {
           statusCode = 403;
@@ -1132,6 +1141,14 @@ export const worker = {
           env,
           studentId,
           entries,
+          modifiedById,
+          writeMode === "replace_all" ? "replace_all" : "patch",
+          allowClearAll,
+        );
+        await upsertStudentUnits(
+          env,
+          studentId,
+          unitEntries,
           modifiedById,
           writeMode === "replace_all" ? "replace_all" : "patch",
           allowClearAll,

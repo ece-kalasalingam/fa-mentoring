@@ -4,6 +4,7 @@ type PlanOfStudySemester = {
   semester: number;
   categories: Record<string, number>;
   totalCredits: number;
+  totalUnits?: number;
 };
 
 type PlanOfStudy = {
@@ -13,6 +14,7 @@ type PlanOfStudy = {
   semesters: PlanOfStudySemester[];
   categoryTotals?: Record<string, number>;
   totalCredits?: number;
+  totalUnits?: number;
 };
 
 type PlansOfStudyCatalog = {

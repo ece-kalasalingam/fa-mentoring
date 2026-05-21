@@ -45,6 +45,7 @@ const OVERALL_LABELS = CREDIT_STATUS_LABELS;
 type CategoryAnalytic = {
   code: string;
   name: string;
+  measure: "credits" | "units";
   totalRequired: number;
   totalEarned: number;
   completionPct: number;
@@ -59,6 +60,10 @@ type StudentAnalytic = {
   currentSemester: number | null;
   graduated: "Yes" | "No";
   planName: string;
+  requiredCredits: number;
+  requiredUnits: number;
+  earnedCredits: number;
+  earnedUnits: number;
   totalRequired: number;
   totalEarned: number;
   completionPct: number;
@@ -96,7 +101,11 @@ function overallChipColor(status: OverallStatus): "success" | "primary" | "warni
 }
 
 // ── Build category analytics from a student list ──────────────────────────────
-function buildCategoryAnalytics(students: StudentAnalytic[], catNameMap: Map<string, string>): CategoryAnalytic[] {
+function buildCategoryAnalytics(
+  students: StudentAnalytic[],
+  catNameMap: Map<string, string>,
+  catMeasureMap: Map<string, "credits" | "units">,
+): CategoryAnalytic[] {
   const allCodes = new Set<string>();
   for (const sa of students) for (const code of Object.keys(sa.categoryStatuses)) allCodes.add(code);
 
@@ -112,6 +121,7 @@ function buildCategoryAnalytics(students: StudentAnalytic[], catNameMap: Map<str
       return {
         code,
         name: catNameMap.get(code) ?? code,
+        measure: catMeasureMap.get(code) ?? "credits",
         totalRequired: normalizeCredits(totalRequired),
         totalEarned: normalizeCredits(totalEarned),
         completionPct,
@@ -128,6 +138,7 @@ type BatchPanelProps = {
   batchLabel: string;
   students: StudentAnalytic[];
   catNameMap: Map<string, string>;
+  catMeasureMap: Map<string, "credits" | "units">;
   onViewStudents?: (status: CreditStatus | null, batchFilter: number | null) => void;
 };
 
@@ -148,7 +159,7 @@ function OverflowTooltip({ text, sx }: { text: string; sx?: object }) {
   );
 }
 
-function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }: BatchPanelProps) {
+function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, onViewStudents }: BatchPanelProps) {
   const theme = useTheme();
   const isMobile  = useMediaQuery(theme.breakpoints.down("sm"));
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
@@ -171,12 +182,12 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
   const { statusCounts, categoryAnalytics, grandRequired, grandEarned, grandPct } = useMemo(() => {
     const statusCounts: Record<OverallStatus, number> = { complete: 0, "on-track": 0, marginal: 0, "off-track": 0 };
     for (const sa of students) statusCounts[sa.overallStatus]++;
-    const categoryAnalytics = buildCategoryAnalytics(students, catNameMap);
+    const categoryAnalytics = buildCategoryAnalytics(students, catNameMap, catMeasureMap);
     const grandRequired = students.reduce((s, a) => s + a.totalRequired, 0);
     const grandEarned   = students.reduce((s, a) => s + a.totalEarned, 0);
     const grandPct = grandRequired > 0 ? Math.round((grandEarned / grandRequired) * 100) : 0;
     return { statusCounts, categoryAnalytics, grandRequired, grandEarned, grandPct };
-  }, [students, catNameMap]);
+  }, [students, catNameMap, catMeasureMap]);
 
   const filteredStudents = useMemo(() => {
     if (statusFilter) return students.filter((sa) => sa.overallStatus === statusFilter);
@@ -392,16 +403,16 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                   border: isActive ? `1px solid ${alpha(color, 0.4)}` : "1px solid transparent",
                   "&:hover": { bgcolor: alpha(color, 0.07) }, transition: "all 0.12s",
                 }}>
-                  <Stack direction="row" spacing={0.75} alignItems="center">
+                  <Box sx={{ display: "flex", flexDirection: "row", gap: 0.75, alignItems: "center" }}>
                     <Box sx={{ width: 10, height: 10, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
                     <Typography variant="body2" sx={{ fontSize: "0.78rem" }}>{OVERALL_LABELS[s]}</Typography>
-                  </Stack>
-                  <Stack direction="row" spacing={0.75} alignItems="center">
+                  </Box>
+                  <Box sx={{ display: "flex", flexDirection: "row", gap: 0.75, alignItems: "center" }}>
                     <Typography variant="body2" sx={{ fontWeight: 700, fontSize: "0.82rem" }}>{statusCounts[s]}</Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem" }}>
                       {students.length > 0 ? `${Math.round((statusCounts[s] / students.length) * 100)}%` : "—"}
                     </Typography>
-                  </Stack>
+                  </Box>
                 </Box>
               );
             })}
@@ -414,10 +425,10 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
               { label: "Credits earned", value: formatCredits(grandEarned), color: "success.main" as const },
               { label: "Completion", value: `${grandPct}%`, color: undefined },
             ].map(({ label, value, color }) => (
-              <Stack key={label} direction="row" justifyContent="space-between">
+              <Box key={label} sx={{ display: "flex", flexDirection: "row", justifyContent: "space-between" }}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>{label}</Typography>
                 <Typography variant="caption" sx={{ fontWeight: 700, fontSize: "0.7rem", color: color ?? "text.primary" }}>{value}</Typography>
-              </Stack>
+              </Box>
             ))}
           </Stack>
         </Paper>
@@ -427,8 +438,9 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
       {categoryAnalytics.length > 0 && (
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.25 }}>Category Detail</Typography>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 1.5 }}>
-            {categoryAnalytics.map((cat) => {
+          <Typography variant="caption" sx={{ display: "block", mb: 0.75, color: "primary.main", fontWeight: 700 }}>Credits</Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 1.5, mb: 1.5 }}>
+            {categoryAnalytics.filter((cat) => cat.measure === "credits").map((cat) => {
               const atRisk = cat.counts.marginal + cat.counts["off-track"];
               const isHighlighted = categoryFilter?.code === cat.code;
               const highlightColor = isHighlighted ? overallStatusColor(categoryFilter!.status, theme) : undefined;
@@ -444,14 +456,14 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                   transition: "border-color 0.15s, box-shadow 0.15s, background-color 0.15s",
                 }}>
                   {/* Code + completion % */}
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+                  <Box sx={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
                     <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1rem" }}>
                       {cat.code}
                     </Typography>
                     <Chip size="small" label={`${cat.completionPct}%`}
                       color={cat.completionPct >= 100 ? "success" : cat.completionPct >= 60 ? "primary" : cat.completionPct >= 30 ? "warning" : "error"}
                       variant="outlined" sx={{ fontSize: "0.7rem", height: 20 }} />
-                  </Stack>
+                  </Box>
                   {/* Completion progress bar */}
                   <LinearProgress
                     variant="determinate"
@@ -463,14 +475,16 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.75rem", display: "block", mb: 1.25, lineHeight: 1.4 }}>
                     {cat.name}
                   </Typography>
-                  {/* Credits earned / required */}
-                  <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 1.25 }}>
-                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>Credits</Typography>
+                  {/* Measure earned / required */}
+                  <Box sx={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", mb: 1.25 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>
+                      {cat.measure === "units" ? "Units" : "Credits"}
+                    </Typography>
                     <Typography variant="caption" sx={{ fontWeight: 700, fontSize: "0.75rem" }}>
                       {formatCredits(cat.totalEarned)}
                       <Typography component="span" variant="caption" color="text.disabled" sx={{ fontWeight: 400 }}> / {formatCredits(cat.totalRequired)}</Typography>
                     </Typography>
-                  </Stack>
+                  </Box>
                   {/* Status breakdown */}
                   <Stack spacing={0.75}>
                     {CREDIT_STATUSES.map((s) => {
@@ -478,16 +492,16 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                       const color = overallStatusColor(s, theme);
                       const pct = students.length > 0 ? Math.round((n / students.length) * 100) : 0;
                       return (
-                        <Stack key={s} direction="row" alignItems="center" justifyContent="space-between">
-                          <Stack direction="row" alignItems="center" spacing={0.75}>
+                        <Box key={s} sx={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                          <Box sx={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 0.75 }}>
                             <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
                             <Typography variant="caption" sx={{ fontSize: "0.75rem", color: "text.secondary" }}>{OVERALL_LABELS[s]}</Typography>
-                          </Stack>
-                          <Stack direction="row" spacing={0.5} alignItems="center">
+                          </Box>
+                          <Box sx={{ display: "flex", flexDirection: "row", gap: 0.5, alignItems: "center" }}>
                             <Typography variant="caption" sx={{ fontWeight: 700, fontSize: "0.82rem", color: n > 0 ? color : "text.disabled" }}>{n}</Typography>
                             <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "text.disabled" }}>{pct > 0 ? `${pct}%` : ""}</Typography>
-                          </Stack>
-                        </Stack>
+                          </Box>
+                        </Box>
                       );
                     })}
                   </Stack>
@@ -507,12 +521,91 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
               );
             })}
           </Box>
+          {categoryAnalytics.some((cat) => cat.measure === "units") && (
+            <>
+              <Typography variant="caption" sx={{ display: "block", mb: 0.75, color: "secondary.main", fontWeight: 700 }}>Non-credits</Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 1.5 }}>
+                {categoryAnalytics.filter((cat) => cat.measure === "units").map((cat) => {
+                  const atRisk = cat.counts.marginal + cat.counts["off-track"];
+                  const isHighlighted = categoryFilter?.code === cat.code;
+                  const highlightColor = isHighlighted ? overallStatusColor(categoryFilter!.status, theme) : undefined;
+                  return (
+                    <Paper key={cat.code} variant="outlined" sx={{
+                      borderRadius: 2, p: 2,
+                      ...(isHighlighted && {
+                        borderColor: highlightColor,
+                        borderWidth: 2,
+                        bgcolor: alpha(highlightColor!, 0.06),
+                        boxShadow: `0 0 0 2px ${alpha(highlightColor!, 0.18)}`,
+                      }),
+                      transition: "border-color 0.15s, box-shadow 0.15s, background-color 0.15s",
+                    }}>
+                      <Box sx={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                        <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1rem" }}>
+                          {cat.code}
+                        </Typography>
+                        <Chip size="small" label={`${cat.completionPct}%`}
+                          color={cat.completionPct >= 100 ? "success" : cat.completionPct >= 60 ? "primary" : cat.completionPct >= 30 ? "warning" : "error"}
+                          variant="outlined" sx={{ fontSize: "0.7rem", height: 20 }} />
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(100, cat.completionPct)}
+                        color={cat.completionPct >= 100 ? "success" : cat.completionPct >= 60 ? "primary" : cat.completionPct >= 30 ? "warning" : "error"}
+                        sx={{ height: 4, borderRadius: 1, mb: 1.25 }}
+                      />
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.75rem", display: "block", mb: 1.25, lineHeight: 1.4 }}>
+                        {cat.name}
+                      </Typography>
+                      <Box sx={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", mb: 1.25 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>Units</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: "0.75rem" }}>
+                          {formatCredits(cat.totalEarned)}
+                          <Typography component="span" variant="caption" color="text.disabled" sx={{ fontWeight: 400 }}> / {formatCredits(cat.totalRequired)}</Typography>
+                        </Typography>
+                      </Box>
+                      <Stack spacing={0.75}>
+                        {CREDIT_STATUSES.map((s) => {
+                          const n = cat.counts[s];
+                          const color = overallStatusColor(s, theme);
+                          const pct = students.length > 0 ? Math.round((n / students.length) * 100) : 0;
+                          return (
+                            <Box key={s} sx={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                              <Box sx={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 0.75 }}>
+                                <Box sx={{ width: 9, height: 9, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
+                                <Typography variant="caption" sx={{ fontSize: "0.75rem", color: "text.secondary" }}>{OVERALL_LABELS[s]}</Typography>
+                              </Box>
+                              <Box sx={{ display: "flex", flexDirection: "row", gap: 0.5, alignItems: "center" }}>
+                                <Typography variant="caption" sx={{ fontWeight: 700, fontSize: "0.82rem", color: n > 0 ? color : "text.disabled" }}>{n}</Typography>
+                                <Typography variant="caption" sx={{ fontSize: "0.7rem", color: "text.disabled" }}>{pct > 0 ? `${pct}%` : ""}</Typography>
+                              </Box>
+                            </Box>
+                          );
+                        })}
+                      </Stack>
+                      <Box sx={{ mt: 1.25, pt: 1, borderTop: "1px solid", borderColor: "divider" }}>
+                        {atRisk > 0 ? (
+                          <Typography variant="caption" sx={{ fontSize: "0.72rem", color: "warning.main", fontWeight: 600 }}>
+                            {atRisk} student{atRisk === 1 ? "" : "s"} need attention
+                          </Typography>
+                        ) : (
+                          <Typography variant="caption" sx={{ fontSize: "0.72rem", color: "success.main", fontWeight: 600 }}>
+                            All on track ✓
+                          </Typography>
+                        )}
+                      </Box>
+                    </Paper>
+                  );
+                })}
+              </Box>
+            </>
+          )}
         </Box>
       )}
 
       {/* Student detail table ────────────────────────────────────────────────── */}
       <Box data-noprint>
-        <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", sm: "flex-start" }} spacing={1} sx={{ mb: 1 }}>
+        <Box sx={{ display: "flex", flexDirection: { xs: "column", sm: "row" }, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" }, gap: 1, mb: 1 }}>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
               Student Detail
@@ -531,7 +624,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
               </Typography>
             )}
           </Box>
-          <Stack direction="row" alignItems="center" spacing={1} sx={{ flexWrap: "wrap", gap: 0.5 }}>
+          <Box sx={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
             {onViewStudents && CREDIT_STATUSES.map((s) => statusCounts[s] > 0 && (
               <Chip key={s} size="small" label={`${OVERALL_LABELS[s]} (${statusCounts[s]})`}
                 color={overallChipColor(s)} variant="outlined"
@@ -542,8 +635,8 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
             <Button size="small" variant="outlined" startIcon={<DownloadIcon fontSize="small" />} onClick={handleExportCsv} sx={{ flexShrink: 0 }}>
               CSV
             </Button>
-          </Stack>
-        </Stack>
+          </Box>
+        </Box>
 
         <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 400, overflowX: "auto" }}>
           <Table size="small" stickyHeader sx={{ tableLayout: "auto" }}>
@@ -578,13 +671,13 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                     <OverflowTooltip text={sa.fullName} sx={{ fontSize: "0.8rem" }} />
                   </TableCell>
                   {!isMobile && <TableCell align="center" sx={{ fontSize: "0.8rem" }}>{sa.currentSemester ?? "—"}</TableCell>}
-                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.totalRequired)}</TableCell>}
-                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.totalEarned)}</TableCell>}
+                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.requiredCredits)}+{formatCredits(sa.requiredUnits)}</TableCell>}
+                  {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.earnedCredits)}+{formatCredits(sa.earnedUnits)}</TableCell>}
                   {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem", fontWeight: 700 }}>{sa.completionPct}%</TableCell>}
                   {isMobile  && (
                     <TableCell align="right" sx={{ fontSize: "0.75rem" }}>
-                      <Typography component="span" sx={{ fontWeight: 700, fontSize: "inherit" }}>{formatCredits(sa.totalEarned)}</Typography>
-                      <Typography component="span" sx={{ color: "text.secondary", fontSize: "0.7rem" }}> / {formatCredits(sa.totalRequired)}</Typography>
+                      <Typography component="span" sx={{ fontWeight: 700, fontSize: "inherit" }}>{formatCredits(sa.earnedCredits)}+{formatCredits(sa.earnedUnits)}</Typography>
+                      <Typography component="span" sx={{ color: "text.secondary", fontSize: "0.7rem" }}> / {formatCredits(sa.requiredCredits)}+{formatCredits(sa.requiredUnits)}</Typography>
                     </TableCell>
                   )}
                   <TableCell>
@@ -674,9 +767,11 @@ export default function FacultyAnalyticsReport({
     }
 
     const catNameMap = new Map<string, string>();
+    const catMeasureMap = new Map<string, "credits" | "units">();
     for (const reg of regulations) {
       for (const cat of reg.curriculumStructure.categories) {
         if (!catNameMap.has(cat.code)) catNameMap.set(cat.code, cat.name);
+        if (!catMeasureMap.has(cat.code)) catMeasureMap.set(cat.code, cat.measure ?? "credits");
       }
     }
 
@@ -687,7 +782,10 @@ export default function FacultyAnalyticsReport({
       const plan = s.planOfStudyCode ? planMap.get(s.planOfStudyCode) : null;
       const categoryRequired: Record<string, number> = {};
       const categoryExpected: Record<string, number> = {};
-      let totalRequired = 0;
+      let requiredCredits = 0;
+      let requiredUnits = 0;
+      let expectedCredits = 0;
+      let expectedUnits = 0;
       const currentSem = s.currentSemester ?? 1;
 
       if (plan) {
@@ -697,21 +795,29 @@ export default function FacultyAnalyticsReport({
             if (n > 0) {
               categoryRequired[cat] = (categoryRequired[cat] ?? 0) + n;
               allCategoryCodes.add(cat);
+              if ((catMeasureMap.get(cat) ?? "credits") === "units") requiredUnits += n;
+              else requiredCredits += n;
               if (sem.semester < currentSem) {
                 categoryExpected[cat] = (categoryExpected[cat] ?? 0) + n;
+                if ((catMeasureMap.get(cat) ?? "credits") === "units") expectedUnits += n;
+                else expectedCredits += n;
               }
             }
           }
-          totalRequired += Number(sem.totalCredits ?? 0);
         }
       }
       const categoryEarned = studentEarnedByCategory.get(s.userId) ?? {};
       for (const cat of Object.keys(categoryEarned)) allCategoryCodes.add(cat);
-      const totalEarned = Object.values(categoryEarned).reduce((sum, v) => sum + v, 0);
+      let earnedCredits = 0;
+      let earnedUnits = 0;
+      for (const [code, value] of Object.entries(categoryEarned)) {
+        if ((catMeasureMap.get(code) ?? "credits") === "units") earnedUnits += value;
+        else earnedCredits += value;
+      }
+      const totalRequired = requiredCredits + requiredUnits;
+      const totalEarned = earnedCredits + earnedUnits;
       const completionPct = totalRequired > 0 ? Math.round((totalEarned / totalRequired) * 100) : 0;
-      const expected = plan
-        ? plan.semesters.filter((sem) => sem.semester < currentSem).reduce((sum, sem) => sum + sem.totalCredits, 0)
-        : 0;
+      const expected = expectedCredits + expectedUnits;
 
       const categoryStatuses: Record<string, { earned: number; required: number; status: CreditStatus }> = {};
       for (const code of allCategoryCodes) {
@@ -730,6 +836,10 @@ export default function FacultyAnalyticsReport({
         currentSemester: s.currentSemester,
         graduated: s.graduated,
         planName: plan?.planName ?? "—",
+        requiredCredits,
+        requiredUnits,
+        earnedCredits,
+        earnedUnits,
         totalRequired,
         totalEarned,
         completionPct,
@@ -754,10 +864,10 @@ export default function FacultyAnalyticsReport({
         students: [...batchStudents].sort((a, b) => a.registrationNumber.localeCompare(b.registrationNumber)),
       }));
 
-    return { totalActive: activeMentored.length, batchGroups, catNameMap };
+    return { totalActive: activeMentored.length, batchGroups, catNameMap, catMeasureMap };
   }, [students, creditRows, plansOfStudy, regulations]);
 
-  const { totalActive, batchGroups, catNameMap } = analytics;
+  const { totalActive, batchGroups, catNameMap, catMeasureMap } = analytics;
   const batchStatusCardOption = useMemo<EChartsOption>(() => {
     const trendGroups = [...batchGroups].sort((a, b) => {
       const av = a.batch ?? Number.MAX_SAFE_INTEGER;
@@ -908,13 +1018,13 @@ export default function FacultyAnalyticsReport({
           >
             <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 52, "& .MuiAccordionSummary-content": { my: 1, mr: 1 } }}>
               <Stack sx={{ flex: 1, minWidth: 0, gap: 0.75 }}>
-                <Stack direction="row" spacing={1.5} alignItems="center">
+                <Box sx={{ display: "flex", flexDirection: "row", gap: 1.5, alignItems: "center" }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{label}</Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.72rem", flexShrink: 0 }}>
                     {batchTotal} student{batchTotal === 1 ? "" : "s"}
                   </Typography>
-                </Stack>
-                <Stack direction="row" flexWrap="wrap" sx={{ gap: 0.5 }}>
+                </Box>
+                <Box sx={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 0.5 }}>
                   {CREDIT_STATUSES.map((s) => {
                     const count = batchStatusCounts[s];
                     if (count === 0) return null;
@@ -927,7 +1037,7 @@ export default function FacultyAnalyticsReport({
                       />
                     );
                   })}
-                </Stack>
+                </Box>
               </Stack>
             </AccordionSummary>
             <AccordionDetails id={`batch-content-${batch ?? "unknown"}`} sx={{ pt: 0, pb: 2, px: { xs: 1, sm: 2 } }}>
@@ -947,6 +1057,7 @@ export default function FacultyAnalyticsReport({
                 batchLabel={label}
                 students={batchStudents}
                 catNameMap={catNameMap}
+                catMeasureMap={catMeasureMap}
                 onViewStudents={onViewStudents}
               />
             </AccordionDetails>

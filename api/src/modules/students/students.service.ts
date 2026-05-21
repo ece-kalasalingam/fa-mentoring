@@ -137,21 +137,46 @@ export async function getStudentStatsByScope(env: Env, scope: StudentScope) {
 export async function getStudentCreditSummaries(
   env: Env,
   studentIds: string[],
-): Promise<Array<{ studentId: string; totalCredits: number }>> {
+): Promise<Array<{ studentId: string; totalCredits: number; totalUnits: number; byCategory: Record<string, number> }>> {
   if (studentIds.length === 0) return [];
   const db = getDb(env);
   const placeholders = studentIds.map(() => "?").join(", ");
   const result = await db.execute({
-    sql: `select student_id, coalesce(sum(credits), 0) as total_credits
+    sql: `select
+            student_id,
+            coalesce(sum(case when coalesce(status, 0) = 5 then 0 else credits end), 0) as total_credits,
+            coalesce(sum(case when coalesce(status, 0) = 5 then credits else 0 end), 0) as total_units
           from student_credit_details
           where student_id in (${placeholders})
           group by student_id`,
     args: studentIds as Array<string | number | null>,
   });
-  return result.rows.map((row) => ({
-    studentId: String(row.student_id ?? ""),
-    totalCredits: toTwoDecimalNumber(Number(row.total_credits ?? 0)),
-  }));
+  const byCategoryResult = await db.execute({
+    sql: `select student_id, category_id, coalesce(sum(credits), 0) as total_value
+          from student_credit_details
+          where student_id in (${placeholders})
+          group by student_id, category_id`,
+    args: studentIds as Array<string | number | null>,
+  });
+  const byStudentCategory = new Map<string, Record<string, number>>();
+  for (const row of byCategoryResult.rows) {
+    const studentId = String(row.student_id ?? "");
+    const categoryId = String(row.category_id ?? "");
+    if (!studentId || !categoryId) continue;
+    const bucket = byStudentCategory.get(studentId) ?? {};
+    bucket[categoryId] = toTwoDecimalNumber(Number(row.total_value ?? 0));
+    byStudentCategory.set(studentId, bucket);
+  }
+
+  return result.rows.map((row) => {
+    const studentId = String(row.student_id ?? "");
+    return {
+      studentId,
+      totalCredits: toTwoDecimalNumber(Number(row.total_credits ?? 0)),
+      totalUnits: toTwoDecimalNumber(Number(row.total_units ?? 0)),
+      byCategory: byStudentCategory.get(studentId) ?? {},
+    };
+  });
 }
 
 export async function getStudentCredits(env: Env, studentId: string) {
@@ -167,6 +192,23 @@ export async function getStudentCredits(env: Env, studentId: string) {
     categoryId: String(row.category_id ?? ""),
     semesterTaken: Number(row.semester_taken),
     credits: toTwoDecimalNumber(Number(row.credits)),
+  }));
+}
+
+export async function getStudentUnits(env: Env, studentId: string) {
+  const db = getDb(env);
+  const result = await db.execute({
+    sql: `select category_id, coalesce(sum(credits), 0) as units_earned
+          from student_credit_details
+          where student_id = ?
+            and status = 5
+          group by category_id
+          order by category_id asc`,
+    args: [studentId],
+  });
+  return result.rows.map((row) => ({
+    categoryId: String(row.category_id ?? ""),
+    unitsEarned: toTwoDecimalNumber(Number(row.units_earned ?? 0)),
   }));
 }
 
@@ -236,6 +278,7 @@ export async function listStudentCreditTableByScope(
 }
 
 type CreditEntry = { categoryId: string; semesterTaken: number; credits: number };
+type UnitEntry = { categoryId: string; unitsEarned: number };
 type CreditWriteMode = "replace_all" | "patch";
 
 async function safeRollback(db: ReturnType<typeof getDb>): Promise<void> {
@@ -352,6 +395,63 @@ export async function upsertStudentCredits(
                   modified_by = excluded.modified_by,
                   modified_at = current_timestamp`,
           args: [studentId, categoryId, semesterTaken, credits, modifiedById],
+        });
+      }
+    }
+    await safeCommit(db);
+  } catch (error) {
+    await safeRollback(db);
+    throw error;
+  }
+}
+
+export async function upsertStudentUnits(
+  env: Env,
+  studentId: string,
+  entries: UnitEntry[],
+  modifiedById: string | null,
+  writeMode: CreditWriteMode,
+  allowClearAll: boolean,
+) {
+  const db = getDb(env);
+  if (writeMode !== "replace_all" && writeMode !== "patch") {
+    throw new Error("writeMode must be one of: replace_all, patch");
+  }
+  const normalizedEntries = entries.map((e) => ({
+    ...e,
+    unitsEarned: toTwoDecimalNumber(Number(e.unitsEarned ?? 0)),
+  }));
+  const positiveEntries = normalizedEntries.filter((e) => e.unitsEarned > 0);
+  await db.execute("begin");
+  try {
+    if (writeMode === "replace_all") {
+      if (positiveEntries.length === 0 && !allowClearAll) {
+        throw new Error("replace_all with empty units requires allowClearAll=true");
+      }
+      await db.execute({
+        sql: `delete from student_credit_details
+              where student_id = ?
+                and status = 5`,
+        args: [studentId]
+      });
+      for (const { categoryId, unitsEarned } of positiveEntries) {
+        await db.execute({
+          sql: `insert into student_credit_details (student_id, category_id, semester_taken, credits, status, modified_by)
+                values (?, ?, 1, ?, 5, ?)`,
+          args: [studentId, categoryId, unitsEarned, modifiedById],
+        });
+      }
+    } else {
+      for (const { categoryId, unitsEarned } of positiveEntries) {
+        await db.execute({
+          sql: `insert into student_credit_details (student_id, category_id, semester_taken, credits, status, modified_by)
+                values (?, ?, 1, ?, 5, ?)
+                on conflict(student_id, category_id, semester_taken) do update set
+                  credits = excluded.credits,
+                  status = excluded.status,
+                  modified_by = excluded.modified_by,
+                  modified_at = current_timestamp`,
+          args: [studentId, categoryId, unitsEarned, modifiedById],
         });
       }
     }

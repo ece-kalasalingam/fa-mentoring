@@ -165,8 +165,11 @@ function App() {
   const [selectedStudentForCredits, setSelectedStudentForCredits] = useState<StudentDirectoryRow | null>(null);
   const [studentEarnedCreditsByUser, setStudentEarnedCreditsByUser] = useState<Record<string, Record<number, Record<string, number>>>>({});
   const [studentSavedCreditsByUser, setStudentSavedCreditsByUser] = useState<Record<string, Record<number, Record<string, number>>>>({});
+  const [studentEarnedUnitsByUser, setStudentEarnedUnitsByUser] = useState<Record<string, Record<string, number>>>({});
+  const [studentSavedUnitsByUser, setStudentSavedUnitsByUser] = useState<Record<string, Record<string, number>>>({});
   const [studentCreditsSaving, setStudentCreditsSaving] = useState(false);
   const [studentCreditTotals, setStudentCreditTotals] = useState<Record<string, number>>({});
+  const [studentUnitTotals, setStudentUnitTotals] = useState<Record<string, number>>({});
   const [creditTotalsLoaded, setCreditTotalsLoaded] = useState(false);
   const [facultyStudentRows, setFacultyStudentRows] = useState<FacultyStudentRow[]>([]);
   const [facultyCreditTableRows, setFacultyCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
@@ -542,14 +545,20 @@ function App() {
     const creditsLoaded = studentEarnedCreditsByUser[userId] !== undefined;
     const earnedBySemCat = studentEarnedCreditsByUser[userId] ?? {};
     const currentSem = studentSelf.currentSemester ?? 1;
+    const activeRegulation = regulations.find((r) => r.code === activeStudentPlan.regulationCode) ?? null;
+    const measureByCategory: Record<string, "credits" | "units"> = {};
+    for (const category of activeRegulation?.curriculumStructure.categories ?? []) {
+      measureByCategory[category.code] = category.measure ?? "credits";
+    }
 
     let totalRequired = 0;
     let totalExpected = 0;
     const categoryRequired: Record<string, number> = {};
     const categoryExpected: Record<string, number> = {};
     for (const sem of activeStudentPlan.semesters) {
-      totalRequired += sem.totalCredits;
       for (const [cat, req] of Object.entries(sem.categories)) {
+        if ((measureByCategory[cat] ?? "credits") !== "credits") continue;
+        totalRequired += Number(req);
         categoryRequired[cat] = (categoryRequired[cat] ?? 0) + Number(req);
         if (sem.semester < currentSem) {
           categoryExpected[cat] = (categoryExpected[cat] ?? 0) + Number(req);
@@ -583,7 +592,7 @@ function App() {
       .sort((a, b) => a.code.localeCompare(b.code));
 
     return { totalRequired: normRequired, totalEarned: normEarned, completionPct, overallStatus, categories, creditsLoaded };
-  }, [isStudentOnlySession, studentSelf, activeStudentPlan, studentEarnedCreditsByUser]);
+  }, [isStudentOnlySession, studentSelf, activeStudentPlan, studentEarnedCreditsByUser, regulations]);
   const regulationTabMax = Math.max(visibleRegulations.length - 1, 0);
   const planOfStudyTabMax = Math.max(filteredPlansOfStudy.length - 1, 0);
   const safeRegulationTab = Math.min(regulationTab, regulationTabMax);
@@ -1494,11 +1503,45 @@ function App() {
     if (userIds.length === 0) return;
     const result = await callApi("/api/student-credits/summaries", "POST", undefined, { studentIds: userIds });
     if (result.ok && Array.isArray(result.summaries)) {
+      const planByCode = new Map(plansOfStudy.map((plan) => [plan.planCode, plan]));
+      const regulationByCode = new Map(regulations.map((regulation) => [regulation.code, regulation]));
+      const studentById = new Map(studentsDirectorySourceRows.map((student) => [student.userId, student]));
       const totals: Record<string, number> = {};
-      for (const item of result.summaries as Array<{ studentId: string; totalCredits: number }>) {
-        totals[String(item.studentId)] = normalizeCredits(Number(item.totalCredits ?? 0));
+      const unitTotals: Record<string, number> = {};
+      for (const item of result.summaries as Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>) {
+        const studentId = String(item.studentId ?? "");
+        if (!studentId) continue;
+        const student = studentById.get(studentId);
+        const plan = student?.planOfStudyCode ? planByCode.get(student.planOfStudyCode) : null;
+        const regulation = plan ? regulationByCode.get(plan.regulationCode) : null;
+        const measureByCategory = new Map(
+          (regulation?.curriculumStructure.categories ?? []).map((category) => [category.code, category.measure ?? "credits"]),
+        );
+        const byCategory = item.byCategory ?? {};
+        const hasByCategory = Object.keys(byCategory).length > 0;
+
+        if (hasByCategory) {
+          let creditSum = 0;
+          let unitSum = 0;
+          for (const [categoryCode, rawValue] of Object.entries(byCategory)) {
+            const value = Number(rawValue ?? 0);
+            if (!Number.isFinite(value) || value <= 0) continue;
+            if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
+              unitSum += value;
+            } else {
+              creditSum += value;
+            }
+          }
+          totals[studentId] = normalizeCredits(creditSum);
+          unitTotals[studentId] = normalizeCredits(unitSum);
+          continue;
+        }
+
+        totals[studentId] = normalizeCredits(Number(item.totalCredits ?? 0));
+        unitTotals[studentId] = normalizeCredits(Number(item.totalUnits ?? 0));
       }
       setStudentCreditTotals(totals);
+      setStudentUnitTotals(unitTotals);
       setCreditTotalsLoaded(true);
     }
   }
@@ -1510,20 +1553,29 @@ function App() {
       for (const { semesterTaken, categoryId, credits } of result.creditDetails) {
         (bySemester[semesterTaken] ??= {})[categoryId] = normalizeCredits(Number(credits ?? 0));
       }
+      const byUnitCategory: Record<string, number> = {};
+      for (const { categoryId, unitsEarned } of result.unitDetails ?? []) {
+        byUnitCategory[categoryId] = normalizeCredits(Number(unitsEarned ?? 0));
+      }
       setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
       setStudentEarnedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
+      setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: byUnitCategory }));
+      setStudentEarnedUnitsByUser((prev) => ({ ...prev, [userId]: byUnitCategory }));
     } else {
       setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: {} }));
+      setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: {} }));
     }
   }
   async function saveStudentCredits(userId: string) {
     const draft = studentEarnedCreditsByUser[userId] ?? {};
+    const draftUnits = studentEarnedUnitsByUser[userId] ?? {};
     const entries: Array<{ categoryId: string; semesterTaken: number; credits: number }> = [];
     for (const [sem, bySem] of Object.entries(draft)) {
       for (const [categoryId, credits] of Object.entries(bySem)) {
         entries.push({ categoryId, semesterTaken: Number(sem), credits: normalizeCredits(Number(credits)) });
       }
     }
+    const unitEntries: Array<{ categoryId: string; unitsEarned: number }> = [];
     setStudentCreditsSaving(true);
     try {
       const result = await callApi("/api/student-credits", "POST", undefined, {
@@ -1531,9 +1583,11 @@ function App() {
         writeMode: "replace_all",
         allowClearAll: true,
         entries,
+        unitEntries,
       });
       if (result.ok) {
         setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: draft }));
+        setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: draftUnits }));
       }
     } finally {
       setStudentCreditsSaving(false);
@@ -1600,6 +1654,16 @@ function App() {
       return;
     }
     await loadStudentsDirectory();
+  }
+  function setStudentEarnedUnit(userId: string, categoryCode: string, value: number) {
+    const normalized = normalizeCredits(Number(value));
+    setStudentEarnedUnitsByUser((prev) => ({
+      ...prev,
+      [userId]: {
+        ...(prev[userId] ?? {}),
+        [categoryCode]: normalized,
+      },
+    }));
   }
 
   async function loadProgrammes(options?: { force?: boolean }) {
@@ -2493,34 +2557,90 @@ function App() {
   const creditSummaries = useMemo(() => {
     const result: Record<string, import("./types").StudentCreditSummary> = {};
     const seenIds = new Set<string>();
+    const planByCode = new Map(plansOfStudy.map((plan) => [plan.planCode, plan]));
+    const regulationByCode = new Map(regulations.map((regulation) => [regulation.code, regulation]));
     for (const student of studentsDirectorySourceRows) {
       if (!student.userId || seenIds.has(student.userId)) continue;
       seenIds.add(student.userId);
       if (!student.planOfStudyCode) continue;
       // Only compute once bulk totals have been fetched (so 0 means "really 0", not "not loaded")
       const hasDetailedCredits = student.userId in studentSavedCreditsByUser;
-      if (!hasDetailedCredits && !creditTotalsLoaded) continue;
-      const plan = plansOfStudy.find((p) => p.planCode === student.planOfStudyCode);
+      const hasDetailedUnits = student.userId in studentSavedUnitsByUser;
+      if (!hasDetailedCredits && !hasDetailedUnits && !creditTotalsLoaded) continue;
+      const plan = planByCode.get(student.planOfStudyCode);
       if (!plan) continue;
-      const regulation = regulations.find((r) => r.code === plan.regulationCode);
-      const target = regulation?.curriculumStructure.totalCreditsRequired ?? plan.totalCredits ?? 0;
+      const regulation = regulationByCode.get(plan.regulationCode);
+      const measureByCategory = new Map(
+        (regulation?.curriculumStructure.categories ?? []).map((category) => [category.code, category.measure ?? "credits"]),
+      );
+      const targetCredits = Number(regulation?.curriculumStructure.totalCreditsRequired ?? plan.totalCredits ?? 0);
+      const targetUnits = Number(regulation?.curriculumStructure.totalUnitsRequired ?? plan.totalUnits ?? 0);
+      const target = targetCredits + targetUnits;
       if (target === 0) continue;
-      const earned = hasDetailedCredits
-        ? Object.values(studentSavedCreditsByUser[student.userId]).reduce(
-            (s, byCat) => s + Object.values(byCat).reduce((a, b) => a + Number(b), 0),
-            0,
-          )
-        : (studentCreditTotals[student.userId] ?? 0);
+      const detailedCreditBuckets = studentSavedCreditsByUser[student.userId] ?? {};
+      let earnedCredits = 0;
+      let earnedUnits = 0;
+      const earnedUnitCategoriesFromCredits = new Set<string>();
+      if (hasDetailedCredits) {
+        for (const semData of Object.values(detailedCreditBuckets)) {
+          for (const [categoryCode, value] of Object.entries(semData)) {
+            if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
+              earnedUnits += Number(value ?? 0);
+              earnedUnitCategoriesFromCredits.add(categoryCode);
+            } else {
+              earnedCredits += Number(value ?? 0);
+            }
+          }
+        }
+      } else {
+        earnedCredits = Number(studentCreditTotals[student.userId] ?? 0);
+      }
+      if (hasDetailedUnits) {
+        for (const [categoryCode, value] of Object.entries(studentSavedUnitsByUser[student.userId] ?? {})) {
+          // Avoid double counting when the same unit category is already present in credit detail rows.
+          if (earnedUnitCategoriesFromCredits.has(categoryCode)) continue;
+          earnedUnits += Number(value ?? 0);
+        }
+      } else {
+        earnedUnits += Number(studentUnitTotals[student.userId] ?? 0);
+      }
+      const earned = earnedCredits + earnedUnits;
       const currentSem = student.currentSemester ?? 1;
-      const expected = plan.semesters
-        .filter((sem) => sem.semester < currentSem)
-        .reduce((s, sem) => s + sem.totalCredits, 0);
+      let expectedCredits = 0;
+      let expectedUnits = 0;
+      for (const semester of plan.semesters) {
+        if (semester.semester >= currentSem) continue;
+        for (const [categoryCode, value] of Object.entries(semester.categories ?? {})) {
+          const numeric = Number(value ?? 0);
+          if (numeric <= 0) continue;
+          if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
+            expectedUnits += numeric;
+          } else {
+            expectedCredits += numeric;
+          }
+        }
+      }
+      const expected = expectedCredits + expectedUnits;
+      const deficitCredits = Math.max(0, expectedCredits - earnedCredits);
+      const deficitUnits = Math.max(0, expectedUnits - earnedUnits);
       const deficit = Math.max(0, expected - earned);
       const status = computeCreditStatus(target, earned, expected);
-      result[student.userId] = { target, earned, expected, deficit, status };
+      result[student.userId] = {
+        target,
+        earned,
+        expected,
+        deficit,
+        deficitCredits: normalizeCredits(deficitCredits),
+        deficitUnits: normalizeCredits(deficitUnits),
+        targetCredits: normalizeCredits(targetCredits),
+        targetUnits: normalizeCredits(targetUnits),
+        earnedCredits: normalizeCredits(earnedCredits),
+        earnedUnits: normalizeCredits(earnedUnits),
+        status,
+      };
     }
     return result;
-  }, [studentSavedCreditsByUser, studentCreditTotals, creditTotalsLoaded, studentsDirectorySourceRows, plansOfStudy, regulations]);
+  }, [studentSavedCreditsByUser, studentSavedUnitsByUser, studentCreditTotals, studentUnitTotals, creditTotalsLoaded, studentsDirectorySourceRows, plansOfStudy, regulations]);
   const selectedStudentIndex = selectedStudentForCredits
     ? effectiveCreditNavRows.findIndex((r) => r.userId === selectedStudentForCredits.userId)
     : -1;
@@ -2542,7 +2662,7 @@ function App() {
     const userIds = sourceRows.map((r) => r.userId).filter((id) => id.length > 0);
     if (userIds.length > 0) void loadStudentCreditSummaries(userIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principal, studentsDirectorySourceRows.length]);
+  }, [principal, studentsDirectorySourceRows.map((row) => row.userId).join("|")]);
 
   async function runStep(path: string, label: string, body?: unknown) {
     if (principal) {
@@ -5923,6 +6043,10 @@ function App() {
                     </Box>
                     {filteredPlansOfStudy.map((plan, i) => {
                       if (i !== safePlanOfStudyTab) return null;
+                      const regulation = regulations.find((r) => r.code === plan.regulationCode) ?? null;
+                      const measureByCode = new Map<string, "credits" | "units">(
+                        (regulation?.curriculumStructure.categories ?? []).map((c) => [c.code, c.measure ?? "credits"]),
+                      );
                       const computedCategoryTotals = plan.semesters.reduce<Record<string, number>>((acc, semester) => {
                         Object.entries(semester.categories ?? {}).forEach(([code, rawValue]) => {
                           const value = Number(rawValue ?? 0);
@@ -5937,6 +6061,10 @@ function App() {
                       const categoryCodes = Array.from(
                         new Set(plan.semesters.flatMap((semester) => Object.keys(semester.categories ?? {})))
                       );
+                      const creditCategoryCodes = categoryCodes.filter((code) => (measureByCode.get(code) ?? "credits") === "credits");
+                      const unitCategoryCodes = categoryCodes.filter((code) => (measureByCode.get(code) ?? "credits") === "units");
+                      const categoryCodesOrdered = [...creditCategoryCodes, ...unitCategoryCodes];
+                      const firstUnitColumnIndex = creditCategoryCodes.length;
                       return (
                         <Box key={plan.planCode} sx={{ p: 3 }}>
                           <Stack direction="row" sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
@@ -5948,16 +6076,53 @@ function App() {
                               <Chip label={plan.regulationCode} size="small" variant="outlined" sx={{ m: 0.25 }} />
                               <Chip label={`${plan.semesters.length} semesters`} size="small" variant="outlined" sx={{ m: 0.25 }} />
                               <Chip label={`${formatCredits(computedPlanTotalCredits)} credits planned`} size="small" color="primary" sx={{ m: 0.25 }} />
+                              {unitCategoryCodes.length > 0 && (
+                                <Chip
+                                  label={`${formatCredits(plan.semesters.reduce((acc, sem) => acc + Number(sem.totalUnits ?? 0), 0))} units planned`}
+                                  size="small"
+                                  color="secondary"
+                                  variant="outlined"
+                                  sx={{ m: 0.25 }}
+                                />
+                              )}
                             </Stack>
                           </Stack>
 
                           <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
                             <Table size="small">
                               <TableHead>
+                                <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "background.default", fontWeight: 600, fontSize: "0.72rem", py: 0.75 } }}>
+                                  <TableCell />
+                                  <TableCell
+                                    colSpan={Math.max(creditCategoryCodes.length, 1)}
+                                    align="center"
+                                    sx={{ color: "primary.main" }}
+                                  >
+                                    Credits
+                                  </TableCell>
+                                  {unitCategoryCodes.length > 0 && (
+                                    <TableCell
+                                      colSpan={unitCategoryCodes.length}
+                                      align="center"
+                                      sx={{ color: "secondary.main", borderLeft: "2px solid", borderLeftColor: "divider" }}
+                                    >
+                                      Non-credits
+                                    </TableCell>
+                                  )}
+                                  <TableCell />
+                                </TableRow>
                                 <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "action.hover", fontWeight: 700 } }}>
                                   <TableCell>Semester</TableCell>
-                                  {categoryCodes.map((code) => (
-                                    <TableCell key={`${plan.planCode}-${code}`} align="right">{code}</TableCell>
+                                  {categoryCodesOrdered.map((code, idx) => (
+                                    <TableCell
+                                      key={`${plan.planCode}-${code}`}
+                                      align="right"
+                                      sx={idx === firstUnitColumnIndex && unitCategoryCodes.length > 0
+                                        ? { borderLeft: "2px solid", borderLeftColor: "divider" }
+                                        : undefined}
+                                    >
+                                      {code}
+                                    </TableCell>
                                   ))}
                                   <TableCell align="right">Total</TableCell>
                                 </TableRow>
@@ -5966,8 +6131,14 @@ function App() {
                                 {plan.semesters.map((semester) => (
                                   <TableRow key={`${plan.planCode}-sem-${semester.semester}`} hover>
                                     <TableCell>{semester.semester}</TableCell>
-                                    {categoryCodes.map((code) => (
-                                      <TableCell key={`${plan.planCode}-sem-${semester.semester}-${code}`} align="right">
+                                    {categoryCodesOrdered.map((code, idx) => (
+                                      <TableCell
+                                        key={`${plan.planCode}-sem-${semester.semester}-${code}`}
+                                        align="right"
+                                        sx={idx === firstUnitColumnIndex && unitCategoryCodes.length > 0
+                                          ? { borderLeft: "2px solid", borderLeftColor: "divider" }
+                                          : undefined}
+                                      >
                                         {formatCredits(Number(semester.categories?.[code] ?? 0))}
                                       </TableCell>
                                     ))}
@@ -5978,8 +6149,14 @@ function App() {
                                 ))}
                                 <TableRow sx={{ "& .MuiTableCell-root": { fontWeight: 700 } }}>
                                   <TableCell>Total</TableCell>
-                                  {categoryCodes.map((code) => (
-                                    <TableCell key={`${plan.planCode}-tot-${code}`} align="right">
+                                  {categoryCodesOrdered.map((code, idx) => (
+                                    <TableCell
+                                      key={`${plan.planCode}-tot-${code}`}
+                                      align="right"
+                                      sx={idx === firstUnitColumnIndex && unitCategoryCodes.length > 0
+                                        ? { borderLeft: "2px solid", borderLeftColor: "divider" }
+                                        : undefined}
+                                    >
                                       {formatCredits(Number(computedCategoryTotals[code] ?? 0))}
                                     </TableCell>
                                   ))}
@@ -6028,6 +6205,8 @@ function App() {
               regulation={selectedStudentRegulation}
               earnedCreditsBySemester={selectedStudentForCredits?.userId ? (studentEarnedCreditsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
               savedCreditsBySemester={selectedStudentForCredits?.userId ? (studentSavedCreditsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
+              earnedUnitsByCategory={selectedStudentForCredits?.userId ? (studentEarnedUnitsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
+              savedUnitsByCategory={selectedStudentForCredits?.userId ? (studentSavedUnitsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
               isSaving={studentCreditsSaving}
               studentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : undefined}
               studentCount={effectiveCreditNavRows.length > 1 ? effectiveCreditNavRows.length : undefined}
@@ -6039,6 +6218,11 @@ function App() {
                 const userId = selectedStudentForCredits?.userId;
                 if (!userId) return;
                 setStudentEarnedCredit(userId, semester, categoryCode, value);
+              }}
+              onChangeEarnedUnit={(categoryCode, value) => {
+                const userId = selectedStudentForCredits?.userId;
+                if (!userId) return;
+                setStudentEarnedUnit(userId, categoryCode, value);
               }}
               onSaveEarnedCredits={() => {
                 const userId = selectedStudentForCredits?.userId;

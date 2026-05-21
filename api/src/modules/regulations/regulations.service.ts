@@ -9,6 +9,7 @@ type RegulationCreditRule =
 type RegulationCategory = {
   code: string;
   name: string;
+  measure: "credits" | "units";
   rule: RegulationCreditRule;
 };
 
@@ -17,6 +18,7 @@ type Regulation = {
   name: string;
   curriculumStructure: {
     totalCreditsRequired: number;
+    totalUnitsRequired?: number;
     categories: RegulationCategory[];
   };
 };
@@ -31,4 +33,3 @@ export async function fetchRegulationsFromJson() {
     regulations: catalog.regulations ?? [],
   };
 }
-

@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, IconButton,
   LinearProgress, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
-  TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
+  TableHead, TableRow, Tabs, TextField, Tooltip, Typography, useMediaQuery,
 } from "@mui/material";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import SaveIcon from "@mui/icons-material/Save";
 import { alpha } from "@mui/material/styles";
+import { useTheme } from "@mui/material/styles";
 import { formatCredits, getInitials, normalizeCredits } from "./utils";
 import type { PlanOfStudy, Regulation, StudentDirectoryRow } from "./types";
 
@@ -18,10 +19,13 @@ type Props = {
   regulation: Regulation | null;
   earnedCreditsBySemester: Record<number, Record<string, number>>;
   savedCreditsBySemester: Record<number, Record<string, number>>;
+  earnedUnitsByCategory: Record<string, number>;
+  savedUnitsByCategory: Record<string, number>;
   isSaving: boolean;
   studentIndex?: number;
   studentCount?: number;
   onChangeEarnedCredit: (semester: number, categoryCode: string, value: number) => void;
+  onChangeEarnedUnit: (categoryCode: string, value: number) => void;
   onSaveEarnedCredits: () => void;
   onNavigate?: (direction: -1 | 1) => void;
 };
@@ -30,7 +34,7 @@ const TAB_IDS   = ["credits-tab-0",   "credits-tab-1"] as const;
 const PANEL_IDS = ["credits-panel-0", "credits-panel-1"] as const;
 
 const INPUT_SX = {
-  width: 68,
+  width: { xs: 72, sm: 76 },
   "& .MuiOutlinedInput-input": { textAlign: "center", py: "5px", px: "6px", fontSize: "0.8125rem" },
   "& input[type=number]": { MozAppearance: "textfield" },
   "& input[type=number]::-webkit-outer-spin-button": { WebkitAppearance: "none", margin: 0 },
@@ -38,6 +42,8 @@ const INPUT_SX = {
 } as const;
 
 export default function StudentCreditsView(props: Props) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState(0);
   const [selectedSemNum, setSelectedSemNum] = useState<number | null>(null);
 
@@ -74,6 +80,13 @@ export default function StudentCreditsView(props: Props) {
     }
     return byCode;
   }, [props.regulation]);
+  const categoryMeasureByCode = useMemo(() => {
+    const byCode: Record<string, "credits" | "units"> = {};
+    for (const item of props.regulation?.curriculumStructure.categories ?? []) {
+      byCode[item.code] = item.measure ?? "credits";
+    }
+    return byCode;
+  }, [props.regulation]);
 
   const sortedSemesters = useMemo(
     () => (props.plan?.semesters ?? []).slice().sort((a, b) => a.semester - b.semester),
@@ -93,14 +106,19 @@ export default function StudentCreditsView(props: Props) {
   const semesterSummaries = useMemo(
     () =>
       sortedSemesters.map((sem) => {
-        const toBeEarned = Object.values(sem.categories ?? {}).reduce((s, v) => s + Number(v), 0);
+        const toBeEarned = Object.entries(sem.categories ?? {}).reduce((s, [code, v]) => {
+          if ((categoryMeasureByCode[code] ?? "credits") !== "credits") return s;
+          return s + Number(v);
+        }, 0);
         const earned = activeCategoryCodes.reduce(
-          (s, code) => s + Number(props.earnedCreditsBySemester[sem.semester]?.[code] ?? 0),
+          (s, code) => ((categoryMeasureByCode[code] ?? "credits") === "credits"
+            ? s + Number(props.earnedCreditsBySemester[sem.semester]?.[code] ?? 0)
+            : s),
           0,
         );
         return { semester: sem.semester, toBeEarned, earned };
       }),
-    [sortedSemesters, activeCategoryCodes, props.earnedCreditsBySemester],
+    [sortedSemesters, activeCategoryCodes, props.earnedCreditsBySemester, categoryMeasureByCode],
   );
 
   const overallEarned = useMemo(
@@ -119,6 +137,9 @@ export default function StudentCreditsView(props: Props) {
     () =>
       categoryOrder
         .map((code) => {
+          if ((categoryMeasureByCode[code] ?? "credits") !== "credits") {
+            return { code, name: categoryNameByCode[code] ?? code, planTotal: 0, earnedTotal: 0, onStudy: 0 };
+          }
           const planTotal = sortedSemesters.reduce((s, sem) => s + Number(sem.categories?.[code] ?? 0), 0);
           const earnedTotal = Object.entries(props.earnedCreditsBySemester)
             .filter(([sem]) => Number(sem) < currentSemesterBoundary)
@@ -127,7 +148,23 @@ export default function StudentCreditsView(props: Props) {
           return { code, name: categoryNameByCode[code] ?? code, planTotal, earnedTotal, onStudy };
         })
         .filter((row) => row.planTotal > 0 || row.onStudy > 0),
-    [categoryOrder, sortedSemesters, props.earnedCreditsBySemester, currentSemesterBoundary, categoryNameByCode],
+    [categoryOrder, sortedSemesters, props.earnedCreditsBySemester, currentSemesterBoundary, categoryNameByCode, categoryMeasureByCode],
+  );
+
+  const unitRows = useMemo(
+    () =>
+      categoryOrder
+        .filter((code) => (categoryMeasureByCode[code] ?? "credits") === "units")
+        .map((code) => {
+          const required = sortedSemesters.reduce((s, sem) => s + Number(sem.categories?.[code] ?? 0), 0);
+          const earned = Object.values(props.earnedCreditsBySemester).reduce(
+            (s, bySem) => s + Number(bySem[code] ?? 0),
+            0,
+          );
+          return { code, name: categoryNameByCode[code] ?? code, required, earned };
+        })
+        .filter((row) => row.required > 0 || row.earned > 0),
+    [categoryOrder, categoryMeasureByCode, sortedSemesters, props.earnedCreditsBySemester, categoryNameByCode],
   );
 
   const totalOnStudy = useMemo(
@@ -152,8 +189,15 @@ export default function StudentCreditsView(props: Props) {
         if (Number(earned[code] ?? 0) !== Number(saved[code] ?? 0)) return true;
       }
     }
+    const allUnitCodes = new Set([
+      ...Object.keys(props.earnedUnitsByCategory),
+      ...Object.keys(props.savedUnitsByCategory),
+    ]);
+    for (const code of allUnitCodes) {
+      if (Number(props.earnedUnitsByCategory[code] ?? 0) !== Number(props.savedUnitsByCategory[code] ?? 0)) return true;
+    }
     return false;
-  }, [props.earnedCreditsBySemester, props.savedCreditsBySemester]);
+  }, [props.earnedCreditsBySemester, props.savedCreditsBySemester, props.earnedUnitsByCategory, props.savedUnitsByCategory]);
 
   if (!props.plan) {
     return (
@@ -174,8 +218,13 @@ export default function StudentCreditsView(props: Props) {
     (sum, row) => sum + Math.max(0, row.planTotal - row.earnedTotal - row.onStudy),
     0,
   );
+  const overallRequiredUnits = unitRows.reduce((sum, row) => sum + Number(row.required ?? 0), 0);
+  const overallEarnedUnits = unitRows.reduce((sum, row) => sum + Number(row.earned ?? 0), 0);
+  const earnedComposite = `${formatCredits(overallEarned)}+${formatCredits(overallEarnedUnits)}`;
+  const requiredComposite = `${formatCredits(overallRequired)}+${formatCredits(overallRequiredUnits)}`;
   const progressPct  = overallRequired > 0 ? Math.min(100, (overallEarned / overallRequired) * 100) : 0;
-  const isComplete   = overallEarned >= overallRequired && overallRequired > 0 && categoryDeficit === 0;
+  const unitDeficit = unitRows.reduce((sum, row) => sum + Math.max(0, row.required - row.earned), 0);
+  const isComplete   = overallEarned >= overallRequired && overallRequired > 0 && categoryDeficit === 0 && unitDeficit === 0;
   const remaining    = Math.max(Math.max(0, overallRequired - overallEarned), categoryDeficit);
   const pastEarned   = Math.max(0, overallEarned - totalOnStudy);
   const semesterLabel =
@@ -191,11 +240,23 @@ export default function StudentCreditsView(props: Props) {
   const activeSummary    = semesterSummaries.find((s) => s.semester === activeSemNum);
   const activeSemEarned  = activeSummary?.earned ?? 0;
   const activeSemTarget  = activeSummary?.toBeEarned ?? 0;
+  const activeSemCreditCodes = isActiveFuture
+    ? activeCategoryCodes.filter((code) => (categoryMeasureByCode[code] ?? "credits") === "credits" && Number(activeSem?.categories?.[code] ?? 0) > 0)
+    : activeCategoryCodes.filter((code) => (categoryMeasureByCode[code] ?? "credits") === "credits");
+  const activeSemUnitCodes = isActiveFuture
+    ? activeCategoryCodes.filter((code) => (categoryMeasureByCode[code] ?? "credits") === "units" && Number(activeSem?.categories?.[code] ?? 0) > 0)
+    : activeCategoryCodes.filter((code) => (categoryMeasureByCode[code] ?? "credits") === "units");
+  const activeSemCodes = [...activeSemCreditCodes, ...activeSemUnitCodes];
+  const activeSemUnitTarget = activeSemCodes.reduce(
+    (sum, code) => ((categoryMeasureByCode[code] ?? "credits") === "units" ? sum + Number(activeSem?.categories?.[code] ?? 0) : sum),
+    0,
+  );
+  const activeSemUnitEarned = activeSemCodes.reduce(
+    (sum, code) => ((categoryMeasureByCode[code] ?? "credits") === "units" ? sum + Number(props.earnedCreditsBySemester[activeSemNum]?.[code] ?? 0) : sum),
+    0,
+  );
   const activeSemComplete = activeSemEarned >= activeSemTarget && activeSemTarget > 0;
   const activeSemPct     = activeSemTarget > 0 ? Math.min(100, (activeSemEarned / activeSemTarget) * 100) : 0;
-  const activeSemCodes   = isActiveFuture
-    ? activeCategoryCodes.filter((code) => Number(activeSem?.categories?.[code] ?? 0) > 0)
-    : activeCategoryCodes;
 
   return (
     <Card sx={{ boxShadow: "none", border: "none", backgroundImage: "none" }}>
@@ -292,12 +353,12 @@ export default function StudentCreditsView(props: Props) {
                     variant="h5"
                     sx={{ fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}
                     color={isComplete ? "success.main" : "text.primary"}
-                    aria-label={`${overallEarned} of ${overallRequired} credits earned`}
+                    aria-label={`${earnedComposite} of ${requiredComposite} earned (cr+ut)`}
                   >
-                    {formatCredits(overallEarned)}
+                    {earnedComposite}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    / {formatCredits(overallRequired)} credits
+                    / {requiredComposite} (cr+ut)
                   </Typography>
                 </Box>
                 <LinearProgress
@@ -313,7 +374,9 @@ export default function StudentCreditsView(props: Props) {
                   sx={{ display: "block", textAlign: "right", mt: 0.375 }}
                 >
                   {isComplete
-                    ? "All credits complete"
+                    ? "All requirements complete"
+                    : overallEarned >= overallRequired && unitDeficit > 0
+                      ? `${formatCredits(unitDeficit)} units still needed in non-credit categories`
                     : overallEarned >= overallRequired && categoryDeficit > 0
                       ? `${formatCredits(categoryDeficit)} credits still needed in specific categories`
                       : `${Math.round(progressPct)}% · ${formatCredits(remaining)} credits remaining`}
@@ -486,8 +549,8 @@ export default function StudentCreditsView(props: Props) {
                       }
                     >
                       {isActiveFuture
-                        ? `${formatCredits(activeSemTarget)} cr planned`
-                        : `${formatCredits(activeSemEarned)} / ${formatCredits(activeSemTarget)} cr`}
+                        ? `${formatCredits(activeSemTarget)} cr + ${formatCredits(activeSemUnitTarget)} ut planned`
+                        : `${formatCredits(activeSemEarned)}+${formatCredits(activeSemUnitEarned)} / ${formatCredits(activeSemTarget)}+${formatCredits(activeSemUnitTarget)} (cr+ut)`}
                     </Typography>
                   </Box>
 
@@ -506,7 +569,7 @@ export default function StudentCreditsView(props: Props) {
                   <Table
                     size="small"
                     aria-label={`Semester ${activeSemNum} credit breakdown`}
-                    sx={{ tableLayout: "fixed" }}
+                    sx={{ tableLayout: { xs: "auto", md: "fixed" } }}
                   >
                     <TableHead>
                       <TableRow
@@ -520,22 +583,32 @@ export default function StudentCreditsView(props: Props) {
                           },
                         }}
                       >
-                        <TableCell scope="col" sx={{ pl: 1.5, width: "auto" }}>Category</TableCell>
-                        <TableCell scope="col" align="right" sx={{ width: 48 }}>Plan</TableCell>
+                        <TableCell scope="col" sx={{ pl: 1.5, width: { xs: "58%", md: "auto" } }}>Category</TableCell>
+                        <TableCell scope="col" align="right" sx={{ width: { xs: 58, md: 110 } }}>Plan</TableCell>
                         {!isActiveFuture && (
-                          <TableCell scope="col" align="center" sx={{ width: 80 }}>Earned</TableCell>
+                          <TableCell scope="col" align="center" sx={{ width: { xs: 88, md: 130 } }}>Earned</TableCell>
                         )}
                         {!isActiveFuture && (
-                          <TableCell scope="col" align="right" sx={{ width: 60, pr: 1.5 }}>Status</TableCell>
+                          <TableCell scope="col" align="right" sx={{ width: { xs: 52, md: 84 }, pr: 1.5 }}>Status</TableCell>
                         )}
                       </TableRow>
                     </TableHead>
 
                     <TableBody>
-                      {activeSemCodes.map((code) => {
+                      {activeSemCreditCodes.length > 0 && (
+                        <TableRow>
+                          <TableCell colSpan={isActiveFuture ? 2 : 4} sx={{ pl: 1.5, py: 0.5, bgcolor: "action.hover" }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", letterSpacing: 0.2 }}>
+                              Credits
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      {activeSemCodes.map((code, idx) => {
                         const target       = Number(activeSem?.categories?.[code] ?? 0);
                         const earned       = Number(props.earnedCreditsBySemester[activeSemNum]?.[code] ?? 0);
                         const categoryName = categoryNameByCode[code] ?? code;
+                        const isUnit = (categoryMeasureByCode[code] ?? "credits") === "units";
                         const met     = target > 0 && earned >= target;
                         const over    = met && earned > target;
                         const partial = target > 0 && earned > 0 && earned < target;
@@ -543,8 +616,17 @@ export default function StudentCreditsView(props: Props) {
                         const diff    = earned - target;
 
                         return (
+                          <Fragment key={code}>
+                          {idx === activeSemCreditCodes.length && activeSemUnitCodes.length > 0 && (
+                            <TableRow>
+                              <TableCell colSpan={isActiveFuture ? 2 : 4} sx={{ pl: 1.5, py: 0.5, bgcolor: "action.hover" }}>
+                                <Typography variant="caption" sx={{ fontWeight: 700, color: "secondary.main", letterSpacing: 0.2 }}>
+                                  Non-credits
+                                </Typography>
+                              </TableCell>
+                            </TableRow>
+                          )}
                           <TableRow
-                            key={code}
                             sx={(theme) => ({
                               bgcolor: met
                                 ? alpha(theme.palette.success.main, 0.04)
@@ -557,12 +639,30 @@ export default function StudentCreditsView(props: Props) {
                             })}
                           >
                             {/* Category */}
-                            <TableCell sx={{ pl: 1.5, overflow: "hidden" }}>
-                              <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.2 }} noWrap>
+                            <TableCell sx={{ pl: 1.5, overflow: "hidden", verticalAlign: "top" }}>
+                              <Typography
+                                variant="body2"
+                                sx={{
+                                  fontWeight: 500,
+                                  lineHeight: 1.2,
+                                  whiteSpace: { xs: "normal", md: "nowrap" },
+                                  wordBreak: { xs: "break-word", md: "normal" },
+                                }}
+                                noWrap={!isMobile}
+                              >
                                 {categoryName}
                               </Typography>
-                              <Typography variant="caption" color="text.disabled" sx={{ fontFamily: "monospace", fontSize: "0.65rem" }}>
-                                {code}{target === 0 && !isActiveFuture && " · unplanned"}
+                              <Typography
+                                variant="caption"
+                                color="text.disabled"
+                                sx={{
+                                  fontFamily: "monospace",
+                                  fontSize: "0.65rem",
+                                  whiteSpace: { xs: "normal", md: "nowrap" },
+                                  wordBreak: { xs: "break-word", md: "normal" },
+                                }}
+                              >
+                                {code} · {isUnit ? "ut" : "cr"}{target === 0 && !isActiveFuture && " · unplanned"}
                               </Typography>
                             </TableCell>
 
@@ -627,6 +727,7 @@ export default function StudentCreditsView(props: Props) {
                               </TableCell>
                             )}
                           </TableRow>
+                          </Fragment>
                         );
                       })}
 
@@ -647,8 +748,11 @@ export default function StudentCreditsView(props: Props) {
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-                            {formatCredits(activeSemTarget)}
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontSize: { xs: "0.78rem", md: "0.875rem" } }}
+                          >
+                            {formatCredits(activeSemTarget)} cr + {formatCredits(activeSemUnitTarget)} ut
                           </Typography>
                         </TableCell>
                         {!isActiveFuture && (
@@ -656,14 +760,14 @@ export default function StudentCreditsView(props: Props) {
                             <TableCell align="center">
                               <Typography
                                 variant="body2"
-                                sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                                sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontSize: { xs: "0.78rem", md: "0.875rem" } }}
                                 color={
                                   activeSemComplete   ? "success.main"
                                   : activeSemEarned > 0 ? "warning.main"
                                   : "text.secondary"
                                 }
                               >
-                                {formatCredits(activeSemEarned)}
+                                {formatCredits(activeSemEarned)} cr + {formatCredits(activeSemUnitEarned)} ut
                               </Typography>
                             </TableCell>
                             <TableCell align="right" sx={{ pr: 1.5 }}>
@@ -709,7 +813,7 @@ export default function StudentCreditsView(props: Props) {
                   sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
                   color={isComplete ? "success.main" : "text.secondary"}
                 >
-                  {formatCredits(overallEarned)} / {formatCredits(overallRequired)} total
+                  {earnedComposite} / {requiredComposite} total (cr+ut)
                 </Typography>
               </Box>
             </Stack>
@@ -734,8 +838,8 @@ export default function StudentCreditsView(props: Props) {
                 sx={{ display: "flex", flexWrap: "wrap", gap: 1, m: 0 }}
               >
                 {([
-                  { label: "Required",  value: overallRequired,  sub: "total credits",          color: "text.primary"  },
-                  { label: "Earned",    value: pastEarned,        sub: "past semesters",         color: isComplete ? "success.main" : "text.primary" },
+                  { label: "Required",  value: `${formatCredits(overallRequired)}+${formatCredits(overallRequiredUnits)}`,  sub: "cr+ut",          color: "text.primary"  },
+                  { label: "Earned",    value: `${formatCredits(pastEarned)}+${formatCredits(overallEarnedUnits)}`,        sub: "cr+ut",         color: isComplete ? "success.main" : "text.primary" },
                   { label: "On Study",  value: totalOnStudy,      sub: `sem ${currentSemesterBoundary}`, color: "info.main" },
                   { label: "Remaining", value: remaining,         sub: remaining === 0 ? "done!" : "credits needed", color: remaining === 0 ? "success.main" : "error.main" },
                 ] as const).map(({ label, value, sub, color }) => (
@@ -752,7 +856,7 @@ export default function StudentCreditsView(props: Props) {
                       sx={{ fontWeight: 800, m: 0, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}
                       color={color}
                     >
-                      {formatCredits(value)}
+                      {typeof value === "number" ? formatCredits(value) : value}
                     </Typography>
                     <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.125 }}>
                       {sub}

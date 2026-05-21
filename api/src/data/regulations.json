@@ -4,7 +4,7 @@
       "code": "UG-2025-LE",
       "name": "UG Regulation 2025 Lateral",
       "curriculumStructure": {
-        "totalCreditsRequired": 124,
+        "totalCreditsRequired": 120,
         "categories": [
           {
             "code": "FCM",
@@ -13,7 +13,8 @@
               "type": "range",
               "min": 2,
               "max": 5
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "FCE",
@@ -22,7 +23,8 @@
               "type": "range",
               "min": 2,
               "max": 5
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PCM",
@@ -30,7 +32,8 @@
             "rule": {
               "type": "fixed",
               "value": 65
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PCE",
@@ -38,7 +41,8 @@
             "rule": {
               "type": "fixed",
               "value": 18
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "SEM",
@@ -47,7 +51,8 @@
               "type": "range",
               "min": 2,
               "max": 4
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "SEE",
@@ -56,7 +61,8 @@
               "type": "range",
               "min": 12,
               "max": 14
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "MDM",
@@ -64,7 +70,8 @@
             "rule": {
               "type": "fixed",
               "value": 6
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "MDE",
@@ -72,7 +79,8 @@
             "rule": {
               "type": "fixed",
               "value": 10
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "CSC1",
@@ -80,15 +88,17 @@
             "rule": {
               "type": "fixed",
               "value": 2
-            }
-          }, 
+            },
+            "measure": "units"
+          },
           {
             "code": "CSC2",
             "name": "Complimentary Skill Course 2",
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           },
           {
             "code": "CSC3",
@@ -96,16 +106,18 @@
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           }
-        ]
+        ],
+        "totalUnitsRequired": 4
       }
     },
     {
       "code": "UG-2025",
       "name": "UG Regulation 2025 Regular",
       "curriculumStructure": {
-        "totalCreditsRequired": 164,
+        "totalCreditsRequired": 160,
         "categories": [
           {
             "code": "FCM",
@@ -113,7 +125,8 @@
             "rule": {
               "type": "fixed",
               "value": 35
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "FCE",
@@ -121,7 +134,8 @@
             "rule": {
               "type": "fixed",
               "value": 5
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PCM",
@@ -129,7 +143,8 @@
             "rule": {
               "type": "fixed",
               "value": 70
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PCE",
@@ -137,7 +152,8 @@
             "rule": {
               "type": "fixed",
               "value": 18
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "SEM",
@@ -146,7 +162,8 @@
               "type": "range",
               "min": 2,
               "max": 4
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "SEE",
@@ -155,7 +172,8 @@
               "type": "range",
               "min": 12,
               "max": 14
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "MDM",
@@ -163,7 +181,8 @@
             "rule": {
               "type": "fixed",
               "value": 6
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "MDE",
@@ -171,7 +190,8 @@
             "rule": {
               "type": "fixed",
               "value": 10
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "CSC1",
@@ -179,15 +199,17 @@
             "rule": {
               "type": "fixed",
               "value": 2
-            }
-          }, 
+            },
+            "measure": "units"
+          },
           {
             "code": "CSC2",
             "name": "Complimentary Skill Course 2",
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           },
           {
             "code": "CSC3",
@@ -195,16 +217,18 @@
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           }
-        ]
+        ],
+        "totalUnitsRequired": 4
       }
     },
     {
       "code": "UG-2021",
       "name": "UG Regulation 2021 Regular",
       "curriculumStructure": {
-        "totalCreditsRequired": 164,
+        "totalCreditsRequired": 160,
         "categories": [
           {
             "code": "FC",
@@ -212,7 +236,8 @@
             "rule": {
               "type": "fixed",
               "value": 44
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "UE",
@@ -220,7 +245,8 @@
             "rule": {
               "type": "fixed",
               "value": 16
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PC",
@@ -228,7 +254,8 @@
             "rule": {
               "type": "fixed",
               "value": 52
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PE",
@@ -236,7 +263,8 @@
             "rule": {
               "type": "fixed",
               "value": 24
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "EC",
@@ -244,7 +272,8 @@
             "rule": {
               "type": "fixed",
               "value": 16
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "EE",
@@ -252,7 +281,8 @@
             "rule": {
               "type": "fixed",
               "value": 8
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "CSC1",
@@ -260,15 +290,17 @@
             "rule": {
               "type": "fixed",
               "value": 2
-            }
-          }, 
+            },
+            "measure": "units"
+          },
           {
             "code": "CSC2",
             "name": "Complimentary Skill Course 2",
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           },
           {
             "code": "CSC3",
@@ -276,16 +308,18 @@
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           }
-        ]
+        ],
+        "totalUnitsRequired": 4
       }
     },
-     {
+    {
       "code": "UG-2021-LE",
       "name": "UG Regulation 2021 Lateral",
       "curriculumStructure": {
-        "totalCreditsRequired": 124,
+        "totalCreditsRequired": 120,
         "categories": [
           {
             "code": "FC",
@@ -293,7 +327,8 @@
             "rule": {
               "type": "fixed",
               "value": 12
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "UE",
@@ -301,7 +336,8 @@
             "rule": {
               "type": "fixed",
               "value": 16
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PC",
@@ -309,7 +345,8 @@
             "rule": {
               "type": "fixed",
               "value": 44
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "PE",
@@ -317,7 +354,8 @@
             "rule": {
               "type": "fixed",
               "value": 24
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "EC",
@@ -325,7 +363,8 @@
             "rule": {
               "type": "fixed",
               "value": 16
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "EE",
@@ -333,7 +372,8 @@
             "rule": {
               "type": "fixed",
               "value": 8
-            }
+            },
+            "measure": "credits"
           },
           {
             "code": "CSC1",
@@ -341,15 +381,17 @@
             "rule": {
               "type": "fixed",
               "value": 2
-            }
-          }, 
+            },
+            "measure": "units"
+          },
           {
             "code": "CSC2",
             "name": "Complimentary Skill Course 2",
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           },
           {
             "code": "CSC3",
@@ -357,9 +399,11 @@
             "rule": {
               "type": "fixed",
               "value": 1
-            }
+            },
+            "measure": "units"
           }
-        ]
+        ],
+        "totalUnitsRequired": 4
       }
     }
   ]

@@ -4026,3 +4026,222 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
 - Details:
   - Changed Stack from `direction="row" flexWrap="wrap"` to `direction={{ xs: "column", sm: "row" }}`. On mobile the buttons now stack vertically with consistent spacing and stretch full-width for easy touch targets. On sm+ they remain inline as before.
 - Revert: none
+
+## 2026-05-21 22:22 IST | codex-gpt-5 | feature
+- Summary: Implemented mixed credit/unit category support with regulation+plan JSON extensions, dual-track validation, per-student unit persistence, and student audit UI support.
+- Files: api/src/app/worker.ts, api/src/data/plan-of-study.json, api/src/data/regulations.json, api/src/modules/plan-of-study/plan-of-study-validation.service.ts, api/src/modules/plan-of-study/plan-of-study.service.ts, api/src/modules/regulations/regulations.service.ts, api/src/modules/setup/migrations.ts, api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/types.ts, frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Extended regulation categories with `measure` (`credits`/`units`) and added `totalUnitsRequired` at curriculum level.
+  - Updated plans-of-study JSON to include `totalUnits` per semester and rebalanced semester/regulation credit totals to separate non-credit unit categories.
+  - Updated plan-of-study validation to independently validate credit totals and unit totals at both plan and semester levels and added new error codes for unit mismatches.
+  - Added DB migration `0030_student_unit_details_table_and_trigger` to persist per-student unit-earned values by category.
+  - Added student unit service functions (`getStudentUnits`, `upsertStudentUnits`) and wired worker `/api/student-credits` GET/POST to return and save `unitDetails`/`unitEntries` alongside existing credits.
+  - Extended frontend domain/API types to include category measure, unit totals, and unit details payloads.
+  - Updated student credits data flow in `App.tsx` to load/save per-student unit maps and pass them to the audit view.
+  - Updated `StudentCreditsView` to treat categories by measure, keep semester credit editing for `credits` categories, add non-credit unit editing UI, and gate completion when unit requirements are still pending.
+- Revert: none
+
+## 2026-05-21 22:24 IST | codex-gpt-5 | fix
+- Summary: Prevented student credits page failure when unit-tracking migration is not yet applied by adding a safe fallback for missing `student_unit_details`.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Added `isMissingStudentUnitDetailsTableError` helper for robust detection of missing unit table errors.
+  - Updated `getStudentUnits` to catch missing-table errors and return an empty unit list instead of throwing, so `GET /api/student-credits` no longer fails with HTTP 400 in pre-migration environments.
+  - Updated `upsertStudentUnits` to emit a clear actionable error message (`Run setup migrations, then retry saving.`) when unit save is attempted before migration.
+- Revert: none
+
+## 2026-05-21 22:30 IST | codex-gpt-5 | change
+- Summary: Switched non-credit unit tracking from separate-table storage to single-table storage in `student_credit_details`.
+- Files: api/src/modules/students/students.service.ts, api/src/modules/setup/migrations.ts, CHANGELOG.md
+- Details:
+  - `getStudentUnits` now reads units from `student_credit_details` (single table) using `status = 5` rows and category-wise aggregation.
+  - `upsertStudentUnits` now writes units into `student_credit_details` with `semester_taken = 1` and `status = 5`, keeping `credits` as the numeric carrier for both credits and units depending on category measure.
+  - Unit replace mode now clears only `status = 5` rows for the student, preventing interference with regular credit rows.
+  - Removed migration `0030_student_unit_details_table_and_trigger` so the model remains single-table.
+- Revert: none
+
+## 2026-05-21 22:36 IST | codex-gpt-5 | fix
+- Summary: Removed React unknown-DOM-prop warnings from Faculty Analytics layout by replacing problematic `Stack` prop usage with explicit flex `Box` containers.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Replaced `Stack` instances that used `direction`, `alignItems`, `justifyContent`, and `flexWrap` in affected sections with `Box` elements using equivalent `sx` flex styles.
+  - Eliminates runtime warnings such as `React does not recognize the alignItems/flexWrap/justifyContent prop on a DOM element` seen from `FacultyAnalyticsReport` render paths.
+  - Preserved visual layout and spacing behavior by matching previous row/stack alignment via `display: flex`, `flexDirection`, `gap`, `alignItems`, and `justifyContent` styles.
+- Revert: none
+
+## 2026-05-22 00:06 IST | codex-gpt-5 | change
+- Summary: Moved non-credit unit handling into semester-wise category rows (single-table flow) and removed separate analytics unit editor block.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Updated `loadStudentCredits` to populate semester/category values from `creditDetails` for all category measures, so unit categories are filled by semester from existing table rows.
+  - Updated `saveStudentCredits` to submit all categories (credits + units) via the same `entries` payload, preserving semester-wise values in `student_credit_details`.
+  - Removed measure-based split that previously diverted units into separate aggregate `unitEntries` logic.
+  - In `StudentCreditsView`, semester table category ordering now renders credit categories first and unit categories immediately after, matching plan-of-study semester structure.
+  - Unit requirement completion checks now compute earned values from semester-wise `earnedCreditsBySemester` data (not separate unit map state).
+  - Removed the separate "Non-credit Units" editor card under Analytics to avoid duplicate/competing editing paths.
+- Revert: none
+
+## 2026-05-22 00:12 IST | codex-gpt-5 | change
+- Summary: Added clear credit vs non-credit category separation in the Plan of Study table.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added regulation-aware category measure mapping (`credits` vs `units`) when rendering each plan table.
+  - Reordered displayed category columns to show all credit categories first, followed by non-credit unit categories.
+  - Added a section-header row in the table head: `Credit Categories` and `Non-credit Unit Categories`.
+  - Added a visible vertical divider at the boundary between credit and non-credit columns across header/body/total rows.
+  - Added a `units planned` chip in the plan header when unit categories exist.
+- Revert: none
+
+## 2026-05-22 00:20 IST | codex-gpt-5 | change
+- Summary: Updated Plan of Study sub-headings to `Credits` / `Non-credits` and changed completion earned/required displays to composite `X+Y` (credits+units).
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Renamed Plan of Study grouped column sub-headings from `Credit Categories` and `Non-credit Unit Categories` to exact labels `Credits` and `Non-credits`.
+  - In Student Credits header, changed overall earned/required display to composite format `X+Y / X+Y (Cr+Units)` where `X` is credits and `Y` is non-credit units.
+  - Updated accessibility label and completion text to reflect total requirements (credits + units).
+  - Updated analytics summary cards for `Required` and `Earned` to show composite `credits+units` values in `X+Y` format.
+  - Updated bottom total strip to show composite `X+Y / X+Y total (Cr+Units)`.
+- Revert: none
+
+## 2026-05-22 00:31 IST | codex-gpt-5 | fix
+- Summary: Added visible `Credits` / `Non-credits` subheading rows in the semester table and updated semester top/total displays to show both `cr` and `ut` values.
+- Files: frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Added explicit subheading row `Credits` before credit category rows in the semester breakdown table.
+  - Added explicit subheading row `Non-credits` at the boundary where unit categories begin.
+  - Added `cr/ut` shorthand tag in category metadata line (`CODE · cr` or `CODE · ut`).
+  - Updated semester header summary from credit-only format to combined format: `earned_cr+earned_ut / target_cr+target_ut (cr+ut)`.
+  - Updated semester "Total" row Plan and Earned values to include both credits and units: `X cr + Y ut`.
+- Revert: none
+
+## 2026-05-22 00:36 IST | codex-gpt-5 | fix
+- Summary: Fixed runtime crash in Student Credits view caused by using `activeSemCodes` before initialization.
+- Files: frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Reordered active-semester derived constants so `activeSemCreditCodes`, `activeSemUnitCodes`, and `activeSemCodes` are defined before `activeSemUnitTarget` and `activeSemUnitEarned` reduce calculations.
+  - Resolves `ReferenceError: Cannot access 'activeSemCodes' before initialization` in `StudentCreditsView`.
+- Revert: none
+
+## 2026-05-22 00:41 IST | codex-gpt-5 | fix
+- Summary: Standardized student credits composite labels to use `cr+ut` shorthand instead of `Cr+Units`/`credits+units`.
+- Files: frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Updated top-right earned/required suffix to `cr+ut`.
+  - Updated bottom total strip suffix to `cr+ut`.
+  - Updated accessibility label text to `cr+ut` phrasing.
+  - Updated analytics sublabels from `credits+units` to `cr+ut`.
+- Revert: none
+
+## 2026-05-22 00:49 IST | codex-gpt-5 | fix
+- Summary: Improved semester table text readability for mobile and desktop by preventing composite total text wrapping and resizing key columns responsively.
+- Files: frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Changed semester category table layout to responsive mode (`auto` on mobile, `fixed` on desktop).
+  - Increased `Plan`, `Earned`, and `Status` column widths using responsive `sx` widths to avoid cramped labels/values.
+  - Added `whiteSpace: "nowrap"` and responsive font sizing for semester total composite values (`cr + ut`) in Plan and Earned cells.
+  - Prevents line breaks like `23`, `cr`, `+`, `1`, `ut` stacking vertically and keeps text properly readable across viewports.
+- Revert: none
+
+## 2026-05-22 00:57 IST | codex-gpt-5 | fix
+- Summary: Improved mobile semester-table edit usability in Student Credits view by enabling first-column text wrapping and rebalancing column widths.
+- Files: frontend/src/app/StudentCreditsView.tsx, CHANGELOG.md
+- Details:
+  - Added viewport-aware logic (`useMediaQuery` + `useTheme`) for mobile-specific table behavior.
+  - Enabled wrapping and word-break for category name/meta text in the first column on mobile; kept no-wrap behavior for desktop.
+  - Rebalanced mobile column widths (`Category`, `Plan`, `Earned`, `Status`) to reduce clipping and preserve editable input visibility.
+  - Increased numeric input width on mobile (`INPUT_SX`) for easier touch editing.
+  - Maintained desktop behavior while making the mobile layout clearer for faculty/student/authorized users performing updates.
+- Revert: none
+
+## 2026-05-22 01:10 IST | codex-gpt-5 | change
+- Summary: Updated batch analytics UI to separate credit/non-credit category cards and show units for non-credit cards; updated Student Detail target/earned to `X+Y` (credits+units) with combined percentage basis.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Added category measure awareness (`credits` vs `units`) in `FacultyAnalyticsReport` using regulation category metadata.
+  - Category Detail cards are now rendered in two visual sections: `Credits` first, then `Non-credits`.
+  - Non-credit category cards now display `Units` (instead of `Credits`) in the measure label line.
+  - Student Detail table `Target` and `Earned` columns now display `X+Y` where `X` is credits and `Y` is units (numbers only).
+  - Mobile Student Detail condensed column now also shows `X+Y / X+Y` for earned/target.
+  - Student completion percentage in this dashboard path now uses combined totals (credits + units) for numerator/denominator, matching the new display semantics.
+- Revert: none
+
+## 2026-05-22 01:24 IST | codex-gpt-5 | fix
+- Summary: Aligned Students page MRT credit calculations with dashboard combined credits+units logic and updated target/earned display to Cr+Ut.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/types.ts, CHANGELOG.md
+- Details:
+  - Updated creditSummaries derivation in App.tsx to compute required, earned, expected, and status using combined totals (credits + units) instead of credits-only.
+  - Added category-measure aware earned split in App.tsx: semester category values are split into credits vs units using regulation category measure metadata.
+  - Included saved per-student unit entries in earned totals and preserved credit-summary fallback behavior when detailed rows are not yet loaded.
+  - Extended StudentCreditSummary with 	argetCredits, 	argetUnits, arnedCredits, and arnedUnits fields for consistent UI rendering.
+  - Updated Students MRT Target and Earned columns to display composite values as X+Y (Cr+Ut) while preserving existing sort/filter/status behavior.
+- Revert: none
+
+## 2026-05-22 01:31 IST | codex-gpt-5 | fix
+- Summary: Updated Students MRT Deficient column to show separate credit and unit deficiency values under one header.
+- Files: frontend/src/app/types.ts, frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Extended StudentCreditSummary with deficitCredits and deficitUnits fields.
+  - Updated student summary computation in App.tsx to calculate split deficiency using expected-vs-earned for each measure independently.
+  - Kept existing combined deficit value for sorting/filtering continuity.
+  - Updated Students page MRT Deficient cell to render two lines in one column: cr: -X and ut: -Y.
+  - Preserved placeholder behavior (—) when both deficiencies are zero.
+- Revert: none
+
+## 2026-05-22 01:36 IST | codex-gpt-5 | fix
+- Summary: Changed Students MRT Deficient display format to `X & Y` with dash fallback per measure.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated Deficient cell rendering to single-line format `X & Y`.
+  - `X` now represents credits deficiency and shows numeric value only when non-zero; otherwise `-`.
+  - `Y` now represents non-credits (units) deficiency and shows numeric value only when non-zero; otherwise `-`.
+  - Preserved existing sort/filter behavior based on combined deficiency accessor value.
+- Revert: none
+
+## 2026-05-22 01:43 IST | codex-gpt-5 | fix
+- Summary: Corrected Students MRT earned credits/non-credits aggregation to prevent unit double counting.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed incorrect mirror step in `loadStudentCredits` that copied all credit-detail category values into unit-category storage.
+  - Updated Students MRT summary aggregation to avoid adding unit values twice when the same unit category appears in both credit-detail rows and unit-detail payload.
+  - Unit totals now prefer measured category values from credit-detail rows and only add unit-detail values for categories not already present.
+  - Fix aligns Students MRT earned values with the student credits table source-of-truth behavior.
+- Revert: none
+
+## 2026-05-22 01:51 IST | codex-gpt-5 | fix
+- Summary: Replaced combined Students MRT deficient display with two filterable numeric columns for credits and units.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Removed single combined `Deficient` cell (`X & Y`) that was not natively filter-friendly.
+  - Added `Cr. Deficient` column backed by numeric accessor `deficitCredits`.
+  - Added `Ut. Deficient` column backed by numeric accessor `deficitUnits`.
+  - Preserved visual placeholder `—` for zero/empty values while keeping underlying numeric values for MRT native sort/filter.
+  - Updated mobile hidden-column defaults to use new deficient column ids.
+- Revert: none
+
+## 2026-05-22 02:00 IST | codex-gpt-5 | fix
+- Summary: Fixed Students MRT non-credit preload so units are calculated on table load (full and filtered lists) without opening individual Student Credits pages.
+- Files: api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated student credit summaries API aggregation to return separate totals: `totalCredits` (excluding unit-status rows) and `totalUnits` (unit-status rows only).
+  - Added frontend summary state for preloaded unit totals and used it when detailed per-student unit rows are not yet loaded.
+  - Kept detailed-row precedence for both credits and units when available.
+  - Fixed Students table preload trigger dependency to watch actual visible student user IDs (not only row count), so dashboard-filter changes reliably refresh summaries.
+- Revert: none
+
+## 2026-05-22 02:09 IST | codex-gpt-5 | fix
+- Summary: Fixed remaining Students MRT preload mismatch by classifying summary totals per category code (credits vs units) instead of relying only on status flags.
+- Files: api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Enhanced `/api/student-credits/summaries` backend response to include `byCategory` totals (`category_id -> summed value`) for each student.
+  - Updated frontend `loadStudentCreditSummaries` to split preloaded totals into credits/units using regulation category `measure` mapping for each student’s plan.
+  - Added fallback to legacy summary totals when `byCategory` is unavailable.
+  - This resolves cases where unit categories were historically stored without the expected status marker and were incorrectly counted as credits in Students MRT preload.
+- Revert: none
+
+## 2026-05-22 02:18 IST | codex-gpt-5 | change
+- Summary: Updated AGENTS policy by removing the mandatory borderless-table-shell constraint from MRT baseline requirements.
+- Files: AGENTS.md, CHANGELOG.md
+- Details:
+  - Removed the bullet requiring outer table borders to be removed for all Material React Table instances.
+  - Kept all other MRT baseline requirements unchanged.
+- Revert: none
