@@ -45,7 +45,8 @@ import {
   SESSION_PLAN_OF_STUDY_CACHE_KEY,
   SESSION_PLAN_VALIDATION_CACHE_KEY,
   SESSION_PROGRAMMES_CACHE_KEY,
-  SESSION_FACULTY_MENTORED_MINIMAL_KEY
+  SESSION_FACULTY_MENTORED_MINIMAL_KEY,
+  CREDIT_STATUS_LABELS,
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
@@ -533,6 +534,57 @@ function App() {
     if (!selectedRegulationCode) return [];
     return plansOfStudy.filter((plan) => plan.regulationCode === selectedRegulationCode);
   }, [activeStudentPlan, isStudentOnlySession, plansOfStudy, selectedRegulationCode]);
+
+  const studentSelf = useMemo(() => studentSelfDirectoryRows[0] ?? null, [studentSelfDirectoryRows]);
+
+  const studentSelfCreditSummary = useMemo(() => {
+    if (!isStudentOnlySession || !studentSelf || !activeStudentPlan) return null;
+    const userId = studentSelf.userId;
+    const creditsLoaded = studentEarnedCreditsByUser[userId] !== undefined;
+    const earnedBySemCat = studentEarnedCreditsByUser[userId] ?? {};
+    const currentSem = studentSelf.currentSemester ?? 1;
+
+    let totalRequired = 0;
+    let totalExpected = 0;
+    const categoryRequired: Record<string, number> = {};
+    const categoryExpected: Record<string, number> = {};
+    for (const sem of activeStudentPlan.semesters) {
+      totalRequired += sem.totalCredits;
+      for (const [cat, req] of Object.entries(sem.categories)) {
+        categoryRequired[cat] = (categoryRequired[cat] ?? 0) + Number(req);
+        if (sem.semester < currentSem) {
+          categoryExpected[cat] = (categoryExpected[cat] ?? 0) + Number(req);
+          totalExpected += Number(req);
+        }
+      }
+    }
+
+    const categoryEarned: Record<string, number> = {};
+    let totalEarned = 0;
+    for (const semData of Object.values(earnedBySemCat)) {
+      for (const [cat, credits] of Object.entries(semData)) {
+        categoryEarned[cat] = (categoryEarned[cat] ?? 0) + credits;
+        totalEarned += credits;
+      }
+    }
+
+    const normRequired = normalizeCredits(totalRequired);
+    const normEarned = normalizeCredits(totalEarned);
+    const completionPct = normRequired > 0 ? Math.round((normEarned / normRequired) * 100) : 0;
+    const overallStatus = computeCreditStatus(totalRequired, totalEarned, totalExpected);
+
+    const categories = Object.keys(categoryRequired)
+      .map((code) => ({
+        code,
+        required: normalizeCredits(categoryRequired[code] ?? 0),
+        earned: normalizeCredits(categoryEarned[code] ?? 0),
+        status: computeCreditStatus(categoryRequired[code] ?? 0, categoryEarned[code] ?? 0, categoryExpected[code] ?? 0),
+      }))
+      .filter((c) => c.required > 0)
+      .sort((a, b) => a.code.localeCompare(b.code));
+
+    return { totalRequired: normRequired, totalEarned: normEarned, completionPct, overallStatus, categories, creditsLoaded };
+  }, [isStudentOnlySession, studentSelf, activeStudentPlan, studentEarnedCreditsByUser]);
   const regulationTabMax = Math.max(visibleRegulations.length - 1, 0);
   const planOfStudyTabMax = Math.max(filteredPlansOfStudy.length - 1, 0);
   const safeRegulationTab = Math.min(regulationTab, regulationTabMax);
@@ -2257,6 +2309,23 @@ function App() {
       void loadHeadCreditTable();
     }
   }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
+
+  useEffect(() => {
+    if (!principal || superView !== "dashboard" || !isStudentOnlySession) return;
+    void (async () => {
+      await loadStudentSelfPlanOfStudy();
+      await loadProgrammes();
+      await loadRegulations();
+      await loadPlansOfStudy();
+    })();
+  }, [principal, superView, isStudentOnlySession]);
+
+  useEffect(() => {
+    if (!isStudentOnlySession || studentSelfDirectoryRows.length === 0) return;
+    const userId = studentSelfDirectoryRows[0].userId;
+    if (!userId || studentEarnedCreditsByUser[userId] !== undefined) return;
+    void loadStudentCredits(userId);
+  }, [isStudentOnlySession, studentSelfDirectoryRows, studentEarnedCreditsByUser]);
 
   useEffect(() => {
     if (!principal || superView !== "regulations") {
@@ -4371,10 +4440,183 @@ function App() {
                 ) : null}
                 {hasStudentRole ? (
                   <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Student</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Learning dashboard and assigned mentoring actions will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
+                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                      {/* Dashboard header */}
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
+                        <Box>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
+                            <DashboardIcon fontSize="small" color="primary" />
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>My Dashboard</Typography>
+                            <Chip label="Student" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary">
+                            Your academic progress and profile at a glance
+                          </Typography>
+                        </Box>
+                        <Tooltip title="Refresh">
+                          <span>
+                            <IconButton size="small" onClick={() => { void loadStudentSelfPlanOfStudy({ force: true }); }} disabled={busy}>
+                              <RefreshIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+
+                      {studentSelf ? (
+                        <>
+                          {/* Profile summary */}
+                          <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
+                            <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+                              <Box>
+                                <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                  {studentSelf.fullName || "Student"}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                                  {studentSelf.email}
+                                </Typography>
+                              </Box>
+                              <Chip
+                                label={studentSelf.graduated === "Yes" ? "Passed Out" : "Active"}
+                                size="small"
+                                color={studentSelf.graduated === "Yes" ? "success" : "primary"}
+                                variant="outlined"
+                                sx={{ height: 22, fontSize: "0.7rem", flexShrink: 0 }}
+                              />
+                            </Stack>
+                            <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(3, 1fr)" }, gap: 2 }}>
+                              {[
+                                { label: "Reg. Number", value: studentSelf.registrationNumber || "Not Allotted" },
+                                { label: "Batch", value: studentSelf.batch != null ? String(studentSelf.batch) : "—" },
+                                { label: "Semester", value: studentSelf.currentSemester != null ? `Sem ${studentSelf.currentSemester}` : "—" },
+                                { label: "Programme", value: programmeOptions.find((p) => p.id === studentSelf.programme)?.name ?? "—" },
+                                { label: "Mentor", value: studentSelf.mentorName || "—" },
+                                { label: "Plan of Study", value: activeStudentPlan?.planName ?? "—" },
+                              ].map(({ label, value }) => (
+                                <Box key={label}>
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                    {label}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25 }}>{value}</Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Paper>
+
+                          {/* Plan of study — semester overview */}
+                          {activeStudentPlan ? (
+                            <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
+                              <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+                                <Box>
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Plan of Study</Typography>
+                                  <Typography variant="caption" color="text.secondary">{activeStudentPlan.planName}</Typography>
+                                </Box>
+                                <Chip label={activeStudentPlan.regulationCode} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", fontFamily: "monospace" }} />
+                              </Stack>
+                              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                                {activeStudentPlan.semesters.map((sem) => {
+                                  const isCurrent = sem.semester === studentSelf.currentSemester;
+                                  const isPast = studentSelf.currentSemester != null && sem.semester < studentSelf.currentSemester;
+                                  return (
+                                    <Box
+                                      key={sem.semester}
+                                      sx={{
+                                        px: 1.5, py: 0.75, borderRadius: 1.5,
+                                        border: "1px solid",
+                                        borderColor: isCurrent ? "primary.main" : "divider",
+                                        bgcolor: isCurrent ? (theme) => alpha(theme.palette.primary.main, 0.06) : isPast ? "action.hover" : "transparent",
+                                        minWidth: 64, textAlign: "center",
+                                      }}
+                                    >
+                                      <Typography variant="caption" sx={{ fontWeight: isCurrent ? 700 : 400, fontSize: "0.7rem", color: isCurrent ? "primary.main" : "text.secondary", display: "block" }}>
+                                        Sem {sem.semester}
+                                      </Typography>
+                                      <Typography variant="caption" sx={{ fontSize: "0.68rem", color: "text.disabled" }}>
+                                        {sem.totalCredits} cr
+                                      </Typography>
+                                    </Box>
+                                  );
+                                })}
+                              </Box>
+                            </Paper>
+                          ) : null}
+
+                          {/* Credit progress */}
+                          {studentSelfCreditSummary ? (
+                            <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
+                              <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Credit Progress</Typography>
+                                <Chip
+                                  label={CREDIT_STATUS_LABELS[studentSelfCreditSummary.overallStatus]}
+                                  size="small"
+                                  color={
+                                    studentSelfCreditSummary.overallStatus === "complete" ? "success" :
+                                    studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
+                                    studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
+                                  }
+                                  sx={{ height: 22, fontSize: "0.7rem" }}
+                                />
+                              </Stack>
+                              <Box sx={{ mb: studentSelfCreditSummary.categories.length > 0 ? 2.5 : 0 }}>
+                                <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "baseline", mb: 0.75 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {formatCredits(studentSelfCreditSummary.totalEarned)} cr earned
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    of {formatCredits(studentSelfCreditSummary.totalRequired)} cr · {studentSelfCreditSummary.completionPct}%
+                                  </Typography>
+                                </Stack>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={Math.min(100, studentSelfCreditSummary.completionPct)}
+                                  color={
+                                    studentSelfCreditSummary.overallStatus === "complete" ? "success" :
+                                    studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
+                                    studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
+                                  }
+                                  sx={{ height: 8, borderRadius: 1 }}
+                                />
+                              </Box>
+                              {studentSelfCreditSummary.categories.length > 0 && (
+                                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 1.5 }}>
+                                  {studentSelfCreditSummary.categories.map((cat) => {
+                                    const catName = visibleRegulations[0]?.curriculumStructure?.categories?.find((c) => c.code === cat.code)?.name ?? cat.code;
+                                    const catPct = cat.required > 0 ? Math.round((cat.earned / cat.required) * 100) : 0;
+                                    const catColor = cat.status === "complete" ? "success" : cat.status === "on-track" ? "primary" : cat.status === "marginal" ? "warning" : "error";
+                                    return (
+                                      <Box key={cat.code} sx={{ p: 1.5, borderRadius: 1.5, border: "1px solid", borderColor: "divider" }}>
+                                        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
+                                          <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.8rem" }}>{cat.code}</Typography>
+                                          <Chip label={`${catPct}%`} size="small" color={catColor} variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+                                        </Stack>
+                                        <LinearProgress variant="determinate" value={Math.min(100, catPct)} color={catColor} sx={{ height: 4, borderRadius: 1, mb: 0.75 }} />
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem", display: "block" }}>{catName}</Typography>
+                                        <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.68rem" }}>
+                                          {formatCredits(cat.earned)} / {formatCredits(cat.required)} cr
+                                        </Typography>
+                                      </Box>
+                                    );
+                                  })}
+                                </Box>
+                              )}
+                              {!studentSelfCreditSummary.creditsLoaded && (
+                                <Typography variant="caption" color="text.secondary">Loading credit data...</Typography>
+                              )}
+                            </Paper>
+                          ) : null}
+
+                          {/* Quick actions */}
+                          <Stack direction="row" spacing={1.5} flexWrap="wrap">
+                            <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { openStudentCredits(studentSelf); }}>
+                              View My Credits
+                            </Button>
+                            <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { navigateTo("account"); setAccountView("profile"); }}>
+                              My Profile
+                            </Button>
+                          </Stack>
+                        </>
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">Loading your profile...</Typography>
+                      )}
                     </CardContent>
                   </Card>
                 ) : null}
