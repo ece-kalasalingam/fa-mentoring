@@ -3558,3 +3558,38 @@ px tsc --noEmit in rontend/.
   - Removed the separate Force Logout User navigation item and dedicated session-admin page section from App.tsx.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-21 17:52 IST | codex | change
+- Summary: Allowed email addresses in Manage Users add-user username field validation.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated Create Local Account username validation to accept either the existing lowercase username pattern or a valid email address format.
+  - Updated the field label from `Username *` to `Username or email *` to match the allowed input.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 17:48 IST | codex | fix
+- Summary: Fixed Manage Users add-user flow so creating a local user works when username is an email and email field is left blank.
+- Files: api/src/modules/auth/password-auth.service.ts, CHANGELOG.md
+- Details:
+  - Root cause was backend requiring `email` even though the add-user form allows email to be optional.
+  - Updated local user creation to derive canonical email from `username` when the username is a valid email address.
+  - Kept explicit validation: if username is not an email and email is blank, creation still fails with a clear message.
+  - Verification passed: `npm --prefix api run test` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 17:49 IST | codex | fix
+- Summary: Clarified create-user username collision errors when the username belongs to a super admin account hidden from Manage Users.
+- Files: api/src/modules/auth/password-auth.service.ts, CHANGELOG.md
+- Details:
+  - Updated username uniqueness lookup to join account metadata (`is_superuser`, active flags) when checking `auth_credentials`.
+  - Added a specific error for super-admin-owned usernames: `Username is already used by a super admin account (not shown in Manage Users).`
+  - Kept existing collision behavior for non-super-admin users (`Username already exists.`).
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+## 2026-05-21 18:00 IST | codex | fix
+- Summary: Removed 100-row cap in Manage Users by fetching all cursor-paginated user pages for MRT.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Root cause: `loadUsers()` requested only one `limit=100` page and did not follow `nextCursor`.
+  - Updated `loadUsers()` to iterate cursor pages (`/api/admin/users`) and aggregate rows until pagination is exhausted.
+  - Preserved existing first-page cache key usage, now storing the full aggregated result set for `users:first`.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

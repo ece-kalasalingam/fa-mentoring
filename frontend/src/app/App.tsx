@@ -1078,26 +1078,51 @@ function App() {
       }
     }
     const searchParam = userGlobalFilter.trim();
-    const query = new URLSearchParams();
-    query.set("limit", "100");
-    if (cursor) query.set("cursor", cursor);
-    if (searchParam) query.set("q", searchParam);
-    const res = await callApi(`/api/admin/users?${query.toString()}`, "GET");
-    if (!res.ok) {
-      const msg = `Unable to load users: ${res.error ?? "Unknown error"}`;
-      setStatus(msg);
-      setApiError({ message: msg, retryFn: () => loadUsers() });
+    const fetchUsersPage = async (pageCursor?: string | null) => {
+      const query = new URLSearchParams();
+      query.set("limit", "100");
+      if (pageCursor) query.set("cursor", pageCursor);
+      if (searchParam) query.set("q", searchParam);
+      return callApi(`/api/admin/users?${query.toString()}`, "GET");
+    };
+
+    if (cursor) {
+      const res = await fetchUsersPage(cursor);
+      if (!res.ok) {
+        const msg = `Unable to load users: ${res.error ?? "Unknown error"}`;
+        setStatus(msg);
+        setApiError({ message: msg, retryFn: () => loadUsers() });
+        return;
+      }
+      const rows = (res.rows ?? []) as unknown as UserRow[];
+      setUserRows((prev) => [...prev, ...rows]);
       return;
     }
-    const rows = (res.rows ?? []) as unknown as UserRow[];
-    setUserRows((prev) => (cursor ? [...prev, ...rows] : rows));
-    if (!cursor) {
-      setCachedAdminPayload(cacheKey, {
-        rows,
-        nextCursor: res.page?.nextCursor ?? null,
-        hasMore: Boolean(res.page?.hasMore),
-      });
+
+    const allRows: UserRow[] = [];
+    let nextCursor: string | null = null;
+    let hasMore = true;
+    let pageSafety = 0;
+    while (hasMore && pageSafety < 1000) {
+      const res = await fetchUsersPage(nextCursor);
+      if (!res.ok) {
+        const msg = `Unable to load users: ${res.error ?? "Unknown error"}`;
+        setStatus(msg);
+        setApiError({ message: msg, retryFn: () => loadUsers() });
+        return;
+      }
+      const rows = (res.rows ?? []) as unknown as UserRow[];
+      allRows.push(...rows);
+      nextCursor = res.page?.nextCursor ?? null;
+      hasMore = Boolean(res.page?.hasMore && nextCursor);
+      pageSafety += 1;
     }
+    setUserRows(allRows);
+    setCachedAdminPayload(cacheKey, {
+      rows: allRows,
+      nextCursor,
+      hasMore,
+    });
   }
 
   async function loadRegulations(options?: { force?: boolean }) {
@@ -1578,8 +1603,13 @@ function App() {
     if (!payload.fullName) errors.fullName = "Full name is required.";
     if (!payload.username) {
       errors.username = "Username is required.";
-    } else if (!/^[a-z0-9_.-]+$/.test(payload.username)) {
-      errors.username = "Only lowercase letters, numbers, _ . - allowed.";
+    } else {
+      const normalizedUsername = payload.username.toLowerCase();
+      const isClassicUsername = /^[a-z0-9_.-]+$/.test(normalizedUsername);
+      const isEmailUsername = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedUsername);
+      if (!isClassicUsername && !isEmailUsername) {
+        errors.username = "Enter a valid username or email address.";
+      }
     }
     if (!payload.password) {
       errors.password = "Password is required.";
@@ -4510,7 +4540,7 @@ function App() {
                             onChange={(e) => setNewUserEmail(e.target.value)}
                           />
                           <TextField
-                            variant="standard" size="small" fullWidth type="text" label="Username *"
+                            variant="standard" size="small" fullWidth type="text" label="Username or email *"
                             autoComplete="username" value={newUserUsername}
                             error={Boolean(addUserErrors.username)}
                             helperText={addUserErrors.username ?? " "}

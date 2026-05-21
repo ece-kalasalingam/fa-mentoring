@@ -664,7 +664,8 @@ export async function createLocalUserByAdmin(
   const isAdmin = normalizedRoles.includes("admin");
   const fullName = String(payload.fullName ?? "").trim();
   const emailRaw = String(payload.email ?? "").trim().toLowerCase();
-  const email = emailRaw || null;
+  const usernameAsEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(username) ? username : "";
+  const email = (emailRaw || usernameAsEmail || null);
 
   if (!username) {
     throw new Error("Username is required.");
@@ -673,7 +674,7 @@ export async function createLocalUserByAdmin(
     throw new Error("Full name is required.");
   }
   if (!email) {
-    throw new Error("Email is required.");
+    throw new Error("Email is required when username is not an email.");
   }
   const passwordError = validatePasswordStrength(password);
   if (passwordError) {
@@ -683,10 +684,22 @@ export async function createLocalUserByAdmin(
   const db = getDb(env);
   const supportsProviderSubject = await hasProviderSubjectColumn(db);
   const existing = await db.execute({
-    sql: "select 1 as ok from auth_credentials where username = ? limit 1",
+    sql: `select
+            ac.user_account_id as user_account_id,
+            coalesce(ua.is_superuser, 0) as is_superuser,
+            coalesce(ua.active, 0) as account_active,
+            coalesce(ac.active, 0) as credential_active
+          from auth_credentials ac
+          left join user_accounts ua on ua.id = ac.user_account_id
+          where ac.username = ?
+          limit 1`,
     args: [username]
   });
   if (existing.rows.length > 0) {
+    const isSuperuserOwner = Number(existing.rows[0]?.is_superuser ?? 0) === 1;
+    if (isSuperuserOwner) {
+      throw new Error("Username is already used by a super admin account (not shown in Manage Users).");
+    }
     throw new Error("Username already exists.");
   }
 
