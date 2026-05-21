@@ -191,6 +191,7 @@ export const worker = {
       const principal = await identityProvider.authenticate(request, env);
       const roleContext = new URL(request.url).searchParams.get("roleContext");
       const preferFacultyScope = roleContext === "faculty";
+      const preferModeratorActiveScope = roleContext === "moderator";
       const resolveScopedStudentAccess = (currentPrincipal: NonNullable<typeof principal>) => {
         if (preferFacultyScope && currentPrincipal.roles.includes("faculty")) {
           const facultyScopedPrincipal = {
@@ -204,6 +205,8 @@ export const worker = {
         }
         return resolveStudentScope(currentPrincipal);
       };
+      const shouldRestrictToActiveStudents = (currentPrincipal: NonNullable<typeof principal>) =>
+        preferModeratorActiveScope && currentPrincipal.roles.includes("moderator");
       principalSubject = principal?.subject ?? null;
       authProvider = identityProvider.name;
 
@@ -915,7 +918,13 @@ export const worker = {
         }
         const scope = resolveScopedStudentAccess(principal);
         const url = new URL(request.url);
-        const data = await listStudentsByScope(env, scope, url.searchParams.get("limit"), url.searchParams.get("cursor"));
+        const data = await listStudentsByScope(
+          env,
+          scope,
+          url.searchParams.get("limit"),
+          url.searchParams.get("cursor"),
+          shouldRestrictToActiveStudents(principal),
+        );
         statusCode = 200;
         return respond({ ok: true, ...data });
       }
@@ -1159,7 +1168,11 @@ export const worker = {
 
       if (pathname === "/api/student-credit-table" && request.method === "GET") {
         const scope = resolveScopedStudentAccess(principal!);
-        const rows = await listStudentCreditTableByScope(env, scope);
+        const rows = await listStudentCreditTableByScope(
+          env,
+          scope,
+          shouldRestrictToActiveStudents(principal!),
+        );
         statusCode = 200;
         return respond({ ok: true, rows });
       }

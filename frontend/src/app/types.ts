@@ -249,7 +249,8 @@ export type AdminCacheKey =
   | "login-activity:first"
   | "users:first"
   | "students-directory:first"
-  | "faculty-students:first";
+  | "faculty-students:first"
+  | "moderator-students:first";
 
 export type AdminCacheEntry = { cachedAt: number; payload: unknown };
 

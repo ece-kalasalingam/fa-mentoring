@@ -95,6 +95,7 @@ const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
   "users:first",
   "students-directory:first",
   "faculty-students:first",
+  "moderator-students:first",
 ];
 type BrowserCacheEnvelope<T> = {
   cachedAt: number;
@@ -167,6 +168,8 @@ function App() {
   const [creditTotalsLoaded, setCreditTotalsLoaded] = useState(false);
   const [facultyStudentRows, setFacultyStudentRows] = useState<FacultyStudentRow[]>([]);
   const [facultyCreditTableRows, setFacultyCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
+  const [moderatorStudentRows, setModeratorStudentRows] = useState<FacultyStudentRow[]>([]);
+  const [moderatorCreditTableRows, setModeratorCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [, setFacultyMentoredMinimalRows] = useState<FacultyMentoredStudentMinimal[]>([]);
   const [mentorNameOptions, setMentorNameOptions] = useState<string[]>([]);
   const [programmeOptions, setProgrammeOptions] = useState<Array<{ id: number; name: string }>>([]);
@@ -227,6 +230,14 @@ function App() {
   const hasHeadRole = useMemo(() => Boolean(principal?.roles.includes("head")), [principal]);
   const hasModeratorRole = useMemo(() => Boolean(principal?.roles.includes("moderator")), [principal]);
   const hasGuestRole = useMemo(() => Boolean(principal?.roles.includes("guest")), [principal]);
+  const hasScopedStudentDashboardRole = useMemo(
+    () => hasFacultyRole || hasModeratorRole,
+    [hasFacultyRole, hasModeratorRole],
+  );
+  const isScopedStudentDashboardOnly = useMemo(
+    () => hasScopedStudentDashboardRole && !(isAdmin || hasHeadRole),
+    [hasScopedStudentDashboardRole, isAdmin, hasHeadRole],
+  );
 
   function navigateTo(view: typeof superView) {
     setApiError(null);
@@ -1219,22 +1230,30 @@ function App() {
     }
   }
 
-  async function loadFacultyStudents(options?: { force?: boolean }) {
+  async function loadScopedStudents(
+    roleContext: "faculty" | "moderator",
+    options?: { force?: boolean },
+  ) {
     const force = Boolean(options?.force);
-    const cacheKey: AdminCacheKey = "faculty-students:first";
+    const cacheKey: AdminCacheKey = roleContext === "faculty" ? "faculty-students:first" : "moderator-students:first";
     if (!force) {
       const cached = getCachedAdminPayload<FacultyStudentRow[]>(cacheKey, ADMIN_CACHE_TTL_MS.facultyStudents);
       if (cached) {
-        setFacultyStudentRows(cached);
-        const minimalFromCached = toFacultyMentoredMinimalRows(cached);
-        setFacultyMentoredMinimalRows(minimalFromCached);
-        writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalFromCached);
+        if (roleContext === "faculty") {
+          setFacultyStudentRows(cached);
+          const minimalFromCached = toFacultyMentoredMinimalRows(cached);
+          setFacultyMentoredMinimalRows(minimalFromCached);
+          writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalFromCached);
+        } else {
+          setModeratorStudentRows(cached);
+        }
         return;
       }
     }
-    const res = await callApi("/api/students?limit=100&roleContext=faculty", "GET");
+    const res = await callApi(`/api/students?limit=100&roleContext=${roleContext}`, "GET");
     if (!res.ok) {
-      setStatus(`Unable to load mentored students: ${res.error ?? "Unknown error"}`);
+      const scopeLabel = roleContext === "moderator" ? "active students" : "mentored students";
+      setStatus(`Unable to load ${scopeLabel}: ${res.error ?? "Unknown error"}`);
       return;
     }
     const rows = Array.isArray(res.rows) ? res.rows : [];
@@ -1254,19 +1273,23 @@ function App() {
         mentorEmail: data.mentor_email == null ? null : String(data.mentor_email),
       };
     });
-    setFacultyStudentRows(normalizedRows);
-    const minimalRows: FacultyMentoredStudentMinimal[] = toFacultyMentoredMinimalRows(normalizedRows);
-    setFacultyMentoredMinimalRows(minimalRows);
-    writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalRows);
+    if (roleContext === "faculty") {
+      setFacultyStudentRows(normalizedRows);
+      const minimalRows: FacultyMentoredStudentMinimal[] = toFacultyMentoredMinimalRows(normalizedRows);
+      setFacultyMentoredMinimalRows(minimalRows);
+      writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalRows);
+    } else {
+      setModeratorStudentRows(normalizedRows);
+    }
     setCachedAdminPayload(cacheKey, normalizedRows);
   }
 
-  async function loadFacultyCreditTable() {
-    const res = await callApi("/api/student-credit-table?roleContext=faculty", "GET");
+  async function loadScopedCreditTable(roleContext: "faculty" | "moderator") {
+    const res = await callApi(`/api/student-credit-table?roleContext=${roleContext}`, "GET");
     if (!res.ok) {
       const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
       setStatus(msg);
-      setApiError({ message: msg, retryFn: () => loadFacultyCreditTable() });
+      setApiError({ message: msg, retryFn: () => loadScopedCreditTable(roleContext) });
       return;
     }
     const rows = Array.isArray(res.rows) ? res.rows : [];
@@ -1282,7 +1305,43 @@ function App() {
         modifiedAt: data.modifiedAt == null ? null : String(data.modifiedAt),
       };
     });
-    setFacultyCreditTableRows(normalizedRows);
+    if (roleContext === "faculty") {
+      setFacultyCreditTableRows(normalizedRows);
+    } else {
+      setModeratorCreditTableRows(normalizedRows);
+    }
+  }
+
+  async function loadFacultyStudents(options?: { force?: boolean }) {
+    await loadScopedStudents("faculty", options);
+  }
+
+  async function loadModeratorStudents(options?: { force?: boolean }) {
+    await loadScopedStudents("moderator", options);
+  }
+
+  async function loadFacultyCreditTable() {
+    await loadScopedCreditTable("faculty");
+  }
+
+  async function loadModeratorCreditTable() {
+    await loadScopedCreditTable("moderator");
+  }
+
+  async function loadPrimaryScopedStudents(options?: { force?: boolean }) {
+    if (scopedDashboardRoleContext === "moderator") {
+      await loadModeratorStudents(options);
+      return;
+    }
+    await loadFacultyStudents(options);
+  }
+
+  async function loadPrimaryScopedCreditTable() {
+    if (scopedDashboardRoleContext === "moderator") {
+      await loadModeratorCreditTable();
+      return;
+    }
+    await loadFacultyCreditTable();
   }
 
   function blurActiveElement() {
@@ -1454,9 +1513,9 @@ function App() {
         throw new Error(res.error ?? "Student batch update failed");
       }
       setStatus(`Students updated (${payload.length} row${payload.length === 1 ? "" : "s"}).`);
-      invalidateAdminCache(["students-directory:first", "faculty-students:first", "dashboard"]);
-      if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
-        await loadFacultyStudents({ force: true });
+      invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "dashboard"]);
+      if (isScopedStudentDashboardOnly) {
+        await loadPrimaryScopedStudents({ force: true });
       } else {
         await loadStudentsDirectory(undefined, { force: true });
       }
@@ -1505,7 +1564,7 @@ function App() {
     }
 
     const hasHeader = (key: string) => headerIndex.has(key);
-    const isFacultyOnly = hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole);
+    const isFacultyOnly = isScopedStudentDashboardOnly;
     if (isFacultyOnly && (hasHeader("programme") || hasHeader("mentor_email") || hasHeader("mentorEmail"))) {
       setStatus("Faculty CSV cannot include programme or mentor_email columns.");
       return;
@@ -1559,13 +1618,16 @@ function App() {
         blurActiveElement();
         setStudentCsvImportResult({ imported, failed, errors });
       }
-      invalidateAdminCache(["students-directory:first", "faculty-students:first", "dashboard"]);
-      if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
-        await loadFacultyStudents({ force: true });
+      invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "dashboard"]);
+      if (isScopedStudentDashboardOnly) {
+        await loadPrimaryScopedStudents({ force: true });
       } else {
         await loadStudentsDirectory(undefined, { force: true });
         if (hasFacultyRole) {
           await loadFacultyStudents({ force: true });
+        }
+        if (hasModeratorRole) {
+          await loadModeratorStudents({ force: true });
         }
       }
     } finally {
@@ -2090,12 +2152,18 @@ function App() {
   }, [principal, superView, isAdmin]);
 
   useEffect(() => {
-    if (!principal || superView !== "dashboard" || !hasFacultyRole) {
+    if (!principal || superView !== "dashboard" || !hasScopedStudentDashboardRole) {
       return;
     }
-    void loadFacultyStudents();
-    void loadFacultyCreditTable();
-  }, [principal, superView, hasFacultyRole]);
+    if (hasFacultyRole) {
+      void loadFacultyStudents();
+      void loadFacultyCreditTable();
+    }
+    if (hasModeratorRole) {
+      void loadModeratorStudents();
+      void loadModeratorCreditTable();
+    }
+  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole]);
 
   useEffect(() => {
     if (!principal || superView !== "regulations") {
@@ -2127,12 +2195,17 @@ function App() {
   }, [principal, superView, programmeOptions.length, plansOfStudy.length, regulations.length]);
 
   useEffect(() => {
-    if (!principal || superView !== "students-directory" || !hasFacultyRole) {
+    if (!principal || superView !== "students-directory" || !hasScopedStudentDashboardRole) {
       return;
     }
     void loadFacultyMentoredMinimalFromSession();
-    void loadFacultyStudents();
-  }, [principal, superView, hasFacultyRole]);
+    if (hasFacultyRole) {
+      void loadFacultyStudents();
+    }
+    if (hasModeratorRole) {
+      void loadModeratorStudents();
+    }
+  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole]);
 
   const facultyGraduatedCount = useMemo(
     () => facultyStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
@@ -2142,9 +2215,38 @@ function App() {
     () => facultyStudentRows.filter((student) => student.studentActive && student.graduated !== "Yes").length,
     [facultyStudentRows]
   );
+  const facultyMetricCardCount = useMemo(
+    () => [facultyNotGraduatedCount, facultyGraduatedCount].filter((value) => value !== 0).length,
+    [facultyNotGraduatedCount, facultyGraduatedCount],
+  );
+  const moderatorGraduatedCount = useMemo(
+    () => moderatorStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
+    [moderatorStudentRows]
+  );
+  const moderatorNotGraduatedCount = useMemo(
+    () => moderatorStudentRows.filter((student) => student.studentActive && student.graduated !== "Yes").length,
+    [moderatorStudentRows]
+  );
+  const moderatorMetricCardCount = useMemo(
+    () => [moderatorNotGraduatedCount, moderatorGraduatedCount].filter((value) => value !== 0).length,
+    [moderatorNotGraduatedCount, moderatorGraduatedCount],
+  );
+  const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
+    if (hasFacultyRole) return "faculty";
+    if (hasModeratorRole) return "moderator";
+    return null;
+  }, [hasFacultyRole, hasModeratorRole]);
+  const scopedDashboardStudentRows = useMemo(
+    () => (scopedDashboardRoleContext === "moderator" ? moderatorStudentRows : facultyStudentRows),
+    [scopedDashboardRoleContext, moderatorStudentRows, facultyStudentRows],
+  );
+  const scopedDashboardCreditRows = useMemo(
+    () => (scopedDashboardRoleContext === "moderator" ? moderatorCreditTableRows : facultyCreditTableRows),
+    [scopedDashboardRoleContext, moderatorCreditTableRows, facultyCreditTableRows],
+  );
   const facultyStudentsDirectoryRows = useMemo<StudentDirectoryRow[]>(
     () => {
-      return facultyStudentRows
+      return scopedDashboardStudentRows
         .filter((student) => student.studentActive)
         .map((student) => ({
           userId: student.userId,
@@ -2156,25 +2258,25 @@ function App() {
           batch: student.batch,
           programme: student.programme,
           graduated: student.graduated,
-          mentorName: principal?.fullName?.trim() || "Assigned Faculty",
+          mentorName: scopedDashboardRoleContext === "moderator" ? "Assigned Mentor" : (principal?.fullName?.trim() || "Assigned Faculty"),
           modifiedByName: "",
           modifiedAt: null,
         }));
     },
-    [facultyStudentRows, principal?.fullName]
+    [scopedDashboardStudentRows, scopedDashboardRoleContext, principal?.fullName]
   );
   useEffect(() => {
     if (!selectedStudentForCredits?.userId) return;
-    const sourceRows = hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows;
+    const sourceRows = isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows;
     const updated = sourceRows.find((row) => row.userId === selectedStudentForCredits.userId);
     if (updated) setSelectedStudentForCredits(updated);
-  }, [facultyStudentsDirectoryRows, hasFacultyRole, hasHeadRole, hasModeratorRole, isAdmin, selectedStudentForCredits, studentDirectoryRows]);
+  }, [facultyStudentsDirectoryRows, isScopedStudentDashboardOnly, selectedStudentForCredits, studentDirectoryRows]);
 
   // Updated by StudentsDirectoryTable whenever the user sorts/filters — persists after the table unmounts
   const [creditNavRows, setCreditNavRows] = useState<StudentDirectoryRow[]>([]);
   const creditNavFallback = useMemo(
-    () => hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows,
-    [facultyStudentsDirectoryRows, hasFacultyRole, hasHeadRole, hasModeratorRole, isAdmin, studentDirectoryRows],
+    () => isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows,
+    [facultyStudentsDirectoryRows, isScopedStudentDashboardOnly, studentDirectoryRows],
   );
   // Use the table's sorted+filtered list when available; fall back to raw source on first load
   const effectiveCreditNavRows = creditNavRows.length > 0 ? creditNavRows : creditNavFallback;
@@ -2227,13 +2329,13 @@ function App() {
   // Load credit totals for all visible students whenever the directory list changes
   useEffect(() => {
     if (!principal) return;
-    const sourceRows = hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)
+    const sourceRows = isScopedStudentDashboardOnly
       ? facultyStudentsDirectoryRows
       : studentDirectoryRows;
     const userIds = sourceRows.map((r) => r.userId).filter((id) => id.length > 0);
     if (userIds.length > 0) void loadStudentCreditSummaries(userIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principal, studentDirectoryRows.length, facultyStudentsDirectoryRows.length, hasFacultyRole, isAdmin, hasHeadRole, hasModeratorRole]);
+  }, [principal, studentDirectoryRows.length, facultyStudentsDirectoryRows.length, isScopedStudentDashboardOnly]);
 
   async function runStep(path: string, label: string, body?: unknown) {
     if (principal) {
@@ -2566,8 +2668,8 @@ function App() {
                     navigateTo("students-directory");
                     await loadProgrammes({ force: true });
                     await loadPlansOfStudy();
-                    if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
-                      await loadFacultyStudents();
+                    if (isScopedStudentDashboardOnly) {
+                      await loadPrimaryScopedStudents();
                     } else {
                       await loadStudentsDirectory();
                     }
@@ -2575,7 +2677,7 @@ function App() {
                 })();
               },
             }] : []),
-            ...((hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) ? [{
+            ...((isScopedStudentDashboardOnly) ? [{
               id: "faculty-credit-table",
               label: "Student Credit Table",
               icon: <ReceiptLongIcon fontSize="small" />,
@@ -2584,7 +2686,7 @@ function App() {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
                     navigateTo("faculty-credit-table");
-                    await loadFacultyCreditTable();
+                    await loadPrimaryScopedCreditTable();
                   }
                 })();
               },
@@ -3670,17 +3772,104 @@ function App() {
 
             {(hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || hasGuestRole) ? (
               <Box sx={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, mt: isAdmin ? 2.5 : 0 }}>
-                {hasModeratorRole ? (
+                {hasHeadRole ? (
                   <Card>
                     <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Moderator</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Moderation review items and flagged activity summary will appear here.</Typography>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Head</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Department-level rollups and escalation insights will appear here.</Typography>
                       <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>
                 ) : null}
+                {hasModeratorRole ? (
+                  <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
+                    <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2.5 }}>
+                        <Box>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75 }}>
+                            <SchoolIcon fontSize="small" color="primary" />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Active Students</Typography>
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                            All active student accounts in the system
+                          </Typography>
+                        </Box>
+                        <Tooltip title="Refresh counts">
+                          <span>
+                            <IconButton size="small" aria-label="Refresh moderator student counts" onClick={() => { void loadModeratorStudents({ force: true }); }} disabled={busy}>
+                              <RefreshIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: {
+                            xs: "1fr",
+                            sm: `repeat(${Math.max(1, moderatorMetricCardCount)}, minmax(0, 1fr))`,
+                          },
+                          gap: 2,
+                        }}
+                      >
+                        {moderatorNotGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                In Progress
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                              {moderatorNotGraduatedCount.toLocaleString()}
+                            </Typography>
+                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
+                              View in-progress students
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {moderatorGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Graduated
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                              {moderatorGraduatedCount.toLocaleString()}
+                            </Typography>
+                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
+                              View graduated
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {moderatorMetricCardCount === 0 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            No student status metrics to show yet.
+                          </Typography>
+                        ) : null}
+                      </Box>
+                      <Box sx={{ mt: 2.5 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
+                          <FacultyAnalyticsReport
+                            students={moderatorStudentRows}
+                            creditRows={moderatorCreditTableRows}
+                            plansOfStudy={plansOfStudy}
+                            regulations={regulations}
+                            defaultExpandFirstBatch={false}
+                            onViewStudents={() => {
+                              navigateTo("students-directory");
+                            }}
+                          />
+                        </Suspense>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                ) : null}
                 {hasFacultyRole ? (
-                  <Card sx={!(hasStudentRole || hasHeadRole || hasModeratorRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
+                  <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
                     <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
                       <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2.5 }}>
                         <Box>
@@ -3703,50 +3892,62 @@ function App() {
                       <Box
                         sx={{
                           display: "grid",
-                          gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" },
+                          gridTemplateColumns: {
+                            xs: "1fr",
+                            sm: `repeat(${Math.max(1, facultyMetricCardCount)}, minmax(0, 1fr))`,
+                          },
                           gap: 2,
                         }}
                       >
-                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                            <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
-                            <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                              In Progress
+                        {facultyNotGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                In Progress
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                              {facultyNotGraduatedCount.toLocaleString()}
                             </Typography>
-                          </Stack>
-                          <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                            {facultyNotGraduatedCount.toLocaleString()}
-                          </Typography>
-                          <Button
-                            type="button"
-                            size="small"
-                            endIcon={<ArrowForwardIcon />}
-                            sx={{ p: 0, mt: 1 }}
-                            onClick={() => { void openFacultyStudentsDirectory("No"); }}
-                          >
-                            View in-progress students
-                          </Button>
-                        </Paper>
-                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                            <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
-                            <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                              Graduated
+                            <Button
+                              type="button"
+                              size="small"
+                              endIcon={<ArrowForwardIcon />}
+                              sx={{ p: 0, mt: 1 }}
+                              onClick={() => { void openFacultyStudentsDirectory("No"); }}
+                            >
+                              View in-progress students
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {facultyGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Graduated
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                              {facultyGraduatedCount.toLocaleString()}
                             </Typography>
-                          </Stack>
-                          <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                            {facultyGraduatedCount.toLocaleString()}
+                            <Button
+                              type="button"
+                              size="small"
+                              endIcon={<ArrowForwardIcon />}
+                              sx={{ p: 0, mt: 1 }}
+                              onClick={() => { void openFacultyStudentsDirectory("Yes"); }}
+                            >
+                              View graduated
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {facultyMetricCardCount === 0 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            No student status metrics to show yet.
                           </Typography>
-                          <Button
-                            type="button"
-                            size="small"
-                            endIcon={<ArrowForwardIcon />}
-                            sx={{ p: 0, mt: 1 }}
-                            onClick={() => { void openFacultyStudentsDirectory("Yes"); }}
-                          >
-                            View graduated
-                          </Button>
-                        </Paper>
+                        ) : null}
                       </Box>
                       <Box sx={{ mt: 2.5 }}>
                         <Divider sx={{ mb: 2 }} />
@@ -3770,15 +3971,6 @@ function App() {
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Student</Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Learning dashboard and assigned mentoring actions will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
-                    </CardContent>
-                  </Card>
-                ) : null}
-                {hasHeadRole ? (
-                  <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Head</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Department-level rollups and escalation insights will appear here.</Typography>
                       <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>
@@ -4676,8 +4868,8 @@ function App() {
                     <Box>
                       <Typography variant="h6">Students Directory</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)
-                          ? `${facultyStudentsDirectoryRows.length} active mentoring student account${facultyStudentsDirectoryRows.length === 1 ? "" : "s"} loaded`
+                        {isScopedStudentDashboardOnly
+                          ? `${facultyStudentsDirectoryRows.length} active student account${facultyStudentsDirectoryRows.length === 1 ? "" : "s"} loaded`
                           : `${studentDirectoryRows.length} student account${studentDirectoryRows.length === 1 ? "" : "s"} loaded`}
                       </Typography>
                     </Box>
@@ -4691,8 +4883,8 @@ function App() {
                             onClick={() => {
                               void (async () => {
                                 await loadProgrammes({ force: true });
-                                if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
-                                  await loadFacultyStudents({ force: true });
+                                if (isScopedStudentDashboardOnly) {
+                                  await loadPrimaryScopedStudents({ force: true });
                                 } else {
                                   await loadStudentsDirectory(undefined, { force: true });
                                 }
@@ -4717,16 +4909,18 @@ function App() {
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
                     Update student details CSV columns: required <code>email</code>; optional <code>registration_number</code>, <code>plan_of_study_code</code>, <code>programme</code>, <code>current_semester</code>, <code>batch</code>, <code>graduated</code>, <code>mentor_email</code>.
                   </Typography>
-                  {hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? (
+                  {isScopedStudentDashboardOnly ? (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                      Showing only your active mentoring students. Faculty CSV cannot include <code>programme</code> or <code>mentor_email</code>.
+                      {scopedDashboardRoleContext === "moderator"
+                        ? "Showing all active students."
+                        : "Showing only your active mentoring students. Faculty CSV cannot include programme or mentor_email."}
                     </Typography>
                   ) : null}
                 </Box>
 
                 <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading students directory table...</Typography>}>
                   <StudentsDirectoryTable
-                    rows={hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows}
+                    rows={isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows}
                     busy={busy}
                     initialGraduatedFilter={studentsDirectoryGraduatedFilter}
                     initialCreditStatusFilter={studentsDirectoryCreditStatusFilter}
@@ -4734,8 +4928,8 @@ function App() {
                     planSemesterBounds={planSemesterBounds}
                     mentorNameOptions={mentorNameOptions}
                     programmeOptions={programmeOptions}
-                    showMentorName={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
-                    showProgramme={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
+                    showMentorName={!isScopedStudentDashboardOnly}
+                    showProgramme={!isScopedStudentDashboardOnly}
                     showModifiedAudit={(isAdmin || hasHeadRole || hasModeratorRole)}
                     canEdit={true}
                     onOpenStudentCredits={(row) => openStudentCredits(row)}
@@ -4759,7 +4953,7 @@ function App() {
                     creditSummaries={creditSummaries}
                   />
                 </Suspense>
-                {studentsDirectoryHasMore && !(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) ? (
+                {studentsDirectoryHasMore && !isScopedStudentDashboardOnly ? (
                   <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
                     <Button type="button" variant="outlined" onClick={() => { void loadStudentsDirectory(studentsDirectoryCursor); }}>
                       Load More
@@ -5119,11 +5313,13 @@ function App() {
                 <Box sx={adminPageSx.headerPanel}>
                   <Typography variant="h6">Student Credit Table</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Credits recorded for students under your faculty mentoring scope.
+                    {scopedDashboardRoleContext === "moderator"
+                      ? "Credits recorded for all active students."
+                      : "Credits recorded for students under your faculty mentoring scope."}
                   </Typography>
                 </Box>
                 <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading student credit table...</Typography>}>
-                  <FacultyCreditDetailsTable rows={facultyCreditTableRows} busy={busy} />
+                  <FacultyCreditDetailsTable rows={scopedDashboardCreditRows} busy={busy} />
                 </Suspense>
               </Stack>
             </CardContent>

@@ -36,7 +36,13 @@ function scopeWhere(scope: StudentScope): { clause: string; args: Array<string |
   return { clause: " where 1 = 0 ", args: [] };
 }
 
-export async function listStudentsByScope(env: Env, scope: StudentScope, limitRaw: string | null, cursorRaw: string | null) {
+export async function listStudentsByScope(
+  env: Env,
+  scope: StudentScope,
+  limitRaw: string | null,
+  cursorRaw: string | null,
+  activeOnly = false,
+) {
   const db = getDb(env);
   const limit = parseLimit(limitRaw);
   const cursor = String(cursorRaw ?? "").trim();
@@ -46,6 +52,9 @@ export async function listStudentsByScope(env: Env, scope: StudentScope, limitRa
       ? `${scoped.clause} and s.user_id > ? `
       : " where s.user_id > ? "
     : scoped.clause;
+  const whereWithActivity = activeOnly
+    ? `${whereWithCursor}${whereWithCursor ? " and " : " where "}coalesce(student_ua.active, 0) = 1 `
+    : whereWithCursor;
   const args: Array<string | number | null> = cursor
     ? ([...scoped.args, cursor, limit + 1] as Array<string | number | null>)
     : ([...scoped.args, limit + 1] as Array<string | number | null>);
@@ -66,7 +75,7 @@ export async function listStudentsByScope(env: Env, scope: StudentScope, limitRa
           from students s
           left join user_accounts student_ua on student_ua.id = s.user_id
           left join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
-          ${whereWithCursor}
+          ${whereWithActivity}
           order by s.user_id asc
           limit ?`,
     args
@@ -172,9 +181,13 @@ export type StudentCreditTableRow = {
 export async function listStudentCreditTableByScope(
   env: Env,
   scope: StudentScope,
+  activeOnly = false,
 ): Promise<StudentCreditTableRow[]> {
   const db = getDb(env);
   const scoped = scopeWhere(scope);
+  const scopedWithActivity = activeOnly
+    ? `${scoped.clause}${scoped.clause ? " and " : " where "}coalesce(student_ua.active, 0) = 1 `
+    : scoped.clause;
   const result = await db.execute({
     sql: `select
             s.registration_number,
@@ -186,8 +199,9 @@ export async function listStudentCreditTableByScope(
             scd.modified_at
           from student_credit_details scd
           inner join students s on s.user_id = scd.student_id
+          left join user_accounts student_ua on student_ua.id = s.user_id
           left join user_accounts modifier on modifier.id = scd.modified_by
-          ${scoped.clause}
+          ${scopedWithActivity}
           order by s.registration_number asc, scd.semester_taken asc, scd.category_id asc`,
     args: scoped.args,
   });

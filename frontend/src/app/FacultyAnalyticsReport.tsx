@@ -71,6 +71,7 @@ type Props = {
   plansOfStudy: PlanOfStudy[];
   regulations: Regulation[];
   onViewStudents?: (creditStatusFilter: CreditStatus | null) => void;
+  defaultExpandFirstBatch?: boolean;
 };
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
@@ -610,7 +611,14 @@ function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchP
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function FacultyAnalyticsReport({ students, creditRows, plansOfStudy, regulations, onViewStudents }: Props) {
+export default function FacultyAnalyticsReport({
+  students,
+  creditRows,
+  plansOfStudy,
+  regulations,
+  onViewStudents,
+  defaultExpandFirstBatch = true,
+}: Props) {
 
   const analytics = useMemo(() => {
     const activeMentored = students.filter((s) => s.studentActive);
@@ -758,7 +766,7 @@ export default function FacultyAnalyticsReport({ students, creditRows, plansOfSt
       {batchGroups.map(({ batch, label, students: batchStudents }, idx) => (
         <Accordion
           key={batch ?? "unknown"}
-          defaultExpanded={idx === 0}
+          defaultExpanded={defaultExpandFirstBatch && idx === 0}
           disableGutters
           elevation={0}
           sx={{

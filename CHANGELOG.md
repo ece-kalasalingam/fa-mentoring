@@ -3623,3 +3623,53 @@ px tsc --noEmit in rontend/.
   - This keeps broader-role behavior unchanged outside explicit faculty-context views.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-21 18:19 IST | codex | change
+- Summary: Added moderator scoped dashboard parity with faculty UI and active-student-only role context filtering.
+- Files: api/src/app/worker.ts, api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Extended API `roleContext` handling with `roleContext=moderator` and added active-only filtering for scoped student list and scoped student credit table responses.
+  - Updated frontend scoped dashboard loaders to pass dynamic role context (`faculty` or `moderator`) for `/api/students` and `/api/student-credit-table`.
+  - Enabled moderators to use the same dashboard student analytics UI previously shown for faculty, with moderator copy updated to reflect all active students.
+  - Updated scoped Students Directory behavior to use the same scoped dataset for moderators (active students) and faculty (mentored students) when not in admin/head context.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+  - API test run failed in local environment due filesystem permission error writing `api/node_modules/.vite-temp` (EPERM), not due assertion/test failures.
+- Revert: none
+## 2026-05-21 18:25 IST | codex | fix
+- Summary: Fixed multi-role dashboard rendering so faculty and moderator cards both appear and load their own scoped data.
+- Files: frontend/src/app/App.tsx, frontend/src/app/types.ts, CHANGELOG.md
+- Details:
+  - Added separate moderator scoped state and loaders (`students` and `student-credit-table`) instead of a single shared scoped-role context that hid one role card.
+  - Updated dashboard effects to load faculty scoped datasets and moderator scoped datasets independently when the principal has both roles.
+  - Rendered two independent dashboard cards: `My Students` (faculty scope) and `Active Students` (moderator scope), each with its own counts and analytics dataset.
+  - Added `moderator-students:first` admin cache key and included it in scoped cache invalidation paths after student updates/imports.
+  - Added role-aware primary scoped loaders for Students Directory/Credit Table navigation so moderator-only scoped users load moderator context correctly.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 18:29 IST | codex | fix
+- Summary: Enforced zero-value dashboard-card hiding for faculty/moderator student status cards and documented scoped-read increase justification.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated faculty and moderator dashboard status-card rendering to hide any metric card with value `0` (`In Progress`, `Graduated`) to satisfy mandatory dashboard card visibility rules.
+  - Updated dashboard status-card grids to dynamically adjust column count based on the number of visible cards.
+  - Added fallback helper text when both status metrics are `0` so no zero-value metric card is rendered.
+  - Read-increase justification: multi-role dashboard mode performs additional scoped reads (`faculty` + `moderator`) by design to satisfy the mandatory role-section visibility rule for users with multiple roles; impact is bounded by first-page TTL caching and force-refresh bypass behavior already in place.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 18:31 IST | codex | fix
+- Summary: Set moderator dashboard batch accordions to start collapsed by default while keeping faculty default expansion behavior unchanged.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `defaultExpandFirstBatch` prop to `FacultyAnalyticsReport` with default `true` to preserve existing faculty behavior (first batch expanded).
+  - Updated accordion initialization in `FacultyAnalyticsReport` to use `defaultExpanded={defaultExpandFirstBatch && idx === 0}`.
+  - Passed `defaultExpandFirstBatch={false}` from the moderator dashboard card usage in `App.tsx`, so all moderator batch accordions are closed on first render.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 18:32 IST | codex | change
+- Summary: Enforced deterministic multi-role dashboard section order and documented the order rule in AGENTS.md.
+- Files: frontend/src/app/App.tsx, AGENTS.md, CHANGELOG.md
+- Details:
+  - Reordered dashboard role sections in `App.tsx` so multi-role users see sections in this precedence: `Administrator`, `Head`, `Moderator`, `Faculty`, `Student`, `Guest`.
+  - Preserved existing administrator dashboard block as the first section, then reordered role cards to `Head` -> `Moderator` -> `Faculty` -> `Student` -> `Guest`.
+  - Added the same mandatory role-section ordering rule under dashboard routing constraints in `AGENTS.md` to keep future implementations consistent.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

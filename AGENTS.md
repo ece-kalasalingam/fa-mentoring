@@ -31,6 +31,7 @@
 6. Dashboard/My Account routing is mandatory.
 - There MUST be a single shared dashboard route/view for all authenticated users.
 - The dashboard route must render role-based sections; if a user has multiple roles, all matching sections must be shown.
+- Role-section display order on dashboard MUST be deterministic and follow this precedence when a user has multiple roles: `Administrator`, `Head`, `Moderator`, `Faculty`, `Student`, `Guest`.
 - `My Account` MUST remain a dedicated separate route/view for personal profile/password actions.
 - Dashboard metric cards MUST be hidden when their value is zero. Do not render a card if its underlying count/metric is 0. The grid column count must adjust dynamically to match the number of visible cards.
 
