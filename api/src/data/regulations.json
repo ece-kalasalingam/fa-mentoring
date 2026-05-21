@@ -4,7 +4,7 @@
       "code": "UG-2025-LE",
       "name": "UG Regulation 2025 Lateral",
       "curriculumStructure": {
-        "totalCreditsRequired": 123,
+        "totalCreditsRequired": 124,
         "categories": [
           {
             "code": "FCM",
@@ -75,11 +75,27 @@
             }
           },
           {
-            "code": "CSC",
-            "name": "Complimentary Skill Course",
+            "code": "CSC1",
+            "name": "Complimentary Skill Course 1",
             "rule": {
               "type": "fixed",
-              "value": 3
+              "value": 2
+            }
+          }, 
+          {
+            "code": "CSC2",
+            "name": "Complimentary Skill Course 2",
+            "rule": {
+              "type": "fixed",
+              "value": 1
+            }
+          },
+          {
+            "code": "CSC3",
+            "name": "Complimentary Skill Course 3",
+            "rule": {
+              "type": "fixed",
+              "value": 1
             }
           }
         ]
@@ -89,7 +105,7 @@
       "code": "UG-2025",
       "name": "UG Regulation 2025 Regular",
       "curriculumStructure": {
-        "totalCreditsRequired": 163,
+        "totalCreditsRequired": 164,
         "categories": [
           {
             "code": "FCM",
@@ -158,11 +174,27 @@
             }
           },
           {
-            "code": "CSC",
-            "name": "Complimentary Skill Course",
+            "code": "CSC1",
+            "name": "Complimentary Skill Course 1",
             "rule": {
               "type": "fixed",
-              "value": 3
+              "value": 2
+            }
+          }, 
+          {
+            "code": "CSC2",
+            "name": "Complimentary Skill Course 2",
+            "rule": {
+              "type": "fixed",
+              "value": 1
+            }
+          },
+          {
+            "code": "CSC3",
+            "name": "Complimentary Skill Course 3",
+            "rule": {
+              "type": "fixed",
+              "value": 1
             }
           }
         ]
@@ -172,7 +204,7 @@
       "code": "UG-2021",
       "name": "UG Regulation 2021 Regular",
       "curriculumStructure": {
-        "totalCreditsRequired": 163,
+        "totalCreditsRequired": 164,
         "categories": [
           {
             "code": "FC",
@@ -223,11 +255,27 @@
             }
           },
           {
-            "code": "CSC",
-            "name": "Complimentary Skill Course",
+            "code": "CSC1",
+            "name": "Complimentary Skill Course 1",
             "rule": {
               "type": "fixed",
-              "value": 3
+              "value": 2
+            }
+          }, 
+          {
+            "code": "CSC2",
+            "name": "Complimentary Skill Course 2",
+            "rule": {
+              "type": "fixed",
+              "value": 1
+            }
+          },
+          {
+            "code": "CSC3",
+            "name": "Complimentary Skill Course 3",
+            "rule": {
+              "type": "fixed",
+              "value": 1
             }
           }
         ]
@@ -237,7 +285,7 @@
       "code": "UG-2021-LE",
       "name": "UG Regulation 2021 Lateral",
       "curriculumStructure": {
-        "totalCreditsRequired": 123,
+        "totalCreditsRequired": 124,
         "categories": [
           {
             "code": "FC",
@@ -288,11 +336,27 @@
             }
           },
           {
-            "code": "CSC",
-            "name": "Complimentary Skill Course",
+            "code": "CSC1",
+            "name": "Complimentary Skill Course 1",
             "rule": {
               "type": "fixed",
-              "value": 3
+              "value": 2
+            }
+          }, 
+          {
+            "code": "CSC2",
+            "name": "Complimentary Skill Course 2",
+            "rule": {
+              "type": "fixed",
+              "value": 1
+            }
+          },
+          {
+            "code": "CSC3",
+            "name": "Complimentary Skill Course 3",
+            "rule": {
+              "type": "fixed",
+              "value": 1
             }
           }
         ]

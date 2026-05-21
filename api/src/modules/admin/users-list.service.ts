@@ -50,7 +50,7 @@ export async function readUsers(env: Env, options: ReadUsersOptions) {
     where ua.is_superuser = 0
       and (? = '' or ua.subject > ?)`
   ];
-  const args: unknown[] = [subjectCursor, subjectCursor];
+  const args: Array<string | number | null> = [subjectCursor, subjectCursor];
 
   if (searchLike) {
     sqlParts.push(

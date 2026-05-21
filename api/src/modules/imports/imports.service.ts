@@ -1,44 +1,73 @@
 import { getDb } from "../../core/db";
 import { normalizeEmail, normalizeText, toYear } from "../../core/csv";
 import type { CsvImportRow, Env } from "../../core/types";
+import { fetchPlansOfStudyFromJson } from "../plan-of-study/plan-of-study.service";
 
-export async function importStudents(env: Env, rows: CsvImportRow[]) {
+export async function importStudents(
+  env: Env,
+  rows: CsvImportRow[],
+  options?: { restrictToActiveMentorEmail?: string | null; modifiedByUserId?: string | null }
+) {
   const db = getDb(env);
+  const restrictedMentorEmail = normalizeEmail(options?.restrictToActiveMentorEmail);
+  const modifiedByUserId = normalizeText(options?.modifiedByUserId);
+  const studentColumnsRes = await db.execute("pragma table_info(students)").catch(() => ({ rows: [] }));
+  const studentColumnNames = new Set(studentColumnsRes.rows.map((row) => String(row.name ?? "").toLowerCase()));
+  const hasCurrentSemester = studentColumnNames.has("current_semester");
+  const hasModifiedBy = studentColumnNames.has("modified_by");
+  const hasModifiedAt = studentColumnNames.has("modified_at");
+  const plansCatalog = await fetchPlansOfStudyFromJson().catch(() => ({ plansOfStudy: [] as Array<{ planCode: number; semesters: Array<{ semester: number }> }> }));
+  const planSemesterBoundsByCode = new Map<number, { min: number; max: number }>();
+  for (const plan of plansCatalog.plansOfStudy ?? []) {
+    const code = Number(plan.planCode);
+    const semesters = Array.isArray(plan.semesters)
+      ? plan.semesters
+          .map((item) => Number(item.semester))
+          .filter((value) => Number.isFinite(value) && Number.isInteger(value))
+      : [];
+    if (Number.isInteger(code) && semesters.length > 0) {
+      planSemesterBoundsByCode.set(code, {
+        min: Math.min(...semesters),
+        max: Math.max(...semesters),
+      });
+    }
+  }
 
-  for (const row of rows) {
+  let succeeded = 0;
+  let failed = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    let rowEmail = "";
+    try {
     const hasField = (key: string) => Object.prototype.hasOwnProperty.call(row, key);
     const registrationNumberText = normalizeText(row.registration_number);
     const hasRegistrationNumber = hasField("registration_number");
     const planOfStudyCodeText = normalizeText(row.plan_of_study_code);
     const hasPlanOfStudyCode = hasField("plan_of_study_code");
     const planOfStudyCode = planOfStudyCodeText ? Number(planOfStudyCodeText) : null;
-    const genderText = normalizeText(row.gender);
-    const hasGender = hasField("gender");
-    const gender = genderText || null;
-    const sectionText = normalizeText(row.section);
-    const hasSection = hasField("section");
-    const section = sectionText || null;
-    const mobileText = normalizeText(row.mobile_number) || normalizeText(row.mobileNumber);
-    const hasMobileNumber = hasField("mobile_number") || hasField("mobileNumber");
-    const mobileNumber = mobileText || null;
     const email = normalizeEmail(row.email);
+    rowEmail = email;
     const programText = normalizeText(row.programme);
     const hasProgramme = hasField("programme");
     const program = programText ? Number(programText) : 0;
     const batchText = normalizeText(row.batch);
     const hasBatch = hasField("batch");
     const parsedBatch = batchText ? toYear(batchText) : null;
-    const programmeDurationText = normalizeText(row.programme_duration);
-    const hasProgrammeDuration = hasField("programme_duration");
-    const durationRaw = Number(programmeDurationText);
-    const duration = Number.isFinite(durationRaw) ? durationRaw : 0;
-    const mentorEmail = normalizeEmail(row.mentorEmail);
+    const graduatedText = normalizeText(row.graduated).toLowerCase();
+    const hasGraduated = hasField("graduated");
+    const graduated = graduatedText === "yes" ? 1 : 0;
+    const mentorEmail = normalizeEmail(row.mentorEmail ?? row.mentor_email);
     const hasMentorEmail = hasField("mentorEmail") || hasField("mentor_email");
+    const currentSemesterText = normalizeText(row.current_semester);
+    const hasCurrentSemesterInput = hasField("current_semester");
+    const currentSemester = currentSemesterText ? Number(currentSemesterText) : null;
 
     if (!email) {
       throw new Error("Missing required student field: email");
     }
-    if (parsedBatch != null && (parsedBatch < 2010 || parsedBatch > 2050)) {
+    if (parsedBatch != null && (parsedBatch < 2010 || parsedBatch > 2040)) {
       throw new Error(`Invalid batch for email ${email}`);
     }
     if (hasPlanOfStudyCode && (planOfStudyCode == null || !Number.isFinite(planOfStudyCode) || !Number.isInteger(planOfStudyCode))) {
@@ -47,11 +76,17 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
     if (hasProgramme && (!Number.isFinite(program) || !Number.isInteger(program))) {
       throw new Error(`Programme must be an integer id for email ${email}`);
     }
-    if (section && section.length > 6) {
-      throw new Error(`Section must be at most 6 characters for email ${email}`);
+    if (hasGraduated && graduatedText !== "yes" && graduatedText !== "no") {
+      throw new Error(`graduated must be Yes or No for email ${email}`);
     }
-    if (hasProgrammeDuration && !Number.isFinite(durationRaw)) {
-      throw new Error(`programme_duration must be numeric for email ${email}`);
+    if (hasCurrentSemesterInput && (currentSemester == null || !Number.isFinite(currentSemester) || !Number.isInteger(currentSemester) || currentSemester < 1)) {
+      throw new Error(`current_semester must be a positive integer for email ${email}`);
+    }
+    if (restrictedMentorEmail && hasMentorEmail) {
+      throw new Error("Faculty cannot update mentor assignment via CSV.");
+    }
+    if (restrictedMentorEmail && hasProgramme) {
+      throw new Error("Faculty cannot update programme via CSV.");
     }
 
     const studentAccount = await db.execute({
@@ -66,8 +101,24 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
     if (!userId) {
       throw new Error(`Student account not found in user_accounts: ${email}`);
     }
+    if (restrictedMentorEmail) {
+      const scopedStudent = await db.execute({
+        sql: `select 1
+              from students s
+              inner join user_accounts student_ua on student_ua.id = s.user_id
+              inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
+              where s.user_id = ?
+                and student_ua.active = 1
+                and lower(trim(mentor_ua.email)) = ?
+              limit 1`,
+        args: [userId, restrictedMentorEmail],
+      });
+      if (scopedStudent.rows.length === 0) {
+        throw new Error(`Faculty can only update active students they are mentoring: ${email}`);
+      }
+    }
     const existingStudent = await db.execute({
-      sql: `select user_id, registration_number, batch
+      sql: `select user_id, registration_number, plan_of_study_code, batch
               from students
               where user_id = ?
               limit 1`,
@@ -106,6 +157,29 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
       const numericExistingBatch = existingBatch == null ? null : Number(existingBatch);
       batchValue = Number.isInteger(numericExistingBatch) ? numericExistingBatch : 2010;
     }
+    if (batchValue != null && (batchValue < 2010 || batchValue > 2040)) {
+      throw new Error(`Batch must be between 2010 and 2040 for email ${email}`);
+    }
+
+    const existingPlanOfStudyCode = existingStudent.rows[0]?.plan_of_study_code == null
+      ? null
+      : Number(existingStudent.rows[0]?.plan_of_study_code);
+    const effectivePlanOfStudyCode = hasPlanOfStudyCode
+      ? planOfStudyCode
+      : (Number.isInteger(existingPlanOfStudyCode) ? existingPlanOfStudyCode : null);
+    if (hasCurrentSemesterInput) {
+      if (currentSemester == null || !Number.isFinite(currentSemester) || !Number.isInteger(currentSemester) || currentSemester < 1) {
+        throw new Error(`current_semester must be a positive integer for email ${email}`);
+      }
+      const planBounds = effectivePlanOfStudyCode == null ? null : planSemesterBoundsByCode.get(effectivePlanOfStudyCode) ?? null;
+      if (planBounds) {
+        const minSemester = Math.max(1, Math.floor(planBounds.min));
+        const maxSemester = Math.max(minSemester, Math.floor(planBounds.max));
+        if (currentSemester < minSemester || currentSemester > maxSemester) {
+          throw new Error(`current_semester must be between ${minSemester} and ${maxSemester} for email ${email}`);
+        }
+      }
+    }
 
     let mentorId: string | null = null;
     if (hasMentorEmail) {
@@ -130,7 +204,7 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
 
     if (hasExistingStudent) {
       const updateColumns: string[] = [];
-      const updateArgs: unknown[] = [];
+      const updateArgs: Array<string | number | null> = [];
       if (shouldSetRegistrationNumber) {
         updateColumns.push("registration_number = ?");
         updateArgs.push(resolvedRegistrationNumber);
@@ -139,33 +213,32 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
         updateColumns.push("plan_of_study_code = ?");
         updateArgs.push(planOfStudyCode);
       }
-      if (hasGender) {
-        updateColumns.push("gender = ?");
-        updateArgs.push(gender);
-      }
-      if (hasSection) {
-        updateColumns.push("section = ?");
-        updateArgs.push(section);
-      }
-      if (hasMobileNumber) {
-        updateColumns.push("mobile_number = ?");
-        updateArgs.push(mobileNumber);
-      }
       if (hasBatch) {
         updateColumns.push("batch = ?");
         updateArgs.push(batchValue);
-      }
-      if (hasProgrammeDuration) {
-        updateColumns.push("programme_duration = ?");
-        updateArgs.push(duration);
       }
       if (hasProgramme) {
         updateColumns.push("programme = ?");
         updateArgs.push(program);
       }
+      if (hasGraduated) {
+        updateColumns.push("graduated = ?");
+        updateArgs.push(graduated);
+      }
       if (hasMentorEmail) {
         updateColumns.push("mentor_id = ?");
         updateArgs.push(mentorId);
+      }
+      if (hasCurrentSemester && hasCurrentSemesterInput) {
+        updateColumns.push("current_semester = ?");
+        updateArgs.push(currentSemester);
+      }
+      if (hasModifiedBy && modifiedByUserId) {
+        updateColumns.push("modified_by = ?");
+        updateArgs.push(modifiedByUserId);
+      }
+      if (hasModifiedAt) {
+        updateColumns.push("modified_at = current_timestamp");
       }
       if (updateColumns.length > 0) {
         await db.execute({
@@ -175,38 +248,35 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
           args: [...updateArgs, userId]
         });
       }
+      succeeded += 1;
       continue;
     }
 
     const insertColumns = ["user_id", "registration_number", "batch"];
-    const insertArgs: unknown[] = [userId, resolvedRegistrationNumber, batchValue];
+    const insertArgs: Array<string | number | null> = [userId, resolvedRegistrationNumber, batchValue];
     if (hasPlanOfStudyCode) {
       insertColumns.push("plan_of_study_code");
       insertArgs.push(planOfStudyCode);
-    }
-    if (hasGender) {
-      insertColumns.push("gender");
-      insertArgs.push(gender);
-    }
-    if (hasSection) {
-      insertColumns.push("section");
-      insertArgs.push(section);
-    }
-    if (hasMobileNumber) {
-      insertColumns.push("mobile_number");
-      insertArgs.push(mobileNumber);
-    }
-    if (hasProgrammeDuration) {
-      insertColumns.push("programme_duration");
-      insertArgs.push(duration);
     }
     if (hasProgramme) {
       insertColumns.push("programme");
       insertArgs.push(program);
     }
+    if (hasGraduated) {
+      insertColumns.push("graduated");
+      insertArgs.push(graduated);
+    }
     if (hasMentorEmail) {
       insertColumns.push("mentor_id");
       insertArgs.push(mentorId);
+    }
+    if (hasCurrentSemester) {
+      insertColumns.push("current_semester");
+      insertArgs.push(hasCurrentSemesterInput ? currentSemester : 1);
+    }
+    if (hasModifiedBy) {
+      insertColumns.push("modified_by");
+      insertArgs.push(modifiedByUserId || null);
     }
     const placeholders = insertColumns.map(() => "?").join(", ");
     await db.execute({
@@ -214,5 +284,18 @@ export async function importStudents(env: Env, rows: CsvImportRow[]) {
             values(${placeholders})`,
       args: insertArgs
     });
+    succeeded += 1;
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : "Unknown row import error";
+      const rowLabel = rowEmail || normalizeText(row.email) || `row-${i + 2}`;
+      errors.push(`Row ${i + 2} (${rowLabel}): ${message}`);
+    }
   }
+  return {
+    succeeded,
+    failed,
+    errors,
+    total: rows.length,
+  };
 }

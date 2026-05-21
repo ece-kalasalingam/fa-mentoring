@@ -2670,3 +2670,844 @@ px tsc --noEmit.
   - This places save action first, followed by `Export CSV` and `Export PDF`, matching requested MRT toolbar behavior.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-19 10:13 IST | codex | change
+- Summary: Implemented v1 credit completion tracking with published snapshot imports, computed status APIs, claims workflow, and new Credits Tracking UI section.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/credits/credits.service.ts, api/src/app/worker.ts, api/src/modules/auth/policy.ts, frontend/src/app/types.ts, frontend/src/app/constants.ts, frontend/src/app/CreditTrackingTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added migration `0026_credit_tracking_foundation` creating `credit_import_batches`, `student_credit_snapshots`, and `student_credit_claims` with indexes and publish/claim audit fields.
+  - Added new backend module `credits.service.ts` implementing:
+    - staged snapshot import (`xlsx`/`csv` source modes) with template versioning and validation summary,
+    - publish latest official batch flow,
+    - role-scoped computed credit list/detail using published snapshot + approved claim overrides,
+    - student/faculty claim creation and review workflow,
+    - CSV export endpoint data generation.
+  - Added worker routes:
+    - `POST /api/credits/import`
+    - `POST /api/credits/import/:batchId/publish`
+    - `GET /api/credits/students`
+    - `GET /api/credits/students/:studentId`
+    - `POST /api/credits/claims`
+    - `POST /api/credits/claims/:id/review`
+    - `GET /api/credits/export`
+  - Added dynamic route policy matching in worker and explicit auth-policy entries for all new credit endpoints.
+  - Added frontend credit tracker types, TTL cache key, and new MRT-based `CreditTrackingTable` with required built-in filters/search, row select/row numbers, export CSV/PDF, and `All` page-size option.
+  - Added new `Credits Tracking` navigation item in `navSections` and role-gated page view with refresh, load-more, CSV import for head/admin/moderator, batch publish control, and student/faculty claim submission form.
+  - Verification passed: `npm --prefix api run test -- --run` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:18 IST | codex | change
+- Summary: Optimized credit-tracking DB access patterns for Turso free-tier by reducing import and read amplification.
+- Files: api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Replaced per-row student lookup during credit import with batched registration-number prefetch (`IN (...)` chunking), eliminating one DB read per input row.
+  - Deduplicated import rows by registration number before writes, so repeated rows no longer trigger duplicate write operations in the same batch.
+  - Replaced per-row snapshot upserts with chunked multi-row `INSERT ... VALUES (...), (...) ON CONFLICT ...` writes, significantly reducing DB round trips.
+  - Added short TTL cache for currently published credit batch id to avoid repeated identical reads on high-frequency tracker/detail requests.
+  - Kept deterministic correctness behavior intact (same validation/flagging semantics and published-batch output).
+  - Verification passed: `npm --prefix api run test -- --run` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:36 IST | codex | change
+- Summary: Added compact TTL cache for student claim-history detail reads with targeted invalidation on claim mutations.
+- Files: api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Added a lightweight in-memory claim-history cache keyed by `user_id` with a short TTL (`10s`) to reduce repeated reads during rapid detail refreshes.
+  - Updated `getCreditStudentDetail` to serve claim-history rows from cache when fresh, falling back to DB only on cache miss/expiry.
+  - Added deterministic invalidation on write paths:
+    - `createCreditClaim` invalidates the target student claim-history cache key.
+    - `reviewCreditClaim` invalidates the reviewed student claim-history cache key.
+  - Keeps authorization behavior unchanged because access scope is still validated before claim-history retrieval.
+  - Verification passed: `npm --prefix api run test -- --run` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:43 IST | codex | change
+- Summary: Updated faculty-facing Credits Tracking table to show mentored student details in the requested column order and tracking labels.
+- Files: frontend/src/app/CreditTrackingTable.tsx, CHANGELOG.md
+- Details:
+  - Reordered and simplified credit tracking columns to:
+    1) `Full Name`
+    2) `Registration Number`
+    3) `Plan Of Code`
+    4) `Required Credits`
+    5) `Earned Credits`
+    6) `Remaining Credits`
+    7) `Status`
+  - Removed extra display columns (`Email`, `Category Summary`) so faculty view focuses on mentoring essentials.
+  - Mapped status display labels to tracking-friendly values:
+    - `completed` -> `Completed`
+    - `pending` -> `On Track`
+    - `at-risk` -> `Lagging`
+  - Updated export output (CSV/PDF headers and status labels) to match the same column structure and labels.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:41 IST | codex | change
+- Summary: Updated credits-tracking backend list query so faculty always see full names of mentored students even when no credit snapshot details exist.
+- Files: api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Changed computed credits base query from snapshot-driven (`student_credit_snapshots` as source) to student-driven (`students` as source with left join snapshot for current published batch).
+  - This ensures all scoped students (including faculty-mentored students) are listed with core profile fields even if credits import has not populated snapshot rows yet.
+  - Kept role scoping intact (`mentor`, `self`, `all`) and preserved cursor pagination.
+  - Snapshot fields now resolve as nullable overlays; required credits still derive from plan/regulation and earned defaults to `0` when snapshot is absent.
+  - Verification passed: `npm --prefix api run test -- --run` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:49 IST | codex | change
+- Summary: Displayed Plan of Study name (instead of numeric code) in Credits Tracking table.
+- Files: frontend/src/app/CreditTrackingTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `planNameByCode` mapping in app state from loaded plans-of-study options.
+  - Updated Credits Tracking nav open flow to ensure plans-of-study are loaded before credit rows render.
+  - Updated Credits Tracking table `Plan Of Code` column to render plan name using the mapping, with numeric code fallback if name is unavailable.
+  - Updated Credits Tracking CSV/PDF exports to output plan name values as well.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:51 IST | codex | change
+- Summary: Updated faculty claim-entry workflow to use registration/email lookup, category dropdown, semester input, and hidden evidence source.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/credits/credits.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added migration `0027_credit_claims_add_semester` to store semester-level claim context (`claim_semester`) in `student_credit_claims`.
+  - Extended claim API input handling to accept `studentLookup` (registration number or email) and map it server-side to `user_id` before authorization/update checks.
+  - Updated claim insert flow to persist `claim_semester` and included `claim_semester` in claim-history detail reads.
+  - Updated worker route payload mapping for `POST /api/credits/claims` to pass `studentLookup` and `claimSemester`.
+  - Replaced faculty student target textbox from `Student User ID` to `Registration Number or Email`.
+  - Replaced free-text category field with a select dropdown using `code - name` options derived from loaded regulation categories.
+  - Added numeric `Semester` input for credits claim entries.
+  - Removed evidence textbox from UI and now sends hidden value `Faculty Manual Entry` in claim payload.
+  - Verification passed: `npm --prefix api run test -- --run` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 10:54 IST | codex | change
+- Summary: Enforced active-student-only credit updates for mentoring/self claim submissions.
+- Files: api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Tightened `createCreditClaim` authorization guard so faculty can submit claims only when the target student is both:
+    - mentored by that faculty (`mentor_id` match), and
+    - active in `user_accounts` (`active = 1`).
+  - Added active-account check for student self-claim submissions; inactive student accounts are blocked.
+  - Updated error messages to clearly state active mentoring constraint.
+  - Verification passed: `npm --prefix api run test -- --run`.
+- Revert: none
+## 2026-05-19 10:59 IST | codex | change
+- Summary: Added session-scoped cache for faculty active mentored student minimal list and reused it across Students Directory and Credits Tracking pages.
+- Files: frontend/src/app/constants.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added new session cache key `SESSION_FACULTY_MENTORED_MINIMAL_KEY`.
+  - Added minimal type model (`userId`, `email`, `registrationNumber`, `fullName`) for active mentored students.
+  - Extended faculty students loader to derive/store active mentored minimal list into session-scoped cache and component state.
+  - Added session-cache hydration path so faculty pages can bootstrap the list without immediate API dependency.
+  - Wired cache usage into faculty Students Directory behavior:
+    - mentoring count fallback uses cached minimal list when full rows are not yet loaded,
+    - mentoring rows can fallback to cached minimal student identities.
+  - Wired cache usage into faculty Credits claim workflow:
+    - registration/email input is validated and resolved against cached active mentored list,
+    - resolved `userId` is submitted for claim update.
+  - This reduces repeated read pressure on Turso for faculty navigation across student-related pages while keeping backend authorization authoritative.
+  - Verification passed: `npm --prefix api run test -- --run` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:05 IST | codex | change
+- Summary: Filtered faculty claim category dropdown to plan-applicable options using only local session/state values (no DB/API at selection time).
+- Files: frontend/src/app/types.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Extended cached faculty mentored minimal model with `planOfStudyCode` and persisted/hydrated it from session-scoped cache.
+  - Added lookup resolver for selected mentoring student from local cached values (`registrationNumber`/`email`/`userId` match).
+  - Added plan-specific category filtering in claim form:
+    - derive student plan from cached minimal row,
+    - derive regulation from already-loaded `plansOfStudy` + `regulations` state,
+    - show only categories applicable to that regulation.
+  - Updated claim category select to use filtered options for faculty and disabled it when no valid student context is resolved.
+  - Added helper hint when no applicable categories are available and auto-clears invalid selected category when student context changes.
+  - Implemented entirely on frontend session/local state path for the selection workflow (no DB/API calls triggered by category selection changes).
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:09 IST | codex | change
+- Summary: Fixed faculty category select staying empty after valid registration/email lookup when plan mapping is unavailable.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated plan-specific category filter fallback behavior for faculty claim form:
+    - if selected student is valid but `planOfStudyCode` is missing, unknown, or regulation mapping is unavailable, category options now fall back to full available category list.
+  - Keeps strict empty-state only for invalid/unresolved student lookup.
+  - This restores category selection usability after pasting valid register number/email while preserving plan-specific filtering when mapping exists.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:14 IST | codex | change
+- Summary: Fixed faculty category selector remaining disabled after valid registration input when faculty students were loaded from cache.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Identified mismatch between cached faculty-student load path and category-enabling logic: cached path populated `facultyStudentRows` but did not refresh session-backed minimal mentored list used for registration/email lookup.
+  - Added shared helper `toFacultyMentoredMinimalRows(...)` and reused it in both:
+    - cached faculty load path, and
+    - live API faculty load path.
+  - Now cached page opens correctly hydrate `facultyMentoredMinimalRows`, enabling category dropdown for valid mentored registration/email entries.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:20 IST | codex | change
+- Summary: Added robust faculty lookup fallback for category enabling to prevent disabled state/blank-screen behavior after Credits load.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Enhanced mentoring-student lookup normalization (trims and removes whitespace) for registration/email/user-id comparison.
+  - Added fallback lookup source from already-loaded `creditTrackingRows` when session-cached minimal mentoring list is not yet available.
+  - Added auto-hydration of faculty minimal mentoring cache from credit rows on credits page when the minimal cache is empty.
+  - This ensures category select can enable immediately for valid pasted registration numbers visible in loaded credit rows.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:25 IST | codex | change
+- Summary: Fixed React maximum-update-depth loop on Credits Tracking page by removing stateful fallback hydration effect.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed credits-page fallback effect that wrote `facultyMentoredMinimalRows` from `creditTrackingRows` on render path.
+  - That effect could trigger repeated state updates under React 19/MRT layout cycles, causing `Maximum update depth exceeded` and white-screen failures.
+  - Kept lookup fallback functional by resolving registration/email directly from `creditTrackingRows` in memoized selection logic (no extra state writes).
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:29 IST | codex | change
+- Summary: Fixed MUI Tooltip warning for disabled refresh action in faculty dashboard card.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Wrapped disabled `IconButton` child inside `<span>` for `Tooltip title="Refresh counts"` to satisfy MUI tooltip event requirements on disabled controls.
+  - Removes repeated console warning: "You are providing a disabled `button` child to the Tooltip component."
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 11:33 IST | codex | change
+- Summary: Stabilized Credits Tracking MRT pagination/export props to prevent render-loop reinitialization causing white-screen after loading.
+- Files: frontend/src/app/CreditTrackingTable.tsx, CHANGELOG.md
+- Details:
+  - Memoized CSV export config (`mkConfig`) so toolbar receives stable config reference.
+  - Memoized MRT `rowsPerPageOptions`, including `All` option value, so pagination props are not reconstructed on every render.
+  - This reduces table-internal layout/state churn that can trigger maximum-update-depth failures in React 19 + MRT mount cycles.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 11:24 IST | codex | fix
+- Summary: Stabilized credits tracking table rendering to prevent MRT re-render loops and renamed plan column label.
+- Files: frontend/src/app/CreditTrackingTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Refactored Credits Tracking table to render MaterialReactTable directly with stable pagination options callback and preserved MRT baseline controls.
+  - Updated the faculty credits table plan column title from Plan Of Code to Pgm. Plan.
+  - Added a one-shot hydration guard for faculty mentored-minimal session data on the credits page to avoid repeated state churn while view is active.
+- Revert: none
+
+
+## 2026-05-19 11:33 IST | codex | fix
+- Summary: Fixed faculty credit-claim authorization mismatch for valid active mentored students by aligning scope check with email-based mentor resolution.
+- Files: api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Updated faculty claim authorization to validate target students against active mentor account IDs that share the acting faculty email, matching existing faculty student-list scope behavior.
+  - Prevents false rejections when mentor assignment/account-linking uses a different but active user ID for the same faculty email.
+  - Kept active-student enforcement unchanged with explicit coalesce(student_ua.active, 0) = 1.
+- Revert: none
+
+
+## 2026-05-19 11:35 IST | codex | fix
+- Summary: Fixed faculty claim 400s caused by stale user-id mapping by prioritizing registration/email lookup resolution on the backend.
+- Files: api/src/modules/credits/credits.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated claim target resolution to always resolve studentLookup first when provided, even if a userId is also sent, preventing ID-drift mismatches.
+  - Updated faculty claim payload to include both userId and typed studentLookup so backend can reliably map to the current student account.
+  - Preserved active-mentee authorization checks after lookup resolution.
+- Revert: none
+
+
+## 2026-05-19 11:37 IST | codex | fix
+- Summary: Added claim_semester schema mitigation and backward-compatible claim insert/read paths for older databases.
+- Files: api/src/modules/setup/wizard.service.ts, api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Extended recent mitigations to add student_credit_claims.claim_semester when missing on existing deployments.
+  - Added a cached schema check in credits service and made claim insert/read logic compatible with both pre- and post-claim_semester table shapes.
+  - Prevents faculty/student claim submission failures on environments where migration 0027 was not yet applied.
+- Revert: none
+
+
+## 2026-05-19 11:44 IST | codex | change
+- Summary: Removed reviewer-id/review-notes fields from credit-claims schema and added mitigation-driven table rebuild for existing databases.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Updated baseline and forward migration schema to drop student_credit_claims.reviewed_by_user_id and student_credit_claims.review_notes.
+  - Added migration 0028 to rebuild student_credit_claims without the removed columns while preserving existing data and indexes.
+  - Added runRecentMitigations table-shape repair for current databases that still contain the removed columns.
+  - Updated claims read/review queries to stop selecting/updating removed fields.
+- Revert: none
+
+
+## 2026-05-19 11:55 IST | codex | change
+- Summary: Removed reviewed_at from credit-claims schema and review flow, with migration and mitigation support for existing databases.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, api/src/modules/credits/credits.service.ts, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Removed reviewed_at from student_credit_claims schema definitions and claim detail query payload.
+  - Added migration 0029 to rebuild student_credit_claims without reviewed_at while preserving existing claim records.
+  - Extended runRecentMitigations table-repair logic to rebuild legacy claim tables that still contain reviewed_at/reviewer columns.
+  - Simplified claim review update path to update only status, and removed reviewNotes plumbing from worker request handling.
+- Revert: none
+
+
+## 2026-05-19 19:01 IST | codex | change
+- Summary: Removed credit-tracking backend and dropped snapshot/import batch tables with a forward schema migration.
+- Files: api/src/app/worker.ts, api/src/modules/auth/policy.ts, api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, api/src/modules/credits/credits.service.ts, CHANGELOG.md
+- Details:
+  - Removed all `/api/credits/*` route handling and credits module import from the API worker.
+  - Removed credits-related access policies from route authorization.
+  - Removed credit-tracking creation/shape migrations and added `0026_drop_credit_tracking_tables` to drop `student_credit_snapshots`, `credit_import_batches`, and `student_credit_claims`.
+  - Removed credit-claims mitigation logic from setup wizard service.
+  - Deleted `api/src/modules/credits/credits.service.ts`.
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-19 19:07 IST | codex | change
+- Summary: Removed frontend credits-tracking feature and added existing-db mitigation to drop retired credit tables.
+- Files: frontend/src/app/App.tsx, frontend/src/app/types.ts, frontend/src/app/constants.ts, frontend/src/app/CreditTrackingTable.tsx, api/src/modules/setup/wizard.service.ts, CHANGELOG.md
+- Details:
+  - Removed all credits-tracking UI wiring from App: nav/view references, claim/import actions, credits API usage, and related state/effects.
+  - Removed obsolete frontend types and cache-key constants tied to credits tracking.
+  - Deleted `CreditTrackingTable.tsx` because the credits page is removed.
+  - Added runtime mitigation in `runRecentMitigations` to drop `student_credit_snapshots`, `credit_import_batches`, and `student_credit_claims` on existing databases.
+  - Verification passed: `npm --prefix api run test` and `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:19 IST | codex | revert
+- Summary: Reverted recent students-table extension fields (`gender`, `section`, `mobile_number`) across schema, API, import path, and frontend directory UI.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/students/students-directory.service.ts, api/src/modules/students/students.service.ts, api/src/modules/imports/imports.service.ts, api/src/app/worker.ts, frontend/src/app/types.ts, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed migration block that introduced `students.gender`, `students.section`, and `students.mobile_number`.
+  - Reverted student-directory service read/write shape and validations to exclude those fields.
+  - Reverted student list query shape to exclude those fields.
+  - Reverted CSV import update/insert handling for those fields.
+  - Reverted API request mapping for students-directory update endpoints to exclude those fields.
+  - Reverted frontend student-directory data model, table columns/editors, exports, and guidance text to exclude those fields.
+  - Kept unrelated credits-removal and mitigation work intact.
+  - Verification passed: `npm --prefix api run test`; `npx tsc --noEmit` in `frontend/`.
+- Revert: Reverted the recent student schema/UI/API field additions for gender/section/mobile.
+
+## 2026-05-19 19:20 IST | codex | fix
+- Summary: Fixed React unknown-prop warning by removing invalid 	extAlign DOM prop usage on login fallback container.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced <Box textAlign="center"> with <Box sx={{ textAlign: "center" }}> so alignment remains styled via MUI system props instead of being forwarded to a native div.
+  - Eliminates the dev warning: "React does not recognize the 	extAlign prop on a DOM element" from the login view render path.
+  - Verification passed: 
+px tsc --noEmit in rontend/.
+- Revert: none
+
+## 2026-05-19 19:24 IST | codex | fix
+- Summary: Restored missing Students Directory frontend handlers in App.tsx after revert cleanup to fix runtime ReferenceErrors.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Reintroduced `loadProgrammes`, `importStudentsFromCsvFile`, `openFacultyStudentsDirectory`, and `submitStudentsDirectoryRows` in `App.tsx`.
+  - Kept the students-field rollback intact by ensuring restored handlers use the reverted student schema (no `gender`/`section`/`mobile_number` payload fields).
+  - Fixes runtime errors: `importStudentsFromCsvFile is not defined` and `loadProgrammes is not defined`.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:29 IST | codex | change
+- Summary: Enabled faculty student-directory edits and CSV bulk updates for only active mentored students, while preserving moderator/admin full-edit access.
+- Files: api/src/modules/students/students-directory.service.ts, api/src/modules/imports/imports.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added server-side faculty scope validation for student updates by user id, restricted to active students currently mentored by the logged-in faculty account.
+  - Extended students-directory update and batch-update routes to allow faculty writes only within that restricted scope; moderator/admin/head behavior remains unchanged.
+  - Extended student CSV import route to allow faculty uploads with enforced active-mentored-student scope restrictions for each CSV row.
+  - Updated Students Directory UI so faculty can edit rows only in the mentoring (active) view, and can use CSV bulk update with explicit scope guidance.
+  - Updated post-save reload behavior so faculty edits refresh faculty-scoped datasets, while moderators/admins continue using full directory reloads.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`; `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-19 19:33 IST | codex | change
+- Summary: Hid Mentor Name from faculty in Students Directory so faculty cannot view or edit mentor assignment there.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added table-level `showMentorName` control and disabled Mentor Name column rendering when faculty-only view is active.
+  - Removed Mentor field visibility from faculty detail panel and excluded Mentor column from faculty CSV/PDF exports.
+  - Wired Students Directory page to pass `showMentorName=false` for faculty-only scope while preserving mentor visibility for moderator/admin/head.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:35 IST | codex | fix
+- Summary: Blocked faculty from changing mentor assignment through student bulk CSV updates.
+- Files: api/src/modules/imports/imports.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Enforced server-side guard in student CSV import: when request is faculty-scoped, any `mentor_email`/`mentorEmail` field now fails with `Faculty cannot update mentor assignment via CSV.`.
+  - Kept faculty row-scope restriction to active mentored students unchanged.
+  - Normalized mentor email extraction to accept both `mentorEmail` and `mentor_email` keys consistently.
+  - Updated faculty UI guidance text to clearly state mentor updates are not allowed in faculty CSV uploads.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`; `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-19 19:37 IST | codex | fix
+- Summary: Fixed faculty 401 on `/api/programmes` by aligning route access policy with implemented faculty permissions.
+- Files: api/src/modules/auth/policy.ts, CHANGELOG.md
+- Details:
+  - Updated access policy for `GET /api/programmes` to include `faculty` (and kept authenticated student/head/moderator/admin access).
+  - Aligned access-policy entries with existing worker logic for faculty-enabled student directory and student CSV import endpoints:
+    - `GET /api/students-directory`
+    - `POST /api/students-directory/update`
+    - `POST /api/students-directory/update-batch`
+    - `POST /api/import/students`
+  - Prevents policy-layer `401 Unauthorized` from blocking faculty before endpoint-level scope checks execute.
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-19 19:40 IST | codex | fix
+- Summary: Fixed faculty student batch-save 400 by preserving mentor assignment on faculty edits instead of validating/updating mentor name.
+- Files: api/src/modules/students/students-directory.service.ts, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Updated student-directory upsert API contract to support `mentorName: null` as a preserve-existing-mentor signal.
+  - Changed mentor resolution behavior:
+    - `mentorName === null` keeps existing `mentor_id` unchanged.
+    - `mentorName === ""` clears `mentor_id`.
+    - non-empty mentor name still validates against active faculty full name.
+  - Updated worker student update handlers so faculty-only principals send `mentorName: null` for both single-row and batch updates, preventing hidden/fallback mentor values from causing validation failures.
+  - Preserves moderator/admin/head behavior for mentor updates.
+  - Verification passed: `npm --prefix api run test`; `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:43 IST | codex | fix
+- Summary: Fixed repeated faculty batch-update 400 by deriving faculty scoped mentor email from principal identity consistently.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Replaced raw `principal.email` usage in faculty student-directory update scope checks with `resolveStudentScope(principal)` mentor-email derivation.
+  - Applied same scope-derived faculty email path for student CSV import restriction wiring.
+  - Added explicit `403` response when a faculty principal cannot resolve to mentor scope email, instead of failing later as `400` on scope validation.
+  - This keeps scope checks deterministic across local/session/OAuth subject formats while preserving existing admin/moderator/head behavior.
+  - Verification passed: `npm --prefix api run test`; `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:47 IST | codex | fix
+- Summary: Fixed inline student save payload sending empty `userId` by filtering invalid faculty rows and guarding batch submit.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `userId` validity filtering when building faculty Students Directory rows (both fallback mentored-minimal rows and normal faculty student rows).
+  - Added submit guard in `submitStudentsDirectoryRows` to ignore rows without `userId` and block save when all staged rows are invalid.
+  - Added user-facing status messages for invalid-row skips to make the issue diagnosable from UI.
+  - Prevents `/api/students-directory/update-batch` requests with `userId: ""` and avoids backend `userId is required.` failures.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:52 IST | codex | fix
+- Summary: Restored faculty mentoring rows in Students Directory MRT while safely preventing inline edits/submits for rows missing identity.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Removed over-strict faculty row filtering that hid mentoring rows when fallback/session data lacked `userId`.
+  - Preserved row visibility in MRT so faculty can still see mentoring student details.
+  - Added inline edit guard in `StudentsDirectoryTable` so cell editing does not open for rows with empty `userId`.
+  - Added stage-patch guard to block pending edit creation for rows without identity, preventing invalid batch payloads.
+  - Keeps save-path protection from earlier changes that ignore invalid `userId` updates.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 19:56 IST | codex | fix
+- Summary: Fixed Students Directory inline select editors so changing one row's dropdown does not mirror selection across other rows.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated `SelectEditField` to resync its local controlled value whenever `initialValue` changes.
+  - Prevents stale editor state reuse across virtualized/reused MRT edit cells that made programme/plan/mentor dropdowns appear selected in multiple rows.
+  - Keeps native inline edit behavior while isolating editor state per active row/cell.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:01 IST | codex | fix
+- Summary: Reworked Students Directory inline editing to follow native MRT cell-edit patterns and fixed cross-row edit leakage/non-editable textbox issues.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Replaced custom `Edit` select/text editor components with MRT-native column editing config (`editVariant`, `editSelectOptions`, `muiEditTextFieldProps`) for inline cell editing.
+  - Added a dedicated `stageFieldPatch` merge helper so each edited field updates only the targeted row patch consistently.
+  - Fixed unstable/duplicate row identity behavior by adding a safe `getRowId` fallback for rows missing `userId`, preventing TanStack row-id collisions that can propagate edits across rows.
+  - Removed duplicate `state` prop usage on `MaterialReactTable` and merged table state into a single object (`isLoading`, `showSkeletons`, `columnVisibility`) to avoid inconsistent rendering state.
+  - Preserved existing faculty restrictions (non-editable rows with missing identity and mentor visibility controls) while restoring correct inline edit behavior for text and select fields.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:07 IST | codex | fix
+- Summary: Added native MRT select support for `programme = 0` (`0 - Not Allotted`) to eliminate MUI out-of-range warnings.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added `0 - Not Allotted` option to Programme inline-edit dropdown options.
+  - Normalized Programme edit value binding so rows with `programme` null/0/unlisted values map to select value `"0"`, preventing MUI select out-of-range errors.
+  - Updated Programme display mapping across table cell, detail panel, and CSV/PDF export paths so `0` renders as `Not Allotted`.
+  - Keeps MRT native inline editing behavior while making zero-programme records valid editable states.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:10 IST | codex | fix
+- Summary: Added native MRT select support for `plan_of_study_code = 0` (`0 - Not Allotted`) to prevent select out-of-range issues.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added `0 - Not Allotted` option to Plan of Study inline-edit dropdown.
+  - Normalized Plan of Study edit value binding so null/0/unlisted values map to select value `"0"`.
+  - Updated Plan of Study display mapping in table cell, detail panel, and CSV/PDF export paths so `0` renders as `Not Allotted`.
+  - Keeps MRT native inline-edit behavior consistent with Programme dropdown handling.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:15 IST | codex | fix
+- Summary: Fixed Students Directory save wiring so faculty inline-edit failures are surfaced and successful-save UI only appears on true success.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated `submitStudentsDirectoryRows` to rethrow API/update errors after setting status, instead of swallowing them.
+  - Updated table Save button handler to `await` submit and show success/reset staged edits only on resolved success.
+  - On failure, staged edits are preserved for faculty/admin retry and the caller's status message remains visible.
+  - This removes false-positive success behavior that made faculty save appear unwired.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:21 IST | codex | fix
+- Summary: Fixed faculty inline-edit pending-count wiring by diffing against a stable table baseline snapshot.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added `baselineRows` state in Students Directory table to capture the current loaded dataset as the immutable diff source for staged edits.
+  - Updated staged-change comparison logic to use `baselineRows` instead of live `props.rows`, preventing pending edit count resets caused by parent render churn in faculty view.
+  - Kept existing staged-edit behavior and save flow intact; only diff/reference stability changed.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:30 IST | codex | fix
+- Summary: Fixed faculty inline-select edit commit/count issues by aligning MRT select option value types with numeric row data and adding blur-commit fallback.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Changed Plan of Study and Programme `editSelectOptions` values from string to number (including `0 - Not Allotted`) to match underlying numeric row values.
+  - Removed explicit string-forced select value binding that caused MUI select out-of-range behavior with numeric fields.
+  - Added select `onBlur` commit fallback for Plan of Study/Programme so staged edits are recorded even when change events are disrupted by focus transitions.
+  - Kept existing MRT native inline-edit configuration and faculty save flow.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:38 IST | codex | fix
+- Summary: Fixed faculty inline edit staging/count updates for Plan/Programme by moving select editors to explicit per-cell MRT `Edit` components.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Replaced Plan of Study and Programme `muiEditTextFieldProps` select handling with explicit `Edit` renderers using MUI `TextField select`.
+  - Editor value now reads from current `draftRows` row state, and `onChange` stages patches immediately per edited row.
+  - Preserved `0 - Not Allotted` option and numeric option values for both selects.
+  - This avoids hidden native-select input focus/event quirks in faculty flow and ensures `Save the edits (N)` increments reliably on value changes.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:44 IST | codex | change
+- Summary: Rewrote faculty Students Directory flow to reuse admin table behavior with strict faculty constraints (active mentored only, no Mentor/Programme display or edits).
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Removed faculty students-directory filter mode dependency and simplified faculty directory entry to a single active-mentored dataset.
+  - Faculty Students Directory now displays only `facultyStudentRows` where `studentActive = true`.
+  - Reused shared `StudentsDirectoryTable` path and added `showProgramme` control so faculty view hides Programme column entirely.
+  - Faculty view now hides both Programme and Mentor columns (non-displayed, non-inline-editable), while admin/moderator/head behavior remains unchanged.
+  - Updated CSV guidance and frontend CSV validation to reject faculty uploads containing `programme` or `mentor_email` columns.
+  - Enforced same rule server-side in imports service: faculty-scoped CSV updates cannot modify `programme` or `mentor_email`.
+  - Adjusted faculty header/caption copy to reflect active mentoring scope only.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`; `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-19 20:52 IST | codex | change
+- Summary: Removed faculty "Completed" card and navigation path from dashboard, leaving only active mentoring students entrypoint.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed `facultyCompletedCount` computation and corresponding dashboard card UI.
+  - Removed completed-view "View students" path so faculty students-directory navigation is now single-path via mentoring card.
+  - Removed now-unused `CheckCircleOutlineIcon` import.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`; `npm --prefix api run test`.
+- Revert: none
+
+## 2026-05-19 21:00 IST | codex | fix
+- Summary: Hardened Students Directory staged-edit tracking so faculty `Save the edits (N)` updates even when row identity is inconsistent.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Replaced pending patch map keying from `userId` to stable row key (`userId` fallback to email/registration/fullName) for edit staging.
+  - Removed early-return guard that skipped staging when `userId` was empty, enabling visible pending-count updates in faculty view.
+  - Save action now resolves stable row keys back to current/baseline rows and submits only resolved rows with available `userId`.
+  - This targets faculty-only symptom where inline edits were visible but pending counter/button state did not update.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 21:06 IST | codex | fix
+- Summary: Fixed faculty inline edit corruption where editing one row could overwrite multiple rows with same data.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated staged row patch targeting to use stable row-key matching (same strategy as pending map) instead of `userId`-only matching.
+  - This prevents bulk accidental updates when multiple faculty rows have empty `userId` and previously all matched the same update predicate.
+  - Updated both row-level and field-level staging lookups to resolve by stable key (`userId` fallback to email/registration/fullName).
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 21:12 IST | codex | change
+- Summary: Highlighted student Full Name in error color when row has no associated `userId`.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added custom `Cell` renderer for `Full Name` column.
+  - Applies warning/error styling (`error.main`, semibold) when `row.original.userId` is empty.
+  - Keeps normal styling for rows with valid `userId`.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-19 20:59 IST | codex | fix
+- Summary: Fixed faculty Students Directory missing `userId` on all rows by returning non-sanitized public identifier key from `/api/students`.
+- Files: api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Root cause: response sanitization removes `*_id` keys globally, which stripped `user_id` from `/api/students` payload rows.
+  - Updated student listing service to map DB rows into explicit response objects with `userId` (camelCase) instead of `user_id`.
+  - Updated pagination cursor derivation to use `rows[].userId`.
+  - Updated faculty client mapping to read `userId` first, with `user_id` fallback for backward compatibility.
+  - This restores valid row identity in faculty view and prevents full-table warning state/row-edit targeting failures.
+  - Verification passed: `npm --prefix api run test`; `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-19 20:44 IST | codex | change
+- Summary: Added student semester/audit schema fields and wired Students Directory inline+CSV updates with role-aware audit display.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, api/src/modules/students/students-directory.service.ts, api/src/modules/imports/imports.service.ts, api/src/app/worker.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added migration `0026_students_add_current_semester_and_audit_columns` to add `students.current_semester` (default 1), `students.modified_by` (FK to `user_accounts.id`, nullable), and `students.modified_at` (default `current_timestamp`) with backfill updates.
+  - Extended `runRecentMitigations` with existing-db guards that add/backfill the same columns when missing, so mitigation works for already-provisioned databases.
+  - Updated students directory read/write backend flow to include `currentSemester`, persist `modifiedByUserId`, auto-stamp `modified_at`, and resolve/display modifier full name.
+  - Updated CSV student import to accept optional `current_semester`, validate it as a positive integer, and stamp audit fields for updates/inserts when schema columns exist.
+  - Updated Students Directory UI to support inline editing for `Current Semester`, include CSV guidance/parsing for `current_semester`, and show readonly `Modified By` + `Modified At (IST)` columns for admin/moderator/head views only.
+- Revert: none
+## 2026-05-19 20:50 IST | codex | change
+- Summary: Tightened Students Directory numeric inline input bounds for batch and current semester.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Constrained inline `batch` numeric editor to `2010..2040` via input props and blur-time clamping.
+  - Constrained inline `currentSemester` numeric editor to `min=1` and dynamic `max=duration` (floored, with safe minimum 1), including blur-time clamping.
+  - Added a helper to compute effective row-level semester maximum from the current draft duration value.
+- Revert: none
+## 2026-05-19 20:54 IST | codex | change
+- Summary: Updated current-semester inline bounds to derive from each student's Plan of Study semester range.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `planSemesterBounds` derivation in `App.tsx` from loaded `plansOfStudy` (`min/max` semester per `planCode`).
+  - Passed plan semester bounds into `StudentsDirectoryTable` and used them for current-semester editor `min/max` when a student has a mapped `planOfStudyCode`.
+  - Kept safe fallback behavior to `min=1` and `max=floor(duration)` when plan mapping is unavailable.
+- Revert: none
+## 2026-05-19 21:00 IST | codex | fix
+- Summary: Made student audit-column migration self-healing on write to prevent runtime blocking errors.
+- Files: api/src/modules/students/students-directory.service.ts, CHANGELOG.md
+- Details:
+  - Added `ensureStudentsAuditColumns()` to lazily add `current_semester`, `modified_by`, and `modified_at` columns when missing.
+  - Added backfill updates for `current_semester` and `modified_at` after lazy column creation.
+  - Switched `upsertStudentDirectoryRow()` to call the self-healing schema helper before validation and write.
+- Revert: none
+## 2026-05-19 21:02 IST | codex | fix
+- Summary: Fixed SQLite `ALTER TABLE` failure by removing non-constant default from `modified_at` add-column mitigations.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, api/src/modules/students/students-directory.service.ts, CHANGELOG.md
+- Details:
+  - Replaced `alter table students add column modified_at text not null default current_timestamp` with `alter table students add column modified_at text` in migration and runtime mitigation paths.
+  - Preserved data correctness by keeping existing backfill and write-time `modified_at = current_timestamp` stamping logic.
+  - This resolves runtime error: `SQLITE_UNKNOWN: SQLite error: Cannot add a column with non-constant default`.
+- Revert: none
+## 2026-05-19 21:08 IST | codex | fix
+- Summary: Fixed stale current semester display by returning `current_semester` in faculty-scoped student reads.
+- Files: api/src/modules/students/students.service.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `s.current_semester` to `/api/students` query output (`listStudentsByScope`) and mapped it into response rows.
+  - Extended `FacultyStudentRow` type with `currentSemester`.
+  - Updated faculty Students Directory row mapping to use `student.currentSemester` instead of hardcoded `1`.
+- Revert: none
+## 2026-05-19 21:15 IST | codex | fix
+- Summary: Fixed faculty CSV post-import forbidden refresh and enforced CSV bounds for batch/current semester.
+- Files: frontend/src/app/App.tsx, api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Updated faculty-only CSV import refresh flow to reload `/api/students` data instead of calling admin/mod/head-only `/api/students-directory`, removing the false `Forbidden` status after successful updates.
+  - Tightened CSV batch validation to `2010..2040` (both parsed input and effective final batch value checks).
+  - Added CSV current-semester upper-bound validation against effective duration (`programme_duration` from CSV when provided, otherwise existing DB value), enforcing `1..floor(duration)` when duration is known.
+- Revert: none
+## 2026-05-19 21:19 IST | codex | change
+- Summary: Changed CSV `current_semester` validation to prefer plan-of-study semester ranges with duration fallback.
+- Files: api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Loaded plan-of-study catalog in import flow and built `planCode -> {min,max}` semester bounds map.
+  - For each row, resolved effective plan code from CSV `plan_of_study_code` when provided, otherwise existing student plan code.
+  - Validated `current_semester` against plan semester bounds first; only when plan bounds are unavailable does validation fall back to duration-based max.
+- Revert: none
+## 2026-05-19 22:06 IST | codex | change
+- Summary: Made student CSV import row-resilient and added end-of-import success/failure reporting with failed record details.
+- Files: api/src/modules/imports/imports.service.ts, api/src/app/worker.ts, frontend/src/shared/api/client.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Changed student CSV import backend to process rows independently: on row error, record failure and continue to next row.
+  - Added import summary response fields for student CSV uploads: `imported`, `failed`, `errors`, and `total`.
+  - Updated frontend student CSV flow to show final counts and open a dedicated result dialog listing failed row details when any failures occur.
+  - Kept post-import data refresh behavior role-aware (faculty uses scoped student reload).
+- Revert: none
+## 2026-05-19 22:07 IST | codex | fix
+- Summary: Prevented aria-hidden focus warning when opening CSV result dialogs by blurring active trigger element first.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `blurActiveElement()` helper in `App.tsx`.
+  - Called the helper right before opening both user CSV and student CSV result dialogs when failures are present.
+  - This avoids leaving focus on the triggering button while MUI dialog modal logic marks background content as `aria-hidden`.
+- Revert: none
+## 2026-05-19 22:38 IST | codex | change
+- Summary: Added mitigation migration to create `student_credit_details` with indexes and auto-`modified_at` update trigger.
+- Files: api/src/modules/setup/migrations.ts, CHANGELOG.md
+- Details:
+  - Added migration `0027_student_credit_details_table_and_trigger` to create `student_credit_details` with uniqueness on `(student_id, category_id, semester_taken)`.
+  - Included constraints for semester, credits, and status validation plus FKs to `students(user_id)` and `user_accounts(id)`.
+  - Added indexes `idx_credit_details_student` and `idx_credit_details_student_sem`.
+  - Added trigger `trg_student_credit_details_modified_at` to stamp `modified_at = current_timestamp` on updates when the value is unchanged.
+- Revert: none
+## 2026-05-19 23:05 IST | codex | change
+- Summary: Made student full names open a new Student Credits view with Plan of Study, On Study, and Analytics tabs.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated Students Directory `Full Name` cells to be clickable actions that open a per-student credits view.
+  - Added `StudentCreditsView` with three tabs: `Plan of Study`, `On Study`, and `Analytics` placeholder.
+  - Implemented semester-wise Plan of Study credits table showing category code/name, planned credits, and editable earned credits.
+  - Enforced earned-credit editability only up to each student's current semester, with lower-bound handling tied to the minimum semester defined by the assigned plan of study.
+  - Implemented On Study tab inputs for per-category registered credits using the selected student plan/regulation category set.
+  - Added app state wiring for student selection, view navigation, and in-memory per-student credit draft storage.
+- Revert: none
+## 2026-05-19 23:14 IST | codex | fix
+- Summary: Fixed App startup crash caused by reading `facultyStudentsDirectoryRows` before initialization.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Moved the `selectedStudentForCredits` synchronization `useEffect` to a position after `facultyStudentsDirectoryRows` is declared.
+  - Resolved runtime TDZ error: `Cannot access 'facultyStudentsDirectoryRows' before initialization`.
+  - Verified frontend type-check passes after the change.
+- Revert: none
+## 2026-05-20 16:21 IST | codex | change
+- Summary: Removed `programme_duration` end-to-end, added binary `graduated` (Yes/No), and added a mitigation migration to enforce the new students schema.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/imports/imports.service.ts, api/src/modules/students/students-directory.service.ts, api/src/modules/students/students.service.ts, api/src/app/worker.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added migration `0028_students_replace_programme_duration_with_graduated` to rebuild `students` with `graduated integer not null default 0 check(graduated in (0,1))` and no `programme_duration` column.
+  - Removed `programme_duration` handling from student import and update paths; added CSV/API support for `graduated` with strict Yes/No validation.
+  - Updated student list/directory services and API handlers to persist/return `graduated` and removed duration-derived semester logic.
+  - Updated frontend student types, Students Directory editing/export/detail views, and CSV import headers/payload mapping to use `graduated` instead of `duration`/`programme_duration`.
+- Revert: none
+## 2026-05-20 16:28 IST | codex | change
+- Summary: Restored update-student-details CSV column guidance in the Students Directory header after toolbar-button move.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added a header caption listing CSV columns for student detail updates: required `email`; optional `registration_number`, `plan_of_study_code`, `programme`, `current_semester`, `batch`, `graduated`, `mentor_email`.
+  - Added a faculty-only note clarifying CSV restrictions: `programme` and `mentor_email` are not allowed for faculty CSV updates.
+- Revert: none
+## 2026-05-20 17:09 IST | codex | fix
+- Summary: Prevented accidental student-credit data loss by making empty/zero-only credit upserts non-destructive.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Updated `upsertStudentCredits` to pre-filter positive-credit entries and return early when payload has no `credits > 0` rows.
+  - Kept existing delete-and-reinsert behavior only when at least one positive-credit entry is present.
+  - This blocks unintended wipes where a save/import submits empty or zero-only entries for a student.
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+## 2026-05-20 17:14 IST | codex | change
+- Summary: Reworked student-credits write flow to strict explicit modes with transactional safety and intentional clear-all semantics (no backward compatibility).
+- Files: api/src/modules/students/students.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Introduced mandatory `writeMode` contract for credits writes: `replace_all` or `patch`.
+  - Updated `POST /api/student-credits` and `POST /api/student-credits/import-batch` to reject requests missing/invalid `writeMode`.
+  - Added explicit `allowClearAll` gate for `replace_all`: empty/zero-only payloads now require `allowClearAll=true` to delete all rows.
+  - Implemented transactional credit writes in `upsertStudentCredits` using `BEGIN`/`COMMIT`/`ROLLBACK`.
+  - `replace_all` mode: delete existing student rows then insert positive-credit entries.
+  - `patch` mode: upsert positive-credit entries only, preserving other rows.
+  - Updated frontend callers to the new API contract:
+    - Student credits Save uses `writeMode: "replace_all"` with `allowClearAll: true`.
+    - Credits CSV import uses `writeMode: "replace_all"` with `allowClearAll: false`.
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+## 2026-05-20 17:20 IST | codex | fix
+- Summary: Fixed post-migration SQLite FK break (`no such table: main.students_old_v5`) by rebinding `student_credit_details` foreign key to current `students`.
+- Files: api/src/modules/setup/migrations.ts, CHANGELOG.md
+- Details:
+  - Added migration `0029_student_credit_details_rebind_students_fk`.
+  - Rebuilds `student_credit_details`, copies data, and re-creates indexes/`modified_at` trigger.
+  - Ensures `student_credit_details.student_id` FK references `students(user_id)` after students-table rebuild migrations.
+  - Resolves runtime errors where credit writes/checks referenced retired table name `students_old_v5`.
+- Revert: none
+## 2026-05-20 17:23 IST | codex | fix
+- Summary: Fixed student-credits write failure `cannot commit - no transaction is active` by making commit/rollback tolerant of libsql auto-managed transaction boundaries.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Added local `safeCommit()` and `safeRollback()` helpers in students credits service.
+  - Replaced direct `COMMIT`/`ROLLBACK` calls in `upsertStudentCredits` with safe wrappers that ignore no-active-transaction errors.
+  - Aligned credits service transaction handling with existing auth/setup patterns already used in this codebase.
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+## 2026-05-21 08:05 IST | codex | change
+- Summary: Added a faculty-facing Student Credit Table page with mentor-scoped credit rows and native selected/all CSV export.
+- Files: api/src/modules/students/students.service.ts, api/src/app/worker.ts, api/src/modules/auth/policy.ts, frontend/src/app/types.ts, frontend/src/app/FacultyCreditDetailsTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added backend query `listStudentCreditTableByScope` to return per-credit rows with `registration_number`, `category_id`, `semester_taken`, `credits`, `modified_by` username, and `modified_at`.
+  - Added new endpoint `GET /api/student-credit-table` and applied existing student scope resolution so faculty users only see rows for students in their mentoring scope.
+  - Added access policy for `GET /api/student-credit-table` for `faculty/head/moderator/admin` roles.
+  - Added frontend type `FacultyCreditTableRow` and new `FacultyCreditDetailsTable` using Material React Table with native global search/filters, row selection, row numbers, and CSV/PDF export toolbar behavior (selected rows if selected, otherwise all rows).
+  - Added a new Academics nav item (`Student Credit Table`) for faculty-only users and wired page rendering in `App.tsx`.
+  - Displayed modified time as IST in the table and export output.
+  - Verification: `frontend` type-check passed with `npx tsc --noEmit` after nav updates. Workspace-wide `npm run build` still fails due to pre-existing unrelated TypeScript issues in `frontend/src/app/App.tsx`, `ActiveUsersTable.tsx`, and `ExportToolbar.tsx`.
+- Revert: none
+## 2026-05-21 08:02 IST | codex | fix
+- Summary: Fixed faculty student-credit table query failure by removing reference to non-existent `user_accounts.username`.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Replaced `modifier.username` in `listStudentCreditTableByScope` with a schema-safe display label fallback: `full_name`, then `email`, then `subject`.
+  - Preserved API response shape (`modifiedByUsername`) so frontend remains unchanged.
+  - Verification passed: `npm --prefix api run test`.
+- Revert: none
+## 2026-05-21 08:12 IST | codex | change
+- Summary: Added `Graduated` (Yes/No) column to faculty student-credit table view and exports.
+- Files: api/src/modules/students/students.service.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, frontend/src/app/FacultyCreditDetailsTable.tsx, CHANGELOG.md
+- Details:
+  - Extended `GET /api/student-credit-table` row payload to include `students.graduated` normalized as `Yes`/`No`.
+  - Updated frontend row typing and API mapping for the new `graduated` field.
+  - Added a `Graduated` column to the Material React Table using checkbox filter pattern for binary values.
+  - Included `graduated` in CSV and PDF export outputs.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 14:35 IST | codex | change
+- Summary: Updated Faculty Dashboard My Students section to show separate Graduated and Not Graduated cards with click-through filtered Students view.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Replaced the faculty My Students metric cards with two status cards: `Graduated` and `Not Graduated`.
+  - Wired each card action to open Students Directory and apply the corresponding `Graduated` filter (`Yes` or `No`).
+  - Added support in `StudentsDirectoryTable` for an external initial graduated filter and applied it as a table column filter for the `graduated` checkbox column.
+  - Reset dashboard-triggered graduated filter when users open Students Directory from standard navigation to avoid stale deep-link filters.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 14:41 IST | codex | change
+- Summary: Reordered Faculty My Students cards to show continuing students first and replaced "Not Graduated" wording with alternate phrasing.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Moved the non-graduated metric card to the first position.
+  - Renamed first card label to `Continuing` and button text to `View continuing students`.
+  - Preserved filter routing behavior: first card opens Students with `Graduated = No`; second card opens with `Graduated = Yes`.
+- Revert: none
+## 2026-05-21 14:44 IST | codex | change
+- Summary: Replaced faculty non-graduated card wording from "Continuing" to "In Progress".
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated the first faculty My Students card label to `In Progress`.
+  - Updated the first card action text to `View in-progress students`.
+  - Kept existing filter behavior unchanged (`Graduated = No`).
+- Revert: none
+## 2026-05-21 14:52 IST | codex | fix
+- Summary: Restored Students page credit detail/status rendering by ensuring regulations are loaded in Students route data-loading paths.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated faculty dashboard card navigation path (`openFacultyStudentsDirectory`) to load regulations before plans/students.
+  - Updated Students route initialization effect to load regulations when missing and to treat plans+regulations as required context.
+  - This restores reliable `Cr. Target`, `Cr. Earned`, `Deficient`, and `Status` calculations/rendering in Students view.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 10:54 IST | codex | change
+- Summary: Added section-wise mentoring completion rollups on the Faculty Dashboard with separate In Progress and Graduated views.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added faculty dashboard rollup logic that aggregates mentoring students by graduation status and computes per-semester section totals.
+  - Each section now shows all-category credit completion (`earned/required`) and category-wise credit chips for quick audit visibility.
+  - Added a dedicated "Section-wise Completion Status" area under "My Students" with separate panels for `In Progress` and `Graduated` mentoring cohorts.
+  - Data is sourced from existing mentoring student scope and faculty credit-detail rows to keep role scoping intact.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 13:10 IST | codex | change
+- Summary: Added My Account menu entry to the bottom of the mobile hamburger drawer.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Kept mobile navigation hamburger-only and preserved existing role-based nav rendering.
+  - Updated the mobile drawer layout to a full-height column so footer actions can be pinned.
+  - Added a bottom `My Account` list action (mobile drawer only) that opens the Account profile view, closes the drawer, and refreshes active session context.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 13:12 IST | codex | refactor
+- Summary: Unified desktop and mobile user account actions to a single shared menu-item source.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Created one shared `userAccountMenuItems` definition for account actions (`My Account`, `Sign Out`) inside `App.tsx`.
+  - Updated the desktop top-right account dropdown to render items from the shared definition.
+  - Updated the mobile hamburger bottom account section to render from the same shared definition, removing duplicate per-view logic.
+  - Ensures future menu-item updates remain uniform across desktop and mobile from one source.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 13:13 IST | codex | change
+- Summary: Added user avatar placeholder and display name to the mobile hamburger account section.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Preserved the shared user account action menu source used by desktop and mobile.
+  - Added the same identity display pattern (avatar initials + full display name) to the mobile drawer account area.
+  - Positioned identity block directly above the shared account actions at the bottom of the hamburger drawer.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

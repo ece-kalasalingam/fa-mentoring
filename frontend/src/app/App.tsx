@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputAdornment, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -24,7 +24,6 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 import ComputerIcon from "@mui/icons-material/Computer";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SchoolIcon from "@mui/icons-material/School";
-import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutlined";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
@@ -46,19 +45,23 @@ import {
   SESSION_REGULATIONS_CACHE_KEY,
   SESSION_PLAN_OF_STUDY_CACHE_KEY,
   SESSION_PLAN_VALIDATION_CACHE_KEY,
-  SESSION_PROGRAMMES_CACHE_KEY
+  SESSION_PROGRAMMES_CACHE_KEY,
+  SESSION_FACULTY_MENTORED_MINIMAL_KEY
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
-import { getInitials, ROLE_COLORS } from "./utils";
+import { computeCreditStatus, getInitials, ROLE_COLORS } from "./utils";
 import { DateTimeProvider } from "./dateTimeContext";
 import type {
   ActiveUserRow,
   AdminCacheEntry,
   AdminCacheKey,
   AdminDashboard,
+  CreditStatus,
   FailedLoginRow,
+  FacultyCreditTableRow,
   FacultyStudentRow,
+  FacultyMentoredStudentMinimal,
   GoogleCredentialResponse,
   LogRow,
   LogTypeFilter,
@@ -78,6 +81,9 @@ const ManageUsersTable = lazy(() => import("./ManageUsersTable"));
 const ActiveUsersTable = lazy(() => import("./ActiveUsersTable"));
 const FailedLoginsTable = lazy(() => import("./FailedLoginsTable"));
 const StudentsDirectoryTable = lazy(() => import("./StudentsDirectoryTable"));
+const StudentCreditsView = lazy(() => import("./StudentCreditsView"));
+const FacultyCreditDetailsTable = lazy(() => import("./FacultyCreditDetailsTable"));
+const FacultyAnalyticsReport = lazy(() => import("./FacultyAnalyticsReport"));
 const LOCAL_DENSE_CACHE_PREFIX = "fa_dense_cache_v1";
 const STATIC_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
@@ -130,7 +136,7 @@ function App() {
   const [menuAnchors, setMenuAnchors] = useState<Record<string, HTMLElement | null>>({});
   const [accountView, setAccountView] = useState<"profile" | "password" | "sessions">("profile");
   const [mySessions, setMySessions] = useState<MySession[]>([]);
-  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "account" | "session-admin" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
+  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "student-credits" | "faculty-credit-table" | "account" | "session-admin" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [sessionTarget, setSessionTarget] = useState("");
@@ -156,8 +162,15 @@ function App() {
   const [loginActivityHasMore, setLoginActivityHasMore] = useState(false);
   const [userRows, setUserRows] = useState<UserRow[]>([]);
   const [studentDirectoryRows, setStudentDirectoryRows] = useState<StudentDirectoryRow[]>([]);
+  const [selectedStudentForCredits, setSelectedStudentForCredits] = useState<StudentDirectoryRow | null>(null);
+  const [studentEarnedCreditsByUser, setStudentEarnedCreditsByUser] = useState<Record<string, Record<number, Record<string, number>>>>({});
+  const [studentSavedCreditsByUser, setStudentSavedCreditsByUser] = useState<Record<string, Record<number, Record<string, number>>>>({});
+  const [studentCreditsSaving, setStudentCreditsSaving] = useState(false);
+  const [studentCreditTotals, setStudentCreditTotals] = useState<Record<string, number>>({});
+  const [creditTotalsLoaded, setCreditTotalsLoaded] = useState(false);
   const [facultyStudentRows, setFacultyStudentRows] = useState<FacultyStudentRow[]>([]);
-  const [facultyStudentsFilter, setFacultyStudentsFilter] = useState<"mentoring" | "completed">("mentoring");
+  const [facultyCreditTableRows, setFacultyCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
+  const [, setFacultyMentoredMinimalRows] = useState<FacultyMentoredStudentMinimal[]>([]);
   const [mentorNameOptions, setMentorNameOptions] = useState<string[]>([]);
   const [programmeOptions, setProgrammeOptions] = useState<Array<{ id: number; name: string }>>([]);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
@@ -167,6 +180,8 @@ function App() {
   const [planOfStudyTab, setPlanOfStudyTab] = useState(0);
   const [studentsDirectoryCursor, setStudentsDirectoryCursor] = useState<string | null>(null);
   const [studentsDirectoryHasMore, setStudentsDirectoryHasMore] = useState(false);
+  const [studentsDirectoryGraduatedFilter, setStudentsDirectoryGraduatedFilter] = useState<"Yes" | "No" | null>(null);
+  const [studentsDirectoryCreditStatusFilter, setStudentsDirectoryCreditStatusFilter] = useState<CreditStatus | null>(null);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [newUserFullName, setNewUserFullName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -176,10 +191,10 @@ function App() {
   const [addUserErrors, setAddUserErrors] = useState<{ fullName?: string; username?: string; password?: string }>({});
   const [bulkCsvFileName, setBulkCsvFileName] = useState("");
   const [bulkStatusCsvFileName, setBulkStatusCsvFileName] = useState("");
-  const [studentsCsvFileName, setStudentsCsvFileName] = useState("");
   const [userGlobalFilter, setUserGlobalFilter] = useState("");
   const [apiError, setApiError] = useState<{ message: string; retryFn: (() => Promise<void>) | null } | null>(null);
   const [csvImportResult, setCsvImportResult] = useState<{ created: number; failed: number; errors: string[] } | null>(null);
+  const [studentCsvImportResult, setStudentCsvImportResult] = useState<{ imported: number; failed: number; errors: string[] } | null>(null);
   const [prevSuperView, setPrevSuperView] = useState<typeof superView | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<UserRow | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
@@ -195,6 +210,18 @@ function App() {
   const inactivityLogoutInFlightRef = useRef(false);
   const adminReadCacheRef = useRef<Partial<Record<AdminCacheKey, AdminCacheEntry>>>({});
   const adminCacheSessionKeyRef = useRef<string | null>(null);
+
+  function toFacultyMentoredMinimalRows(rows: FacultyStudentRow[]): FacultyMentoredStudentMinimal[] {
+    return rows
+      .filter((row) => row.studentActive)
+      .map((row) => ({
+        userId: row.userId,
+        email: String(row.email ?? "").trim(),
+        registrationNumber: String(row.registrationNumber ?? "").trim(),
+        fullName: String(row.fullName ?? "").trim(),
+        planOfStudyCode: row.planOfStudyCode,
+      }));
+  }
 
   const isSuperAdmin = useMemo(() => Boolean(principal?.isSuperuser), [principal]);
   const isAdmin = useMemo(() => Boolean(principal?.roles.includes("admin")), [principal]);
@@ -244,7 +271,6 @@ function App() {
     return principal.roles.includes("admin") || principal.roles.includes("faculty") || principal.roles.includes("moderator");
   }, [principal, isSuperAdmin]);
   const canChangeOwnPassword = isEligibleRoleForPasswordTab && hasLocalPasswordAccount;
-
   useEffect(() => {
     if (!status || status === "Loading...") return;
     const timeoutId = window.setTimeout(() => {
@@ -476,6 +502,34 @@ function App() {
         .sort((a, b) => a.code - b.code),
     [plansOfStudy]
   );
+  const planSemesterBounds = useMemo<Record<number, { min: number; max: number }>>(
+    () =>
+      plansOfStudy.reduce<Record<number, { min: number; max: number }>>((acc, plan) => {
+        const semesters = Array.isArray(plan.semesters)
+          ? plan.semesters
+              .map((item) => Number(item.semester))
+              .filter((value) => Number.isFinite(value) && Number.isInteger(value))
+          : [];
+        if (semesters.length > 0) {
+          acc[plan.planCode] = {
+            min: Math.min(...semesters),
+            max: Math.max(...semesters),
+          };
+        }
+        return acc;
+      }, {}),
+    [plansOfStudy]
+  );
+  const selectedStudentPlan = useMemo(() => {
+    const code = Number(selectedStudentForCredits?.planOfStudyCode ?? 0);
+    if (!Number.isInteger(code) || code <= 0) return null;
+    return plansOfStudy.find((plan) => Number(plan.planCode) === code) ?? null;
+  }, [plansOfStudy, selectedStudentForCredits]);
+  const selectedStudentRegulation = useMemo(() => {
+    if (!selectedStudentPlan) return null;
+    return regulations.find((reg) => reg.code === selectedStudentPlan.regulationCode) ?? null;
+  }, [regulations, selectedStudentPlan]);
+
   const loginActivityChartOption = useMemo<EChartsOption>(() => {
     return {
       tooltip: { trigger: "axis" },
@@ -531,6 +585,30 @@ function App() {
     const raw = principal.fullName?.trim() || principal.email?.trim() || principal.subject.trim();
     return raw.startsWith("local-") ? raw.slice("local-".length) : raw;
   }, [principal]);
+  const userAccountMenuItems: Array<{ id: string; label: string; icon: JSX.Element; onClick: () => void }> = [
+    {
+      id: "account-profile",
+      label: "My Account",
+      icon: <PersonIcon fontSize="small" />,
+      onClick: () => {
+        navigateTo("account");
+        setAccountView("profile");
+        setProfileAnchorEl(null);
+        setMobileOpen(false);
+        void ensureActiveServerSession();
+      },
+    },
+    {
+      id: "account-signout",
+      label: "Sign Out",
+      icon: <LogoutIcon fontSize="small" />,
+      onClick: () => {
+        setProfileAnchorEl(null);
+        setMobileOpen(false);
+        void logout();
+      },
+    },
+  ];
   const activityLevelCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of activityLogRows) {
@@ -1126,6 +1204,9 @@ function App() {
       const cached = getCachedAdminPayload<FacultyStudentRow[]>(cacheKey, ADMIN_CACHE_TTL_MS.facultyStudents);
       if (cached) {
         setFacultyStudentRows(cached);
+        const minimalFromCached = toFacultyMentoredMinimalRows(cached);
+        setFacultyMentoredMinimalRows(minimalFromCached);
+        writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalFromCached);
         return;
       }
     }
@@ -1138,12 +1219,13 @@ function App() {
     const normalizedRows: FacultyStudentRow[] = rows.map((row) => {
       const data = row as Record<string, unknown>;
       return {
-        userId: String(data.user_id ?? ""),
+        userId: String(data.userId ?? data.user_id ?? ""),
         registrationNumber: data.registration_number == null ? null : String(data.registration_number),
         planOfStudyCode: data.plan_of_study_code == null ? null : Number(data.plan_of_study_code),
+        currentSemester: data.current_semester == null ? null : Number(data.current_semester),
         batch: data.batch == null ? null : Number(data.batch),
         programme: data.programme == null ? null : Number(data.programme),
-        duration: data.programme_duration == null ? null : Number(data.programme_duration),
+        graduated: String(data.graduated ?? "").trim().toLowerCase() === "yes" ? "Yes" : "No",
         fullName: data.full_name == null ? null : String(data.full_name),
         email: data.email == null ? null : String(data.email),
         studentActive: Number(data.student_active ?? 0) === 1,
@@ -1151,13 +1233,141 @@ function App() {
       };
     });
     setFacultyStudentRows(normalizedRows);
+    const minimalRows: FacultyMentoredStudentMinimal[] = toFacultyMentoredMinimalRows(normalizedRows);
+    setFacultyMentoredMinimalRows(minimalRows);
+    writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalRows);
     setCachedAdminPayload(cacheKey, normalizedRows);
   }
 
-  async function openFacultyStudentsDirectory(filter: "mentoring" | "completed") {
-    setFacultyStudentsFilter(filter);
+  async function loadFacultyCreditTable() {
+    const res = await callApi("/api/student-credit-table", "GET");
+    if (!res.ok) {
+      const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
+      setStatus(msg);
+      setApiError({ message: msg, retryFn: () => loadFacultyCreditTable() });
+      return;
+    }
+    const rows = Array.isArray(res.rows) ? res.rows : [];
+    const normalizedRows: FacultyCreditTableRow[] = rows.map((row) => {
+      const data = row as Record<string, unknown>;
+      return {
+        registrationNumber: data.registrationNumber == null ? null : String(data.registrationNumber),
+        graduated: String(data.graduated ?? "").trim().toLowerCase() === "yes" || Number(data.graduated ?? 0) === 1 ? "Yes" : "No",
+        categoryId: String(data.categoryId ?? ""),
+        semester: Number(data.semester ?? 0),
+        credits: Number(data.credits ?? 0),
+        modifiedByUsername: data.modifiedByUsername == null ? null : String(data.modifiedByUsername),
+        modifiedAt: data.modifiedAt == null ? null : String(data.modifiedAt),
+      };
+    });
+    setFacultyCreditTableRows(normalizedRows);
+  }
+
+  function blurActiveElement() {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement) {
+      active.blur();
+    }
+  }
+  function openStudentCredits(row: StudentDirectoryRow) {
+    setSelectedStudentForCredits(row);
+    navigateTo("student-credits");
+    if (row.userId && !(row.userId in studentSavedCreditsByUser)) {
+      void loadStudentCredits(row.userId);
+    }
+  }
+  async function loadStudentCreditSummaries(userIds: string[]) {
+    if (userIds.length === 0) return;
+    const result = await callApi("/api/student-credits/summaries", "POST", undefined, { studentIds: userIds });
+    if (result.ok && Array.isArray(result.summaries)) {
+      const totals: Record<string, number> = {};
+      for (const item of result.summaries as Array<{ studentId: string; totalCredits: number }>) {
+        totals[String(item.studentId)] = Number(item.totalCredits ?? 0);
+      }
+      setStudentCreditTotals(totals);
+      setCreditTotalsLoaded(true);
+    }
+  }
+
+  async function loadStudentCredits(userId: string) {
+    const result = await callApi(`/api/student-credits?studentId=${encodeURIComponent(userId)}`, "GET");
+    if (result.ok && result.creditDetails) {
+      const bySemester: Record<number, Record<string, number>> = {};
+      for (const { semesterTaken, categoryId, credits } of result.creditDetails) {
+        (bySemester[semesterTaken] ??= {})[categoryId] = credits;
+      }
+      setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
+      setStudentEarnedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
+    } else {
+      setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: {} }));
+    }
+  }
+  async function saveStudentCredits(userId: string) {
+    const draft = studentEarnedCreditsByUser[userId] ?? {};
+    const entries: Array<{ categoryId: string; semesterTaken: number; credits: number }> = [];
+    for (const [sem, bySem] of Object.entries(draft)) {
+      for (const [categoryId, credits] of Object.entries(bySem)) {
+        entries.push({ categoryId, semesterTaken: Number(sem), credits: Number(credits) });
+      }
+    }
+    setStudentCreditsSaving(true);
+    try {
+      const result = await callApi("/api/student-credits", "POST", undefined, {
+        studentId: userId,
+        writeMode: "replace_all",
+        allowClearAll: true,
+        entries,
+      });
+      if (result.ok) {
+        setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: draft }));
+      }
+    } finally {
+      setStudentCreditsSaving(false);
+    }
+  }
+  function setStudentEarnedCredit(userId: string, semester: number, categoryCode: string, value: number) {
+    setStudentEarnedCreditsByUser((prev) => ({
+      ...prev,
+      [userId]: {
+        ...(prev[userId] ?? {}),
+        [semester]: {
+          ...((prev[userId] ?? {})[semester] ?? {}),
+          [categoryCode]: value,
+        },
+      },
+    }));
+  }
+
+
+  async function loadFacultyMentoredMinimalFromSession() {
+    const cached = readSessionJson<FacultyMentoredStudentMinimal[]>(SESSION_FACULTY_MENTORED_MINIMAL_KEY);
+    if (Array.isArray(cached)) {
+      setFacultyMentoredMinimalRows(
+        cached
+          .map((item) => ({
+            userId: String(item.userId ?? "").trim(),
+            email: String(item.email ?? "").trim(),
+            registrationNumber: String(item.registrationNumber ?? "").trim(),
+            fullName: String(item.fullName ?? "").trim(),
+            planOfStudyCode:
+              item.planOfStudyCode == null
+                ? null
+                : Number(item.planOfStudyCode),
+          }))
+          .filter((item) => item.userId && item.fullName)
+      );
+    }
+  }
+
+  async function openFacultyStudentsDirectory(
+    graduatedFilter?: "Yes" | "No" | null,
+    creditStatusFilter?: CreditStatus | null,
+  ) {
+    setStudentsDirectoryGraduatedFilter(graduatedFilter ?? null);
+    setStudentsDirectoryCreditStatusFilter(creditStatusFilter ?? null);
     navigateTo("students-directory");
     await loadProgrammes();
+    await loadRegulations();
     await loadPlansOfStudy();
     await loadFacultyStudents();
   }
@@ -1191,21 +1401,27 @@ function App() {
 
   async function submitStudentsDirectoryRows(
     updates: Array<
-      Pick<StudentDirectoryRow, "userId" | "registrationNumber" | "planOfStudyCode" | "gender" | "section" | "mobileNumber" | "batch" | "programme" | "duration" | "mentorName">
+      Pick<StudentDirectoryRow, "userId" | "registrationNumber" | "planOfStudyCode" | "currentSemester" | "batch" | "programme" | "graduated" | "mentorName">
     >
   ) {
     if (updates.length === 0) return;
+    const validUpdates = updates.filter((update) => String(update.userId ?? "").trim().length > 0);
+    if (validUpdates.length === 0) {
+      setStatus("Unable to save: selected row is missing student identity. Refresh and try again.");
+      return;
+    }
+    if (validUpdates.length !== updates.length) {
+      setStatus("Skipped one or more invalid rows without student identity.");
+    }
     if (!(await ensureActiveServerSession())) return;
-    const payload = updates.map((update) => ({
+    const payload = validUpdates.map((update) => ({
       userId: update.userId,
       registrationNumber: String(update.registrationNumber ?? "").trim() || "Not Allotted",
       planOfStudyCode: typeof update.planOfStudyCode === "number" && Number.isInteger(update.planOfStudyCode) ? update.planOfStudyCode : null,
+      currentSemester: typeof update.currentSemester === "number" && Number.isInteger(update.currentSemester) && update.currentSemester > 0 ? update.currentSemester : 1,
       batch: typeof update.batch === "number" && Number.isFinite(update.batch) ? update.batch : 2010,
       programme: typeof update.programme === "number" && Number.isInteger(update.programme) ? update.programme : 0,
-      duration: typeof update.duration === "number" && Number.isFinite(update.duration) ? update.duration : 0,
-      gender: String(update.gender ?? "").trim(),
-      section: String(update.section ?? "").trim(),
-      mobileNumber: String(update.mobileNumber ?? "").trim(),
+      graduated: String(update.graduated ?? "No").trim().toLowerCase() === "yes" ? "Yes" : "No",
       mentorName: String(update.mentorName ?? "").trim(),
     }));
     try {
@@ -1215,10 +1431,16 @@ function App() {
         throw new Error(res.error ?? "Student batch update failed");
       }
       setStatus(`Students updated (${payload.length} row${payload.length === 1 ? "" : "s"}).`);
-      invalidateAdminCache(["students-directory:first", "dashboard"]);
-      await loadStudentsDirectory(undefined, { force: true });
+      invalidateAdminCache(["students-directory:first", "faculty-students:first", "dashboard"]);
+      if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
+        await loadFacultyStudents({ force: true });
+      } else {
+        await loadStudentsDirectory(undefined, { force: true });
+      }
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Inline student update failed");
+      const message = err instanceof Error ? err.message : "Inline student update failed";
+      setStatus(message);
+      throw new Error(message);
     } finally {
       setBusy(false);
     }
@@ -1229,7 +1451,6 @@ function App() {
     event.target.value = "";
     if (!file) return;
     if (!(await ensureActiveServerSession())) return;
-    setStudentsCsvFileName(file.name);
     const csvText = await file.text();
     const parsedRows = parseCsvRecords(csvText).filter((row) => row.some((cell) => String(cell ?? "").trim() !== ""));
     if (parsedRows.length < 2) {
@@ -1246,74 +1467,84 @@ function App() {
     const optionalHeaderGroups = [
       ["registration_number"],
       ["plan_of_study_code"],
-      ["gender"],
-      ["section"],
-      ["mobile_number"],
       ["programme"],
+      ["current_semester"],
       ["batch"],
-      ["programme_duration"],
+      ["graduated"],
       ["mentor_email", "mentorEmail"],
     ];
     const hasAtLeastOneOptionalHeader = optionalHeaderGroups.some((group) => group.some((key) => headerIndex.has(key)));
     if (!hasAtLeastOneOptionalHeader) {
       setStatus(
-        "CSV must include at least one optional student column header: registration_number, plan_of_study_code, gender, section, mobile_number, programme, batch, programme_duration, or mentor_email."
+        "CSV must include at least one optional student column header: registration_number, plan_of_study_code, programme, current_semester, batch, graduated, or mentor_email."
       );
       return;
     }
 
     const hasHeader = (key: string) => headerIndex.has(key);
-    const rows = parsedRows.slice(1).map((cells) => {
-      const get = (key: string) => String(cells[headerIndex.get(key) ?? -1] ?? "").trim();
-      const row: Record<string, string | number> = { email: get("email") };
-      if (hasHeader("registration_number")) {
-        row.registration_number = get("registration_number");
-      }
-      if (hasHeader("plan_of_study_code")) {
-        const raw = get("plan_of_study_code");
-        row.plan_of_study_code = raw ? Number(raw) : "";
-      }
-      if (hasHeader("gender")) {
-        row.gender = get("gender");
-      }
-      if (hasHeader("section")) {
-        row.section = get("section");
-      }
-      if (hasHeader("mobile_number")) {
-        row.mobile_number = get("mobile_number");
-      }
-      if (hasHeader("programme")) {
-        const raw = get("programme");
-        row.programme = raw ? Number(raw) : 0;
-      }
-      if (hasHeader("batch")) {
-        row.batch = get("batch");
-      }
-      if (hasHeader("programme_duration")) {
-        row.programme_duration = get("programme_duration");
-      }
-      if (hasHeader("mentor_email") || hasHeader("mentorEmail")) {
-        row.mentorEmail = get("mentor_email") || get("mentorEmail");
-      }
-      return row;
-    }).filter((row) => row.email);
+    const isFacultyOnly = hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole);
+    if (isFacultyOnly && (hasHeader("programme") || hasHeader("mentor_email") || hasHeader("mentorEmail"))) {
+      setStatus("Faculty CSV cannot include programme or mentor_email columns.");
+      return;
+    }
+    const readCell = (row: string[], key: string) => {
+      const idx = headerIndex.get(key);
+      return idx == null ? "" : String(row[idx] ?? "").trim();
+    };
 
-    if (rows.length === 0) {
+    const payloadRows = parsedRows.slice(1).map((row) => ({
+      email: readCell(row, "email").toLowerCase(),
+      registration_number: readCell(row, "registration_number"),
+      plan_of_study_code: readCell(row, "plan_of_study_code"),
+      programme: readCell(row, "programme"),
+      current_semester: readCell(row, "current_semester"),
+      batch: readCell(row, "batch"),
+      graduated: readCell(row, "graduated"),
+      mentor_email: readCell(row, "mentor_email") || readCell(row, "mentorEmail"),
+    })).filter((row) => row.email.length > 0);
+
+    if (payloadRows.length === 0) {
       setStatus("No valid student rows found in CSV.");
       return;
     }
 
+    const normalizedRows = payloadRows.map((row) => {
+      const next: Record<string, string> = { email: row.email };
+      if (hasHeader("registration_number")) next.registration_number = row.registration_number;
+      if (hasHeader("plan_of_study_code")) next.plan_of_study_code = row.plan_of_study_code;
+      if (hasHeader("programme")) next.programme = row.programme;
+      if (hasHeader("current_semester")) next.current_semester = row.current_semester;
+      if (hasHeader("batch")) next.batch = row.batch;
+      if (hasHeader("graduated")) next.graduated = row.graduated;
+      if (hasHeader("mentor_email") || hasHeader("mentorEmail")) next.mentor_email = row.mentor_email;
+      return next;
+    });
+
     setBusy(true);
     setStatus("Importing students from CSV...");
     try {
-      const res = await callApi("/api/import/students", "POST", undefined, { rows });
+      const res = await callApi("/api/import/students", "POST", undefined, { rows: normalizedRows });
       if (!res.ok) {
-        setStatus(`Student CSV import failed: ${res.error ?? "Unknown error"}`);
+        setStatus(`Student import failed: ${res.error ?? "Unknown error"}`);
         return;
       }
-      setStatus(`Student CSV import complete. Updated: ${rows.length}.`);
-      invalidateAdminCache(["students-directory:first", "dashboard"]);
-      await loadStudentsDirectory(undefined, { force: true });
+      const imported = Number(res.imported ?? 0);
+      const failed = Number(res.failed ?? 0);
+      const errors = Array.isArray(res.errors) ? res.errors.map((item) => String(item)) : [];
+      setStatus(`Student import complete. Imported: ${imported}, Failed: ${failed}.`);
+      if (failed > 0) {
+        blurActiveElement();
+        setStudentCsvImportResult({ imported, failed, errors });
+      }
+      invalidateAdminCache(["students-directory:first", "faculty-students:first", "dashboard"]);
+      if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
+        await loadFacultyStudents({ force: true });
+      } else {
+        await loadStudentsDirectory(undefined, { force: true });
+        if (hasFacultyRole) {
+          await loadFacultyStudents({ force: true });
+        }
+      }
     } finally {
       setBusy(false);
     }
@@ -1447,6 +1678,7 @@ function App() {
       }
       setStatus(`CSV import complete. Created: ${createdCount}, Failed: ${failedCount}.`);
       if (errors.length > 0) {
+        blurActiveElement();
         setCsvImportResult({ created: createdCount, failed: failedCount, errors });
       }
     } finally {
@@ -1834,6 +2066,7 @@ function App() {
       return;
     }
     void loadFacultyStudents();
+    void loadFacultyCreditTable();
   }, [principal, superView, hasFacultyRole]);
 
   useEffect(() => {
@@ -1849,53 +2082,109 @@ function App() {
       return;
     }
     if (programmeOptions.length > 0) {
-      if (plansOfStudy.length > 0) {
+      if (plansOfStudy.length > 0 && regulations.length > 0) {
         return;
+      }
+      if (regulations.length === 0) {
+        void loadRegulations();
       }
       void loadPlansOfStudy();
       return;
     }
     void (async () => {
       await loadProgrammes();
+      await loadRegulations();
       await loadPlansOfStudy();
     })();
-  }, [principal, superView, programmeOptions.length, plansOfStudy.length]);
+  }, [principal, superView, programmeOptions.length, plansOfStudy.length, regulations.length]);
 
   useEffect(() => {
     if (!principal || superView !== "students-directory" || !hasFacultyRole) {
       return;
     }
+    void loadFacultyMentoredMinimalFromSession();
     void loadFacultyStudents();
   }, [principal, superView, hasFacultyRole]);
 
-  const facultyMentoringCount = useMemo(
-    () => facultyStudentRows.filter((student) => student.studentActive).length,
+  const facultyGraduatedCount = useMemo(
+    () => facultyStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
     [facultyStudentRows]
   );
-  const facultyCompletedCount = useMemo(
-    () => facultyStudentRows.filter((student) => !student.studentActive).length,
+  const facultyNotGraduatedCount = useMemo(
+    () => facultyStudentRows.filter((student) => student.studentActive && student.graduated !== "Yes").length,
     [facultyStudentRows]
   );
   const facultyStudentsDirectoryRows = useMemo<StudentDirectoryRow[]>(
-    () =>
-      facultyStudentRows
-        .filter((student) => (facultyStudentsFilter === "mentoring" ? student.studentActive : !student.studentActive))
+    () => {
+      return facultyStudentRows
+        .filter((student) => student.studentActive)
         .map((student) => ({
           userId: student.userId,
           fullName: student.fullName?.trim() || "Unnamed Student",
           email: student.email?.trim() || "",
           registrationNumber: student.registrationNumber?.trim() || "Not Allotted",
           planOfStudyCode: student.planOfStudyCode,
-          gender: "",
-          section: "",
-          mobileNumber: "",
+          currentSemester: student.currentSemester ?? 1,
           batch: student.batch,
           programme: student.programme,
-          duration: student.duration,
+          graduated: student.graduated,
           mentorName: principal?.fullName?.trim() || "Assigned Faculty",
-        })),
-    [facultyStudentRows, facultyStudentsFilter, principal?.fullName]
+          modifiedByName: "",
+          modifiedAt: null,
+        }));
+    },
+    [facultyStudentRows, principal?.fullName]
   );
+  useEffect(() => {
+    if (!selectedStudentForCredits?.userId) return;
+    const sourceRows = hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows;
+    const updated = sourceRows.find((row) => row.userId === selectedStudentForCredits.userId);
+    if (updated) setSelectedStudentForCredits(updated);
+  }, [facultyStudentsDirectoryRows, hasFacultyRole, hasHeadRole, hasModeratorRole, isAdmin, selectedStudentForCredits, studentDirectoryRows]);
+
+  // Updated by StudentsDirectoryTable whenever the user sorts/filters — persists after the table unmounts
+  const [creditNavRows, setCreditNavRows] = useState<StudentDirectoryRow[]>([]);
+  const creditNavFallback = useMemo(
+    () => hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows,
+    [facultyStudentsDirectoryRows, hasFacultyRole, hasHeadRole, hasModeratorRole, isAdmin, studentDirectoryRows],
+  );
+  // Use the table's sorted+filtered list when available; fall back to raw source on first load
+  const effectiveCreditNavRows = creditNavRows.length > 0 ? creditNavRows : creditNavFallback;
+
+  const creditSummaries = useMemo(() => {
+    const result: Record<string, import("./types").StudentCreditSummary> = {};
+    const seenIds = new Set<string>();
+    for (const student of [...studentDirectoryRows, ...facultyStudentsDirectoryRows]) {
+      if (!student.userId || seenIds.has(student.userId)) continue;
+      seenIds.add(student.userId);
+      if (!student.planOfStudyCode) continue;
+      // Only compute once bulk totals have been fetched (so 0 means "really 0", not "not loaded")
+      const hasDetailedCredits = student.userId in studentSavedCreditsByUser;
+      if (!hasDetailedCredits && !creditTotalsLoaded) continue;
+      const plan = plansOfStudy.find((p) => p.planCode === student.planOfStudyCode);
+      if (!plan) continue;
+      const regulation = regulations.find((r) => r.code === plan.regulationCode);
+      const target = regulation?.curriculumStructure.totalCreditsRequired ?? plan.totalCredits ?? 0;
+      if (target === 0) continue;
+      const earned = hasDetailedCredits
+        ? Object.values(studentSavedCreditsByUser[student.userId]).reduce(
+            (s, byCat) => s + Object.values(byCat).reduce((a, b) => a + Number(b), 0),
+            0,
+          )
+        : (studentCreditTotals[student.userId] ?? 0);
+      const currentSem = student.currentSemester ?? 1;
+      const expected = plan.semesters
+        .filter((sem) => sem.semester < currentSem)
+        .reduce((s, sem) => s + sem.totalCredits, 0);
+      const deficit = Math.max(0, expected - earned);
+      const status = computeCreditStatus(target, earned, expected);
+      result[student.userId] = { target, earned, expected, deficit, status };
+    }
+    return result;
+  }, [studentSavedCreditsByUser, studentCreditTotals, creditTotalsLoaded, studentDirectoryRows, facultyStudentsDirectoryRows, plansOfStudy, regulations]);
+  const selectedStudentIndex = selectedStudentForCredits
+    ? effectiveCreditNavRows.findIndex((r) => r.userId === selectedStudentForCredits.userId)
+    : -1;
 
   useEffect(() => {
     if (filteredPlansOfStudy.length === 0) {
@@ -1906,6 +2195,17 @@ function App() {
       setPlanOfStudyTab(0);
     }
   }, [filteredPlansOfStudy.length, planOfStudyTab]);
+
+  // Load credit totals for all visible students whenever the directory list changes
+  useEffect(() => {
+    if (!principal) return;
+    const sourceRows = hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)
+      ? facultyStudentsDirectoryRows
+      : studentDirectoryRows;
+    const userIds = sourceRows.map((r) => r.userId).filter((id) => id.length > 0);
+    if (userIds.length > 0) void loadStudentCreditSummaries(userIds);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [principal, studentDirectoryRows.length, facultyStudentsDirectoryRows.length, hasFacultyRole, isAdmin, hasHeadRole, hasModeratorRole]);
 
   async function runStep(path: string, label: string, body?: unknown) {
     if (principal) {
@@ -2236,15 +2536,29 @@ function App() {
               onClick: () => {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
+                    setStudentsDirectoryGraduatedFilter(null);
                     navigateTo("students-directory");
                     await loadProgrammes({ force: true });
                     await loadPlansOfStudy();
                     if (hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) {
-                      setFacultyStudentsFilter("mentoring");
                       await loadFacultyStudents();
                     } else {
                       await loadStudentsDirectory();
                     }
+                  }
+                })();
+              },
+            }] : []),
+            ...((hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) ? [{
+              id: "faculty-credit-table",
+              label: "Student Credit Table",
+              icon: <ReceiptLongIcon fontSize="small" />,
+              active: superView === "faculty-credit-table",
+              onClick: () => {
+                void (async () => {
+                  if (await ensureActiveServerSession()) {
+                    navigateTo("faculty-credit-table");
+                    await loadFacultyCreditTable();
                   }
                 })();
               },
@@ -2728,28 +3042,16 @@ function App() {
                   setProfileAnchorEl(null);
                 }}
               >
-                <MenuItem
-                  sx={{ fontSize: "0.8rem" }}
-                  onClick={() => {
-                    navigateTo("account");
-                    setAccountView("profile");
-                    setProfileAnchorEl(null);
-                    void ensureActiveServerSession();
-                  }}
-                >
-                  <ListItemIcon><PersonIcon fontSize="small" /></ListItemIcon>
-                  My Account
-                </MenuItem>
-                <MenuItem
-                  sx={{ fontSize: "0.8rem" }}
-                  onClick={() => {
-                    setProfileAnchorEl(null);
-                    void logout();
-                  }}
-                >
-                  <ListItemIcon><LogoutIcon fontSize="small" /></ListItemIcon>
-                  Sign Out
-                </MenuItem>
+                {userAccountMenuItems.map((item) => (
+                  <MenuItem
+                    key={item.id}
+                    sx={{ fontSize: "0.8rem" }}
+                    onClick={item.onClick}
+                  >
+                    <ListItemIcon>{item.icon}</ListItemIcon>
+                    {item.label}
+                  </MenuItem>
+                ))}
               </Menu>
             </Stack>
           ) : (
@@ -2798,12 +3100,32 @@ function App() {
               }
             }}
           >
-            <Toolbar sx={{ minHeight: 62, gap: 1 }}>
-              <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 20, height: 20 }} />
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>{APP_NAME_SHORT}</Typography>
-            </Toolbar>
-            <Box sx={{ py: 0.5 }}>
-              {renderSidebarNav()}
+            <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+              <Toolbar sx={{ minHeight: 62, gap: 1 }}>
+                <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 20, height: 20 }} />
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>{APP_NAME_SHORT}</Typography>
+              </Toolbar>
+              <Box sx={{ py: 0.5 }}>
+                {renderSidebarNav()}
+              </Box>
+              <Box sx={{ mt: "auto", py: 0.5, borderTop: "1px solid", borderColor: shellColors.border }}>
+                <Box sx={{ px: 2, py: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                  <Avatar sx={{ width: 22, height: 22, fontSize: "0.6rem", bgcolor: "primary.main" }}>
+                    {getInitials(displayName)}
+                  </Avatar>
+                  <Typography variant="body2" sx={{ fontSize: "0.875rem", fontWeight: 500 }}>
+                    {displayName}
+                  </Typography>
+                </Box>
+                <List sx={{ py: 0 }}>
+                  {userAccountMenuItems.map((item) => (
+                    <ListItemButton key={item.id} onClick={item.onClick}>
+                      <ListItemIcon>{item.icon}</ListItemIcon>
+                      <ListItemText primary={item.label} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </Box>
             </Box>
           </Drawer>
         </Box>
@@ -2908,12 +3230,12 @@ function App() {
               {/* Mobile-only branding */}
               <Box sx={{ display: { xs: "flex", md: "none" }, flexDirection: "column", alignItems: "center", mb: 4, gap: 0.5 }}>
                 <Box component="img" src="/favicons/android-chrome-1024x1024.png" alt={APP_NAME_SHORT} sx={{ width: 48, height: 48, mb: 1 }} />
-                <Typography variant="h6" fontWeight={700} align="center">{APP_NAME_SHORT}</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700 }} align="center">{APP_NAME_SHORT}</Typography>
                 <Typography variant="body2" color="text.secondary" align="center">{ORG_NAME}</Typography>
               </Box>
 
               <Box sx={{ width: "100%", maxWidth: 360 }}>
-                <Typography variant="h5" fontWeight={700} align="center" gutterBottom>Welcome back</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700 }} align="center" gutterBottom>Welcome back</Typography>
                 <Typography variant="body2" color="text.secondary" align="center" sx={{ mb: 3 }}>Sign in to continue</Typography>
 
                 <Stack spacing={2}>
@@ -2945,7 +3267,7 @@ function App() {
                           />
                           <Button fullWidth variant="contained" size="large" disabled={busy} type="submit">Sign In</Button>
                           {GOOGLE_CLIENT_ID ? (
-                            <Box textAlign="center">
+                            <Box sx={{ textAlign: "center" }}>
                               <Button variant="text" size="small" startIcon={<ChevronLeftIcon />} onClick={() => setShowLocalLogin(false)}>
                                 Back to sign-in options
                               </Button>
@@ -3358,9 +3680,11 @@ function App() {
                           </Typography>
                         </Box>
                         <Tooltip title="Refresh counts">
-                          <IconButton size="small" aria-label="Refresh student counts" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
-                            <RefreshIcon fontSize="small" />
-                          </IconButton>
+                          <span>
+                            <IconButton size="small" aria-label="Refresh student counts" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
+                              <RefreshIcon fontSize="small" />
+                            </IconButton>
+                          </span>
                         </Tooltip>
                       </Stack>
                       <Box
@@ -3372,44 +3696,58 @@ function App() {
                       >
                         <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                            <SchoolIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
+                            <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
                             <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                              Mentoring
+                              In Progress
                             </Typography>
                           </Stack>
                           <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                            {facultyMentoringCount.toLocaleString()}
+                            {facultyNotGraduatedCount.toLocaleString()}
                           </Typography>
                           <Button
                             type="button"
                             size="small"
                             endIcon={<ArrowForwardIcon />}
                             sx={{ p: 0, mt: 1 }}
-                            onClick={() => { void openFacultyStudentsDirectory("mentoring"); }}
+                            onClick={() => { void openFacultyStudentsDirectory("No"); }}
                           >
-                            View students
+                            View in-progress students
                           </Button>
                         </Paper>
                         <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                            <CheckCircleOutlineIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
+                            <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
                             <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                              Completed
+                              Graduated
                             </Typography>
                           </Stack>
                           <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
-                            {facultyCompletedCount.toLocaleString()}
+                            {facultyGraduatedCount.toLocaleString()}
                           </Typography>
                           <Button
                             type="button"
                             size="small"
                             endIcon={<ArrowForwardIcon />}
                             sx={{ p: 0, mt: 1 }}
-                            onClick={() => { void openFacultyStudentsDirectory("completed"); }}
+                            onClick={() => { void openFacultyStudentsDirectory("Yes"); }}
                           >
-                            View students
+                            View graduated
                           </Button>
                         </Paper>
+                      </Box>
+                      <Box sx={{ mt: 2.5 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
+                          <FacultyAnalyticsReport
+                            students={facultyStudentRows}
+                            creditRows={facultyCreditTableRows}
+                            plansOfStudy={plansOfStudy}
+                            regulations={regulations}
+                            onViewStudents={(creditStatusFilter) => {
+                              void openFacultyStudentsDirectory(null, creditStatusFilter ?? undefined);
+                            }}
+                          />
+                        </Suspense>
                       </Box>
                     </CardContent>
                   </Card>
@@ -4322,7 +4660,7 @@ function App() {
                       <Typography variant="h6">Students Directory</Typography>
                       <Typography variant="body2" color="text.secondary">
                         {hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)
-                          ? `${facultyStudentsDirectoryRows.length} ${facultyStudentsFilter === "mentoring" ? "mentoring" : "completed"} student account${facultyStudentsDirectoryRows.length === 1 ? "" : "s"} loaded`
+                          ? `${facultyStudentsDirectoryRows.length} active mentoring student account${facultyStudentsDirectoryRows.length === 1 ? "" : "s"} loaded`
                           : `${studentDirectoryRows.length} student account${studentDirectoryRows.length === 1 ? "" : "s"} loaded`}
                       </Typography>
                     </Box>
@@ -4359,55 +4697,13 @@ function App() {
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
                     Use table column filters and search to refine student results.
                   </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                    Update student details CSV columns: required <code>email</code>; optional <code>registration_number</code>, <code>plan_of_study_code</code>, <code>programme</code>, <code>current_semester</code>, <code>batch</code>, <code>graduated</code>, <code>mentor_email</code>.
+                  </Typography>
                   {hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                      Showing only your {facultyStudentsFilter === "mentoring" ? "mentoring" : "completed"} students.
+                      Showing only your active mentoring students. Faculty CSV cannot include <code>programme</code> or <code>mentor_email</code>.
                     </Typography>
-                  ) : null}
-                  {!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) ? (
-                    <>
-                      <Box
-                        sx={{
-                          mt: 1.25,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 1.5,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <Box>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                            <b>Bulk import via CSV.</b> Compulsory: <code>email</code>. Optional (at least one required): <code>registration_number</code>, <code>plan_of_study_code</code>, <code>gender</code>, <code>section</code>, <code>mobile_number</code>, <code>programme</code>, <code>batch</code>, <code>programme_duration</code>, <code>mentor_email</code>.
-                          </Typography>
-                          {studentsCsvFileName ? (
-                            <Typography variant="caption" color="primary.main">
-                              Selected: {studentsCsvFileName}
-                            </Typography>
-                          ) : null}
-                        </Box>
-                        {(isAdmin || hasModeratorRole) ? (
-                          <Button component="label" variant="contained" color="primary" size="small" disabled={busy}>
-                            Update Student Details via CSV
-                            <input hidden accept=".csv,text/csv" type="file" onChange={importStudentsFromCsvFile} />
-                          </Button>
-                        ) : null}
-                      </Box>
-                      <Box sx={{ mt: 1 }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                          <b>Programme values:</b>{" "}
-                          {programmeOptions.length > 0
-                            ? programmeOptions.map((item) => `${item.id} - ${item.name}`).join(", ")
-                            : "No programme values loaded."}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.25 }}>
-                          <b>Plan of Study values:</b>{" "}
-                          {planOfStudyOptions.length > 0
-                            ? planOfStudyOptions.map((item) => `${item.code} - ${item.name}`).join(", ")
-                            : "No plan of study values loaded."}
-                        </Typography>
-                      </Box>
-                    </>
                   ) : null}
                 </Box>
 
@@ -4415,13 +4711,35 @@ function App() {
                   <StudentsDirectoryTable
                     rows={hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole) ? facultyStudentsDirectoryRows : studentDirectoryRows}
                     busy={busy}
+                    initialGraduatedFilter={studentsDirectoryGraduatedFilter}
+                    initialCreditStatusFilter={studentsDirectoryCreditStatusFilter}
                     planOfStudyOptions={planOfStudyOptions}
+                    planSemesterBounds={planSemesterBounds}
                     mentorNameOptions={mentorNameOptions}
                     programmeOptions={programmeOptions}
-                    canEdit={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
+                    showMentorName={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
+                    showProgramme={!(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole))}
+                    showModifiedAudit={(isAdmin || hasHeadRole || hasModeratorRole)}
+                    canEdit={true}
+                    onOpenStudentCredits={(row) => openStudentCredits(row)}
                     onSubmitRows={async (updates) => {
                       await submitStudentsDirectoryRows(updates);
                     }}
+                    onImportStudentsCsv={importStudentsFromCsvFile}
+                    onImportCredits={async (rows) => {
+                      const result = await callApi("/api/student-credits/import-batch", "POST", undefined, {
+                        writeMode: "replace_all",
+                        allowClearAll: false,
+                        rows,
+                      });
+                      return {
+                        imported: Number(result.imported ?? 0),
+                        failed: Number(result.failed ?? 0),
+                        errors: Array.isArray(result.errors) ? result.errors.map(String) : [],
+                      };
+                    }}
+                    onVisibleRowsChange={setCreditNavRows}
+                    creditSummaries={creditSummaries}
                   />
                 </Suspense>
                 {studentsDirectoryHasMore && !(hasFacultyRole && !(isAdmin || hasHeadRole || hasModeratorRole)) ? (
@@ -4732,6 +5050,64 @@ function App() {
                   </Box>
                 </Paper>
               )}
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
+        {principal && superView === "student-credits" ? (
+          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading student credits...</Typography>}>
+            <StudentCreditsView
+              student={selectedStudentForCredits ?? {
+                userId: "",
+                fullName: "",
+                email: "",
+                registrationNumber: "",
+                planOfStudyCode: null,
+                currentSemester: null,
+                batch: null,
+                programme: null,
+                graduated: "No",
+                mentorName: "",
+                modifiedByName: "",
+                modifiedAt: null,
+              }}
+              plan={selectedStudentPlan}
+              regulation={selectedStudentRegulation}
+              earnedCreditsBySemester={selectedStudentForCredits?.userId ? (studentEarnedCreditsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
+              savedCreditsBySemester={selectedStudentForCredits?.userId ? (studentSavedCreditsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
+              isSaving={studentCreditsSaving}
+              studentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : undefined}
+              studentCount={effectiveCreditNavRows.length > 1 ? effectiveCreditNavRows.length : undefined}
+              onNavigate={(direction) => {
+                const next = selectedStudentIndex + direction;
+                if (next >= 0 && next < effectiveCreditNavRows.length) openStudentCredits(effectiveCreditNavRows[next]);
+              }}
+              onChangeEarnedCredit={(semester, categoryCode, value) => {
+                const userId = selectedStudentForCredits?.userId;
+                if (!userId) return;
+                setStudentEarnedCredit(userId, semester, categoryCode, value);
+              }}
+              onSaveEarnedCredits={() => {
+                const userId = selectedStudentForCredits?.userId;
+                if (userId) void saveStudentCredits(userId);
+              }}
+            />
+          </Suspense>
+        ) : null}
+
+        {principal && superView === "faculty-credit-table" ? (
+          <Card>
+            <CardContent>
+              <Stack spacing={adminPageSx.pageStack.spacing}>
+                <Box sx={adminPageSx.headerPanel}>
+                  <Typography variant="h6">Student Credit Table</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Credits recorded for students under your faculty mentoring scope.
+                  </Typography>
+                </Box>
+                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading student credit table...</Typography>}>
+                  <FacultyCreditDetailsTable rows={facultyCreditTableRows} busy={busy} />
+                </Suspense>
               </Stack>
             </CardContent>
           </Card>
@@ -5394,10 +5770,37 @@ function App() {
           <Button onClick={() => setCsvImportResult(null)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog
+        open={Boolean(studentCsvImportResult)}
+        onClose={() => setStudentCsvImportResult(null)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="student-csv-import-result-dialog-title"
+      >
+        <DialogTitle id="student-csv-import-result-dialog-title">Student CSV Import Result</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            {studentCsvImportResult?.imported ?? 0} imported · {studentCsvImportResult?.failed ?? 0} failed
+          </Typography>
+          {studentCsvImportResult && studentCsvImportResult.errors.length > 0 ? (
+            <Box sx={{ maxHeight: 320, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0.75 }}>
+              {studentCsvImportResult.errors.map((err, i) => (
+                <Alert key={i} severity="warning" sx={{ py: 0.25 }}>{err}</Alert>
+              ))}
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStudentCsvImportResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
     </DateTimeProvider>
   );
 }
 
 export default App;
+
+
 

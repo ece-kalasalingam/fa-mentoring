@@ -585,15 +585,134 @@ export const MIGRATIONS: Migration[] = [
     ]
   },
   {
-    id: "0025_students_add_gender_section_mobile_number",
-    description: "Add gender, section (6 chars), and mobile_number columns to students",
+    id: "0025_drop_credit_tracking_tables",
+    description: "Drop removed credit tracking tables",
     statements: [
-      "alter table students add column gender varchar(20)",
-      "alter table students add column section varchar(6)",
-      "alter table students add column mobile_number varchar(20)",
-      "update students set gender = null where trim(coalesce(gender, '')) = ''",
-      "update students set section = substr(trim(section), 1, 6) where trim(coalesce(section, '')) <> ''",
-      "update students set mobile_number = null where trim(coalesce(mobile_number, '')) = ''"
+      "drop table if exists student_credit_snapshots",
+      "drop table if exists credit_import_batches",
+      "drop table if exists student_credit_claims"
+    ]
+  },
+  {
+    id: "0026_students_add_current_semester_and_audit_columns",
+    description: "Add current_semester and audit columns to students",
+    statements: [
+      "alter table students add column current_semester integer not null default 1",
+      "alter table students add column modified_by text references user_accounts(id)",
+      "alter table students add column modified_at text",
+      "update students set current_semester = 1 where current_semester is null",
+      "update students set modified_at = current_timestamp where modified_at is null or trim(modified_at) = ''"
+    ]
+  },
+  {
+    id: "0027_student_credit_details_table_and_trigger",
+    description: "Create student_credit_details table with indexes and modified_at update trigger",
+    statements: [
+      `create table if not exists student_credit_details (
+        enrollment_id integer primary key autoincrement,
+        student_id text not null,
+        category_id text(10) not null,
+        semester_taken integer not null check (semester_taken > 0),
+        credits real not null check (credits >= 0),
+        status integer not null default 1 check (status in (0,1,2,3,4,5)),
+        modified_by text,
+        modified_at datetime not null default current_timestamp,
+        constraint fk_credit_student_id
+          foreign key (student_id) references students(user_id) on delete cascade,
+        constraint fk_credit_modified_by
+          foreign key (modified_by) references user_accounts(id) on delete set null,
+        constraint uq_student_semester_category
+          unique (student_id, category_id, semester_taken)
+      )`,
+      "create index if not exists idx_credit_details_student on student_credit_details(student_id)",
+      "create index if not exists idx_credit_details_student_sem on student_credit_details(student_id, semester_taken)",
+      "drop trigger if exists trg_student_credit_details_modified_at",
+      `create trigger if not exists trg_student_credit_details_modified_at
+       after update on student_credit_details
+       for each row
+       when new.modified_at = old.modified_at
+       begin
+         update student_credit_details
+         set modified_at = current_timestamp
+         where enrollment_id = new.enrollment_id;
+      end`
+    ]
+  },
+  {
+    id: "0028_students_replace_programme_duration_with_graduated",
+    description: "Replace programme_duration with graduated binary flag on students table",
+    statements: [
+      "alter table students rename to students_old_v5",
+      `create table students (
+        user_id text primary key,
+        registration_number varchar(15) unique not null,
+        plan_of_study_code integer,
+        current_semester integer not null default 1,
+        batch integer not null,
+        programme integer,
+        graduated integer not null default 0 check(graduated in (0, 1)),
+        mentor_id text,
+        modified_by text references user_accounts(id),
+        modified_at text,
+        constraint valid_batch check (batch between 2010 and 2050),
+        foreign key (user_id) references user_accounts(id) on delete cascade,
+        foreign key (mentor_id) references user_accounts(id) on delete set null
+      )`,
+      `insert into students(
+         user_id, registration_number, plan_of_study_code, current_semester, batch, programme, graduated, mentor_id, modified_by, modified_at
+       )
+       select
+         user_id,
+         registration_number,
+         plan_of_study_code,
+         coalesce(current_semester, 1),
+         batch,
+         programme,
+         0 as graduated,
+         mentor_id,
+         modified_by,
+         coalesce(modified_at, current_timestamp)
+       from students_old_v5`,
+      "drop table students_old_v5"
+    ]
+  },
+  {
+    id: "0029_student_credit_details_rebind_students_fk",
+    description: "Rebuild student_credit_details so student FK points to current students table after students rebuild",
+    statements: [
+      "alter table student_credit_details rename to student_credit_details_old_v2",
+      `create table student_credit_details (
+        enrollment_id integer primary key autoincrement,
+        student_id text not null,
+        category_id text(10) not null,
+        semester_taken integer not null check (semester_taken > 0),
+        credits real not null check (credits >= 0),
+        status integer not null default 1 check (status in (0,1,2,3,4,5)),
+        modified_by text,
+        modified_at datetime not null default current_timestamp,
+        constraint fk_credit_student_id
+          foreign key (student_id) references students(user_id) on delete cascade,
+        constraint fk_credit_modified_by
+          foreign key (modified_by) references user_accounts(id) on delete set null,
+        constraint uq_student_semester_category
+          unique (student_id, category_id, semester_taken)
+      )`,
+      `insert into student_credit_details(enrollment_id, student_id, category_id, semester_taken, credits, status, modified_by, modified_at)
+       select enrollment_id, student_id, category_id, semester_taken, credits, status, modified_by, modified_at
+       from student_credit_details_old_v2`,
+      "drop table student_credit_details_old_v2",
+      "create index if not exists idx_credit_details_student on student_credit_details(student_id)",
+      "create index if not exists idx_credit_details_student_sem on student_credit_details(student_id, semester_taken)",
+      "drop trigger if exists trg_student_credit_details_modified_at",
+      `create trigger if not exists trg_student_credit_details_modified_at
+       after update on student_credit_details
+       for each row
+       when new.modified_at = old.modified_at
+       begin
+         update student_credit_details
+         set modified_at = current_timestamp
+         where enrollment_id = new.enrollment_id;
+       end`
     ]
   }
 ];

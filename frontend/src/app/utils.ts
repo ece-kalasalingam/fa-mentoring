@@ -40,6 +40,23 @@ export const MUI_TABLE_HEAD_CELL_PROPS = {
 
 export const MUI_TABLE_BODY_CELL_PROPS = { sx: { py: 1 } } as const;
 
+// Credit status bands — single source of truth used by both the students table and the faculty dashboard.
+// complete:  earned >= target (all credits done)
+// on-track:  no deficit vs. expected-by-now
+// marginal:  deficit ≤ 6 credits
+// off-track: deficit > 6 credits
+export function computeCreditStatus(
+  target: number,
+  earned: number,
+  expected: number,
+): import("./types").CreditStatus {
+  if (target <= 0 || earned >= target) return "complete";
+  const deficit = Math.max(0, expected - earned);
+  if (deficit === 0) return "on-track";
+  if (deficit <= 6) return "marginal";
+  return "off-track";
+}
+
 export const MUI_TABLE_PAGINATION_PROPS_BASE = [
   { label: "10", value: 10 },
   { label: "25", value: 25 },

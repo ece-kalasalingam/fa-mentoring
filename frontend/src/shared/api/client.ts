@@ -210,6 +210,12 @@ export type ApiResult = {
     expiresAt: string | null;
     isCurrent: boolean;
   }>;
+  creditDetails?: Array<{ categoryId: string; semesterTaken: number; credits: number }>;
+  imported?: number;
+  failed?: number;
+  total?: number;
+  errors?: string[];
+  summaries?: Array<{ studentId: string; totalCredits: number }>;
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL

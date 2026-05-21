@@ -36,8 +36,8 @@ import { fetchProgrammesFromJson } from "../modules/programmes/programmes.servic
 import { fetchRegulationsFromJson } from "../modules/regulations/regulations.service";
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
-import { getStudentStatsByScope, listStudentsByScope } from "../modules/students/students.service";
-import { listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
+import { bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits } from "../modules/students/students.service";
+import { assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
   "/api/health",
@@ -81,6 +81,7 @@ const ROOT_ENDPOINTS = [
   "/api/students-directory/update",
   "/api/students-directory/update-batch",
   "/api/students/stats",
+  "/api/student-credit-table",
   "/api/import/students"
 ];
 
@@ -162,6 +163,7 @@ export const worker = {
     const startedAt = Date.now();
     const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
     const { pathname } = new URL(request.url);
+    const policyPath = pathname;
     let statusCode = 500;
     let principalSubject: string | null = null;
     let authProvider: string | null = null;
@@ -189,7 +191,7 @@ export const worker = {
       // avoid per-request account sync writes in hot paths.
       // Account records are still created/updated on explicit auth/setup operations.
 
-      const policy = getAccessPolicy(request.method, pathname);
+      const policy = getAccessPolicy(request.method, policyPath);
 
       if (!isAuthorized(principal, policy)) {
         statusCode = 401;
@@ -911,7 +913,7 @@ export const worker = {
       }
 
       if (pathname === "/api/students-directory/update" && request.method === "POST") {
-        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head"))) {
+        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head") && !principal.roles.includes("faculty"))) {
           statusCode = 403;
           event = "request.forbidden";
           return respond({ ok: false, error: "Forbidden" }, 403);
@@ -922,26 +924,40 @@ export const worker = {
         const planOfStudyCode = isObject(body) && "planOfStudyCode" in body && body.planOfStudyCode !== null && body.planOfStudyCode !== ""
           ? Number(body.planOfStudyCode)
           : null;
-        const gender = isObject(body) ? String(body.gender ?? "") : "";
-        const section = isObject(body) ? String(body.section ?? "") : "";
-        const mobileNumber = isObject(body) ? String(body.mobileNumber ?? "") : "";
         const batch = isObject(body) && "batch" in body ? Number(body.batch) : null;
         const programme = isObject(body) && "programme" in body && body.programme !== null && body.programme !== ""
           ? Number(body.programme)
           : null;
-        const duration = isObject(body) && "duration" in body ? Number(body.duration) : null;
-        const mentorName = isObject(body) ? String(body.mentorName ?? "") : "";
+        const graduated = isObject(body) && "graduated" in body ? String(body.graduated ?? "") : null;
+        const currentSemester = isObject(body) && "currentSemester" in body && body.currentSemester !== null && body.currentSemester !== ""
+          ? Number(body.currentSemester)
+          : null;
+        const isFacultyOnlyPrincipal =
+          principal.roles.includes("faculty")
+          && !principal.roles.includes("admin")
+          && !principal.roles.includes("moderator")
+          && !principal.roles.includes("head");
+        const modifierUserId = await resolveUserAccountIdByPrincipal(env, principal);
+        const mentorName = isFacultyOnlyPrincipal ? null : (isObject(body) ? String(body.mentorName ?? "") : "");
+        if (isFacultyOnlyPrincipal) {
+          const facultyScope = resolveStudentScope(principal);
+          if (facultyScope.type !== "mentor") {
+            statusCode = 403;
+            event = "request.forbidden";
+            return respond({ ok: false, error: "Faculty identity email is required for scoped updates." }, 403);
+          }
+          await assertFacultyCanEditStudentUserIds(env, facultyScope.mentorEmail, [userId]);
+        }
         await upsertStudentDirectoryRow(env, {
           userId,
           registrationNumber,
           planOfStudyCode,
-          gender,
-          section,
-          mobileNumber,
           batch,
           programme,
-          duration,
+          graduated: graduated === null ? null : (graduated.trim().toLowerCase() === "yes" ? "Yes" : "No"),
+          currentSemester,
           mentorName,
+          modifiedByUserId: modifierUserId,
         });
         statusCode = 200;
         event = "students.directory.updated";
@@ -949,7 +965,7 @@ export const worker = {
       }
 
       if (pathname === "/api/students-directory/update-batch" && request.method === "POST") {
-        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head"))) {
+        if (!principal || (!principal.roles.includes("admin") && !principal.roles.includes("moderator") && !principal.roles.includes("head") && !principal.roles.includes("faculty"))) {
           statusCode = 403;
           event = "request.forbidden";
           return respond({ ok: false, error: "Forbidden" }, 403);
@@ -966,32 +982,49 @@ export const worker = {
           event = "request.validation_failed";
           return respond({ ok: false, error: "updates[] cannot exceed 100 rows per request" }, 400);
         }
+        const isFacultyOnlyPrincipal =
+          principal.roles.includes("faculty")
+          && !principal.roles.includes("admin")
+          && !principal.roles.includes("moderator")
+          && !principal.roles.includes("head");
+        const modifierUserId = await resolveUserAccountIdByPrincipal(env, principal);
+        if (isFacultyOnlyPrincipal) {
+          const facultyScope = resolveStudentScope(principal);
+          if (facultyScope.type !== "mentor") {
+            statusCode = 403;
+            event = "request.forbidden";
+            return respond({ ok: false, error: "Faculty identity email is required for scoped updates." }, 403);
+          }
+          const scopedUserIds = updates
+            .map((item) => (isObject(item) ? String(item.userId ?? "") : ""))
+            .filter((value) => value.trim().length > 0);
+          await assertFacultyCanEditStudentUserIds(env, facultyScope.mentorEmail, scopedUserIds);
+        }
         for (const item of updates) {
           const userId = isObject(item) ? String(item.userId ?? "") : "";
           const registrationNumber = isObject(item) ? String(item.registrationNumber ?? "") : "";
           const planOfStudyCode = isObject(item) && "planOfStudyCode" in item && item.planOfStudyCode !== null && item.planOfStudyCode !== ""
             ? Number(item.planOfStudyCode)
             : null;
-          const gender = isObject(item) ? String(item.gender ?? "") : "";
-          const section = isObject(item) ? String(item.section ?? "") : "";
-          const mobileNumber = isObject(item) ? String(item.mobileNumber ?? "") : "";
           const batch = isObject(item) && "batch" in item ? Number(item.batch) : null;
           const programme = isObject(item) && "programme" in item && item.programme !== null && item.programme !== ""
             ? Number(item.programme)
             : null;
-          const duration = isObject(item) && "duration" in item ? Number(item.duration) : null;
-          const mentorName = isObject(item) ? String(item.mentorName ?? "") : "";
+          const graduated = isObject(item) && "graduated" in item ? String(item.graduated ?? "") : null;
+          const currentSemester = isObject(item) && "currentSemester" in item && item.currentSemester !== null && item.currentSemester !== ""
+            ? Number(item.currentSemester)
+            : null;
+          const mentorName = isFacultyOnlyPrincipal ? null : (isObject(item) ? String(item.mentorName ?? "") : "");
           await upsertStudentDirectoryRow(env, {
             userId,
             registrationNumber,
             planOfStudyCode,
-            gender,
-            section,
-            mobileNumber,
             batch,
             programme,
-            duration,
+            graduated: graduated === null ? null : (graduated.trim().toLowerCase() === "yes" ? "Yes" : "No"),
+            currentSemester,
             mentorName,
+            modifiedByUserId: modifierUserId,
           });
         }
         statusCode = 200;
@@ -1011,8 +1044,115 @@ export const worker = {
         return respond({ ok: true, ...data });
       }
 
+      if (pathname === "/api/student-credits" && request.method === "GET") {
+        const studentId = new URL(request.url).searchParams.get("studentId") ?? "";
+        if (!studentId) {
+          return respond({ ok: false, error: "studentId is required" }, 400);
+        }
+        const scope = resolveStudentScope(principal!);
+        if (scope.type === "mentor") {
+          await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
+        }
+        const credits = await getStudentCredits(env, studentId);
+        statusCode = 200;
+        return respond({ ok: true, creditDetails: credits });
+      }
+
+      if (pathname === "/api/student-credits" && request.method === "POST") {
+        const body = await request.json();
+        const studentId = isObject(body) ? String(body.studentId ?? "") : "";
+        if (!studentId) {
+          return respond({ ok: false, error: "studentId is required" }, 400);
+        }
+        const writeMode = isObject(body) ? String(body.writeMode ?? "").trim().toLowerCase() : "";
+        if (writeMode !== "replace_all" && writeMode !== "patch") {
+          return respond({ ok: false, error: "writeMode is required and must be replace_all or patch" }, 400);
+        }
+        const allowClearAll = Boolean(isObject(body) && body.allowClearAll === true);
+        const rawEntries = isObject(body) && Array.isArray(body.entries) ? body.entries : [];
+        const entries = (rawEntries as unknown[])
+          .filter((e): e is Record<string, unknown> => isObject(e))
+          .map((e) => ({
+            categoryId: String(e.categoryId ?? ""),
+            semesterTaken: Number(e.semesterTaken ?? 0),
+            credits: Number(e.credits ?? 0),
+          }))
+          .filter((e) => e.categoryId.length > 0 && e.semesterTaken > 0 && e.credits >= 0);
+        const scope = resolveStudentScope(principal!);
+        if (scope.type === "mentor") {
+          await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
+        }
+        const modifiedById = await resolveUserAccountIdByPrincipal(env, principal!);
+        await upsertStudentCredits(
+          env,
+          studentId,
+          entries,
+          modifiedById,
+          writeMode === "replace_all" ? "replace_all" : "patch",
+          allowClearAll,
+        );
+        statusCode = 200;
+        event = "students.credits.updated";
+        return respond({ ok: true, message: "Credits saved." });
+      }
+
+      if (pathname === "/api/student-credits/summaries" && request.method === "POST") {
+        const body = await request.json();
+        const rawIds = isObject(body) && Array.isArray(body.studentIds) ? body.studentIds : [];
+        const studentIds = (rawIds as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0);
+        const summaries = await getStudentCreditSummaries(env, studentIds);
+        statusCode = 200;
+        return respond({ ok: true, summaries });
+      }
+
+      if (pathname === "/api/student-credits/import-batch" && request.method === "POST") {
+        const body = await request.json();
+        const writeMode = isObject(body) ? String(body.writeMode ?? "").trim().toLowerCase() : "";
+        if (writeMode !== "replace_all" && writeMode !== "patch") {
+          return respond({ ok: false, error: "writeMode is required and must be replace_all or patch" }, 400);
+        }
+        const allowClearAll = Boolean(isObject(body) && body.allowClearAll === true);
+        const rawRows = isObject(body) && Array.isArray(body.rows) ? body.rows : [];
+        const rows = (rawRows as unknown[])
+          .filter((r): r is Record<string, unknown> => isObject(r))
+          .map((r) => ({
+            registrationNumber: String(r.registrationNumber ?? "").trim(),
+            semester: Number(r.semester ?? 0),
+            categoryCode: String(r.categoryCode ?? "").trim(),
+            credits: Number(r.credits ?? 0),
+          }))
+          .filter((r) => r.registrationNumber && r.semester > 0 && r.categoryCode && r.credits >= 0);
+        const scope = resolveStudentScope(principal!);
+        const modifiedById = await resolveUserAccountIdByPrincipal(env, principal!);
+        const result = await bulkImportStudentCredits(
+          env,
+          scope,
+          rows,
+          modifiedById,
+          writeMode === "replace_all" ? "replace_all" : "patch",
+          allowClearAll,
+        );
+        statusCode = 200;
+        event = "students.credits.batch_imported";
+        return respond({ ok: true, ...result });
+      }
+
+      if (pathname === "/api/student-credit-table" && request.method === "GET") {
+        const scope = resolveStudentScope(principal!);
+        const rows = await listStudentCreditTableByScope(env, scope);
+        statusCode = 200;
+        return respond({ ok: true, rows });
+      }
+
       if (pathname === "/api/import/students" && request.method === "POST") {
-        if (!canPerformAction(principal, "imports.manage")) {
+        const hasCsvStudentUpdateRole = Boolean(
+          principal
+          && (principal.roles.includes("admin")
+            || principal.roles.includes("moderator")
+            || principal.roles.includes("head")
+            || principal.roles.includes("faculty"))
+        );
+        if (!principal || (!canPerformAction(principal, "imports.manage") && !hasCsvStudentUpdateRole)) {
           statusCode = 403;
           event = "request.forbidden";
           return respond({ ok: false, error: "Forbidden" }, 403);
@@ -1023,9 +1163,29 @@ export const worker = {
           event = "request.validation_failed";
           return respond({ ok: false, error: "rows[] is required" }, 400);
         }
-        await importStudents(env, body.rows as CsvImportRow[]);
+        let facultyRestrictedEmail: string | null = null;
+        if (
+          principal.roles.includes("faculty")
+          && !principal.roles.includes("admin")
+          && !principal.roles.includes("moderator")
+          && !principal.roles.includes("head")
+        ) {
+          const facultyScope = resolveStudentScope(principal);
+          facultyRestrictedEmail = facultyScope.type === "mentor" ? facultyScope.mentorEmail : "";
+        }
+        const modifierUserId = await resolveUserAccountIdByPrincipal(env, principal);
+        const result = await importStudents(env, body.rows as CsvImportRow[], {
+          restrictToActiveMentorEmail: facultyRestrictedEmail,
+          modifiedByUserId: modifierUserId,
+        });
         statusCode = 200;
-        return respond({ ok: true, imported: body.rows.length });
+        return respond({
+          ok: true,
+          imported: result.succeeded,
+          failed: result.failed,
+          errors: result.errors,
+          total: result.total,
+        });
       }
 
       statusCode = 404;

@@ -110,26 +110,45 @@ export type StudentDirectoryRow = {
   email: string;
   registrationNumber: string;
   planOfStudyCode: number | null;
-  gender: string;
-  section: string;
-  mobileNumber: string;
+  currentSemester: number | null;
   batch: number | null;
   programme: number | null;
-  duration: number | null;
+  graduated: "Yes" | "No";
   mentorName: string;
+  modifiedByName: string;
+  modifiedAt: string | null;
 };
 
 export type FacultyStudentRow = {
   userId: string;
   registrationNumber: string | null;
   planOfStudyCode: number | null;
+  currentSemester: number | null;
   batch: number | null;
   programme: number | null;
-  duration: number | null;
+  graduated: "Yes" | "No";
   fullName: string | null;
   email: string | null;
   studentActive: boolean;
   mentorEmail: string | null;
+};
+
+export type FacultyMentoredStudentMinimal = {
+  userId: string;
+  email: string;
+  registrationNumber: string;
+  fullName: string;
+  planOfStudyCode: number | null;
+};
+
+export type FacultyCreditTableRow = {
+  registrationNumber: string | null;
+  graduated: "Yes" | "No";
+  categoryId: string;
+  semester: number;
+  credits: number;
+  modifiedByUsername: string | null;
+  modifiedAt: string | null;
 };
 
 export type FailedLoginRow = {
@@ -202,6 +221,16 @@ export type PlansValidationReport = {
   }>;
 };
 
+export type CreditStatus = "complete" | "on-track" | "marginal" | "off-track";
+
+export type StudentCreditSummary = {
+  target: number;
+  earned: number;
+  expected: number;
+  deficit: number;
+  status: CreditStatus;
+};
+
 export type LogTypeFilter = "status5xx" | "status4xx" | "slow";
 
 export type NavLeaf = { id: string; label: string; icon: ReactElement; active: boolean; disabled?: boolean; onClick: () => void };
@@ -223,3 +252,4 @@ export type AdminCacheKey =
   | "faculty-students:first";
 
 export type AdminCacheEntry = { cachedAt: number; payload: unknown };
+

@@ -146,6 +146,10 @@ function inferFullName(subject: string, email: string | null): string {
 export async function runRecentMitigations(env: Env) {
   const migrationResult = await runMigrations(env);
   const db = getDb(env);
+  // Existing-db mitigation: aggressively remove retired credit-tracking tables.
+  await db.execute("drop table if exists student_credit_snapshots");
+  await db.execute("drop table if exists credit_import_batches");
+  await db.execute("drop table if exists student_credit_claims");
   const columns = await db.execute("pragma table_info(user_accounts)");
   const hasFullName = columns.rows.some((row) => String(row.name ?? "").toLowerCase() === "full_name");
   let backfilled = 0;
@@ -168,6 +172,19 @@ export async function runRecentMitigations(env: Env) {
         where active = 1 and (full_name is null or trim(full_name) = '')`);
     }
   }
+  const studentColumnsRes = await db.execute("pragma table_info(students)").catch(() => ({ rows: [] }));
+  const studentColumnNames = new Set(studentColumnsRes.rows.map((row) => String(row.name ?? "").toLowerCase()));
+  if (!studentColumnNames.has("current_semester")) {
+    await db.execute("alter table students add column current_semester integer not null default 1");
+  }
+  if (!studentColumnNames.has("modified_by")) {
+    await db.execute("alter table students add column modified_by text references user_accounts(id)");
+  }
+  if (!studentColumnNames.has("modified_at")) {
+    await db.execute("alter table students add column modified_at text");
+  }
+  await db.execute("update students set current_semester = 1 where current_semester is null").catch(() => undefined);
+  await db.execute("update students set modified_at = current_timestamp where modified_at is null or trim(modified_at) = ''").catch(() => undefined);
   return {
     ok: true,
     migrations: migrationResult,

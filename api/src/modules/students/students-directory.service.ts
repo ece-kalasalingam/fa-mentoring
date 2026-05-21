@@ -10,9 +10,9 @@ function parseLimit(raw: string | null): number {
 type StudentsSchemaInfo = {
   hasRegistrationNumber: boolean;
   hasPlanOfStudyCode: boolean;
-  hasGender: boolean;
-  hasSection: boolean;
-  hasMobileNumber: boolean;
+  hasCurrentSemester: boolean;
+  hasModifiedBy: boolean;
+  hasModifiedAt: boolean;
 };
 
 async function getStudentsSchemaInfo(env: Env): Promise<StudentsSchemaInfo> {
@@ -22,10 +22,30 @@ async function getStudentsSchemaInfo(env: Env): Promise<StudentsSchemaInfo> {
   return {
     hasRegistrationNumber: names.has("registration_number"),
     hasPlanOfStudyCode: names.has("plan_of_study_code"),
-    hasGender: names.has("gender"),
-    hasSection: names.has("section"),
-    hasMobileNumber: names.has("mobile_number"),
+    hasCurrentSemester: names.has("current_semester"),
+    hasModifiedBy: names.has("modified_by"),
+    hasModifiedAt: names.has("modified_at"),
   };
+}
+
+async function ensureStudentsAuditColumns(env: Env): Promise<StudentsSchemaInfo> {
+  const db = getDb(env);
+  let schema = await getStudentsSchemaInfo(env);
+  if (!schema.hasCurrentSemester) {
+    await db.execute("alter table students add column current_semester integer not null default 1");
+  }
+  if (!schema.hasModifiedBy) {
+    await db.execute("alter table students add column modified_by text references user_accounts(id)");
+  }
+  if (!schema.hasModifiedAt) {
+    await db.execute("alter table students add column modified_at text");
+  }
+  if (!schema.hasCurrentSemester || !schema.hasModifiedAt) {
+    await db.execute("update students set current_semester = 1 where current_semester is null").catch(() => undefined);
+    await db.execute("update students set modified_at = current_timestamp where modified_at is null or trim(modified_at) = ''").catch(() => undefined);
+  }
+  schema = await getStudentsSchemaInfo(env);
+  return schema;
 }
 
 export async function listStudentsDirectory(env: Env, limitRaw: string | null, cursorRaw: string | null) {
@@ -46,16 +66,17 @@ export async function listStudentsDirectory(env: Env, limitRaw: string | null, c
             coalesce(ua.email, '') as email,
             ${schema.hasRegistrationNumber ? "s.registration_number" : "s.user_id"} as registration_number,
             ${schema.hasPlanOfStudyCode ? "s.plan_of_study_code" : "null"} as plan_of_study_code,
-            ${schema.hasGender ? "s.gender" : "null"} as gender,
-            ${schema.hasSection ? "s.section" : "null"} as section,
-            ${schema.hasMobileNumber ? "s.mobile_number" : "null"} as mobile_number,
+            ${schema.hasCurrentSemester ? "s.current_semester" : "1"} as current_semester,
             s.batch as batch,
             s.programme as programme,
-            s.programme_duration as programme_duration,
-            coalesce(mentor.full_name, '') as mentor_name
+            s.graduated as graduated,
+            coalesce(mentor.full_name, '') as mentor_name,
+            ${schema.hasModifiedBy ? "coalesce(modifier.full_name, '')" : "''"} as modified_by_name,
+            ${schema.hasModifiedAt ? "s.modified_at" : "null"} as modified_at
           from user_accounts ua
           left join students s on s.user_id = ua.id
           left join user_accounts mentor on mentor.id = s.mentor_id
+          left join user_accounts modifier on modifier.id = s.modified_by
           ${where}
           and ua.active = 1
             and lower(coalesce(ua.roles_json, '')) like '%student%'
@@ -87,13 +108,13 @@ export async function listStudentsDirectory(env: Env, limitRaw: string | null, c
     email: String(row.email ?? ""),
     registrationNumber: row.registration_number == null ? "" : String(row.registration_number),
     planOfStudyCode: row.plan_of_study_code == null ? null : Number(row.plan_of_study_code),
-    gender: row.gender == null ? "" : String(row.gender),
-    section: row.section == null ? "" : String(row.section),
-    mobileNumber: row.mobile_number == null ? "" : String(row.mobile_number),
+    currentSemester: row.current_semester == null ? 1 : Number(row.current_semester),
     batch: row.batch == null ? null : Number(row.batch),
     programme: row.programme == null ? null : Number(row.programme),
-    duration: row.programme_duration == null ? null : Number(row.programme_duration),
+    graduated: Number(row.graduated ?? 0) === 1 ? "Yes" : "No",
     mentorName: row.mentor_name == null ? "" : String(row.mentor_name),
+    modifiedByName: row.modified_by_name == null ? "" : String(row.modified_by_name),
+    modifiedAt: row.modified_at == null ? null : String(row.modified_at),
   }));
 
   return {
@@ -107,23 +128,50 @@ export async function listStudentsDirectory(env: Env, limitRaw: string | null, c
   };
 }
 
+export async function assertFacultyCanEditStudentUserIds(
+  env: Env,
+  mentorEmailRaw: string,
+  userIds: string[]
+) {
+  const db = getDb(env);
+  const mentorEmail = String(mentorEmailRaw ?? "").trim().toLowerCase();
+  const scopedUserIds = userIds.map((id) => String(id ?? "").trim()).filter((id) => id.length > 0);
+  if (!mentorEmail || scopedUserIds.length === 0) return;
+
+  for (const userId of scopedUserIds) {
+    const result = await db.execute({
+      sql: `select 1
+            from students s
+            inner join user_accounts student_ua on student_ua.id = s.user_id
+            inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
+            where s.user_id = ?
+              and student_ua.active = 1
+              and lower(trim(mentor_ua.email)) = ?
+            limit 1`,
+      args: [userId, mentorEmail],
+    });
+    if (result.rows.length === 0) {
+      throw new Error("Faculty can only update active students they are mentoring.");
+    }
+  }
+}
+
 export async function upsertStudentDirectoryRow(
   env: Env,
   input: {
     userId: string;
     registrationNumber: string;
     planOfStudyCode: number | null;
-    gender: string;
-    section: string;
-    mobileNumber: string;
     batch: number | null;
     programme: number | null;
-    duration: number | null;
-    mentorName: string;
+    graduated: "Yes" | "No" | null;
+    currentSemester: number | null;
+    mentorName: string | null;
+    modifiedByUserId?: string | null;
   }
 ) {
   const db = getDb(env);
-  const schema = await getStudentsSchemaInfo(env);
+  const schema = await ensureStudentsAuditColumns(env);
   const userId = String(input.userId ?? "").trim();
   if (!userId) {
     throw new Error("userId is required.");
@@ -134,14 +182,8 @@ export async function upsertStudentDirectoryRow(
   if (!schema.hasPlanOfStudyCode) {
     throw new Error("students.plan_of_study_code column is missing. Run super-admin mitigations first.");
   }
-  if (!schema.hasGender) {
-    throw new Error("students.gender column is missing. Run super-admin mitigations first.");
-  }
-  if (!schema.hasSection) {
-    throw new Error("students.section column is missing. Run super-admin mitigations first.");
-  }
-  if (!schema.hasMobileNumber) {
-    throw new Error("students.mobile_number column is missing. Run super-admin mitigations first.");
+  if (!schema.hasCurrentSemester || !schema.hasModifiedBy || !schema.hasModifiedAt) {
+    throw new Error("students audit columns could not be ensured.");
   }
 
   const userRes = await db.execute({
@@ -153,14 +195,13 @@ export async function upsertStudentDirectoryRow(
   }
 
   const batch = input.batch == null ? null : Number(input.batch);
-  const duration = input.duration == null ? null : Number(input.duration);
+  const graduated = input.graduated == null ? null : String(input.graduated).trim().toLowerCase();
   const registrationNumber = String(input.registrationNumber ?? "").trim() || "Not Allotted";
   const planOfStudyCode = input.planOfStudyCode == null ? null : Number(input.planOfStudyCode);
-  const gender = String(input.gender ?? "").trim();
-  const section = String(input.section ?? "").trim();
-  const mobileNumber = String(input.mobileNumber ?? "").trim();
   const programme = input.programme == null ? null : Number(input.programme);
-  const mentorName = String(input.mentorName ?? "").trim();
+  const currentSemester = input.currentSemester == null ? null : Number(input.currentSemester);
+  const modifiedByUserId = input.modifiedByUserId == null ? null : String(input.modifiedByUserId).trim();
+  const mentorName = input.mentorName == null ? null : String(input.mentorName).trim();
   if (registrationNumber.length > 15) {
     throw new Error("Registration number must be at most 15 characters.");
   }
@@ -170,12 +211,12 @@ export async function upsertStudentDirectoryRow(
   if (programme != null && (!Number.isFinite(programme) || !Number.isInteger(programme))) {
     throw new Error("Programme must be an integer.");
   }
-  if (section.length > 6) {
-    throw new Error("Section must be at most 6 characters.");
+  if (currentSemester != null && (!Number.isFinite(currentSemester) || !Number.isInteger(currentSemester) || currentSemester < 1)) {
+    throw new Error("Current semester must be a positive integer.");
   }
 
   const existingRes = await db.execute({
-    sql: `select batch, programme_duration, programme, mentor_id
+    sql: `select batch, programme, mentor_id, graduated
           from students
           where user_id = ?
           limit 1`,
@@ -183,25 +224,22 @@ export async function upsertStudentDirectoryRow(
   });
   const existing = existingRes.rows[0] as Record<string, unknown> | undefined;
   const existingBatch = existing?.batch == null ? null : Number(existing.batch);
-  const existingDuration = existing?.programme_duration == null ? null : Number(existing.programme_duration);
   const existingProgramme = existing?.programme == null ? null : Number(existing.programme);
+  const existingGraduated = Number(existing?.graduated ?? 0) === 1 ? 1 : 0;
 
   const effectiveBatch = batch ?? existingBatch ?? 2010;
-  const effectiveDuration = duration ?? existingDuration ?? 0;
   const effectiveProgramme = programme ?? existingProgramme ?? 0;
+  const effectiveGraduated = graduated == null ? existingGraduated : (graduated === "yes" ? 1 : 0);
 
   if (effectiveBatch == null || !Number.isFinite(effectiveBatch)) {
     throw new Error("Batch is required before saving. Fill Batch first.");
-  }
-  if (effectiveDuration == null || !Number.isFinite(effectiveDuration)) {
-    throw new Error("Duration is required before saving. Fill Duration first.");
   }
   if (effectiveBatch < 2010 || effectiveBatch > 2050) {
     throw new Error("Batch must be between 2010 and 2050.");
   }
 
-  let mentorId: string | null = null;
-  if (mentorName) {
+  let mentorId: string | null = existing?.mentor_id == null ? null : String(existing.mentor_id);
+  if (mentorName !== null && mentorName.length > 0) {
     const mentorRes = await db.execute({
       sql: `select id
             from user_accounts
@@ -215,32 +253,33 @@ export async function upsertStudentDirectoryRow(
     if (!mentorId) {
       throw new Error("Mentor name must match an active faculty user full name.");
     }
+  } else if (mentorName === "") {
+    mentorId = null;
   }
 
   await db.execute({
-    sql: `insert into students(user_id, registration_number, plan_of_study_code, gender, section, mobile_number, batch, programme_duration, programme, mentor_id)
-          values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    sql: `insert into students(user_id, registration_number, plan_of_study_code, current_semester, batch, programme, graduated, mentor_id, modified_by, modified_at)
+          values(?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp)
           on conflict(user_id) do update set
             registration_number = excluded.registration_number,
             plan_of_study_code = excluded.plan_of_study_code,
-            gender = excluded.gender,
-            section = excluded.section,
-            mobile_number = excluded.mobile_number,
+            current_semester = excluded.current_semester,
             batch = excluded.batch,
-            programme_duration = excluded.programme_duration,
             programme = excluded.programme,
-            mentor_id = excluded.mentor_id`,
+            graduated = excluded.graduated,
+            mentor_id = excluded.mentor_id,
+            modified_by = excluded.modified_by,
+            modified_at = current_timestamp`,
     args: [
       userId,
       registrationNumber,
       planOfStudyCode,
-      gender || null,
-      section || null,
-      mobileNumber || null,
+      currentSemester ?? 1,
       effectiveBatch,
-      effectiveDuration,
       effectiveProgramme,
+      effectiveGraduated,
       mentorId,
+      modifiedByUserId,
     ],
   });
 }

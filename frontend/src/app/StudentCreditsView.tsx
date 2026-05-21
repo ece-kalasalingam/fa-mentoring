@@ -1,0 +1,988 @@
+import { useMemo, useState } from "react";
+import {
+  Avatar, Box, Button, Card, CardContent, Chip, CircularProgress, IconButton,
+  LinearProgress, Paper, Stack, Tab, Table, TableBody, TableCell, TableContainer,
+  TableHead, TableRow, Tabs, TextField, Tooltip, Typography,
+} from "@mui/material";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
+import SaveIcon from "@mui/icons-material/Save";
+import { alpha } from "@mui/material/styles";
+import { getInitials } from "./utils";
+import type { PlanOfStudy, Regulation, StudentDirectoryRow } from "./types";
+
+type Props = {
+  student: StudentDirectoryRow;
+  plan: PlanOfStudy | null;
+  regulation: Regulation | null;
+  earnedCreditsBySemester: Record<number, Record<string, number>>;
+  savedCreditsBySemester: Record<number, Record<string, number>>;
+  isSaving: boolean;
+  studentIndex?: number;
+  studentCount?: number;
+  onChangeEarnedCredit: (semester: number, categoryCode: string, value: number) => void;
+  onSaveEarnedCredits: () => void;
+  onNavigate?: (direction: -1 | 1) => void;
+};
+
+const TAB_IDS   = ["credits-tab-0",   "credits-tab-1"] as const;
+const PANEL_IDS = ["credits-panel-0", "credits-panel-1"] as const;
+
+const INPUT_SX = {
+  width: 68,
+  "& .MuiOutlinedInput-input": { textAlign: "center", py: "5px", px: "6px", fontSize: "0.8125rem" },
+  "& input[type=number]": { MozAppearance: "textfield" },
+  "& input[type=number]::-webkit-outer-spin-button": { WebkitAppearance: "none", margin: 0 },
+  "& input[type=number]::-webkit-inner-spin-button": { WebkitAppearance: "none", margin: 0 },
+} as const;
+
+export default function StudentCreditsView(props: Props) {
+  const [tab, setTab] = useState(0);
+  const [selectedSemNum, setSelectedSemNum] = useState<number | null>(null);
+
+  const minSemester = useMemo(() => {
+    if (!props.plan || props.plan.semesters.length === 0) return 1;
+    return Math.min(...props.plan.semesters.map((s) => Number(s.semester)).filter((v) => Number.isFinite(v)));
+  }, [props.plan]);
+
+  const maxPlanSemester = useMemo(() => {
+    if (!props.plan || props.plan.semesters.length === 0) return null;
+    return Math.max(...props.plan.semesters.map((s) => Number(s.semester)).filter((v) => Number.isFinite(v)));
+  }, [props.plan]);
+
+  const currentSemesterBoundary = useMemo(() => {
+    const current = Number(props.student.currentSemester ?? minSemester);
+    return Math.max(minSemester, Number.isFinite(current) ? Math.floor(current) : minSemester);
+  }, [props.student.currentSemester, minSemester]);
+
+  const activeSemNum = selectedSemNum ?? currentSemesterBoundary;
+
+  const categoryOrder = useMemo(() => {
+    const regulationOrder = props.regulation?.curriculumStructure.categories.map((c) => c.code) ?? [];
+    const planCodes = new Set<string>();
+    for (const semester of props.plan?.semesters ?? []) {
+      for (const code of Object.keys(semester.categories ?? {})) planCodes.add(code);
+    }
+    return [...regulationOrder, ...Array.from(planCodes).filter((code) => !regulationOrder.includes(code))];
+  }, [props.regulation, props.plan]);
+
+  const categoryNameByCode = useMemo(() => {
+    const byCode: Record<string, string> = {};
+    for (const item of props.regulation?.curriculumStructure.categories ?? []) {
+      byCode[item.code] = item.name;
+    }
+    return byCode;
+  }, [props.regulation]);
+
+  const sortedSemesters = useMemo(
+    () => (props.plan?.semesters ?? []).slice().sort((a, b) => a.semester - b.semester),
+    [props.plan],
+  );
+
+  const activeCategoryCodes = useMemo(
+    () =>
+      categoryOrder.filter(
+        (code) =>
+          sortedSemesters.some((sem) => Number(sem.categories?.[code] ?? 0) > 0) ||
+          Object.values(props.earnedCreditsBySemester).some((bySem) => Number(bySem[code] ?? 0) > 0),
+      ),
+    [categoryOrder, sortedSemesters, props.earnedCreditsBySemester],
+  );
+
+  const semesterSummaries = useMemo(
+    () =>
+      sortedSemesters.map((sem) => {
+        const toBeEarned = Object.values(sem.categories ?? {}).reduce((s, v) => s + Number(v), 0);
+        const earned = activeCategoryCodes.reduce(
+          (s, code) => s + Number(props.earnedCreditsBySemester[sem.semester]?.[code] ?? 0),
+          0,
+        );
+        return { semester: sem.semester, toBeEarned, earned };
+      }),
+    [sortedSemesters, activeCategoryCodes, props.earnedCreditsBySemester],
+  );
+
+  const overallEarned = useMemo(
+    () => semesterSummaries.reduce((s, sem) => s + sem.earned, 0),
+    [semesterSummaries],
+  );
+
+  const overallRequired = useMemo(
+    () =>
+      props.regulation?.curriculumStructure.totalCreditsRequired ??
+      semesterSummaries.reduce((s, sem) => s + sem.toBeEarned, 0),
+    [props.regulation, semesterSummaries],
+  );
+
+  const analyticsData = useMemo(
+    () =>
+      categoryOrder
+        .map((code) => {
+          const planTotal = sortedSemesters.reduce((s, sem) => s + Number(sem.categories?.[code] ?? 0), 0);
+          const earnedTotal = Object.entries(props.earnedCreditsBySemester)
+            .filter(([sem]) => Number(sem) < currentSemesterBoundary)
+            .reduce((s, [, bySem]) => s + Number(bySem[code] ?? 0), 0);
+          const onStudy = Number(props.earnedCreditsBySemester[currentSemesterBoundary]?.[code] ?? 0);
+          return { code, name: categoryNameByCode[code] ?? code, planTotal, earnedTotal, onStudy };
+        })
+        .filter((row) => row.planTotal > 0 || row.onStudy > 0),
+    [categoryOrder, sortedSemesters, props.earnedCreditsBySemester, currentSemesterBoundary, categoryNameByCode],
+  );
+
+  const totalOnStudy = useMemo(
+    () =>
+      Object.values(props.earnedCreditsBySemester[currentSemesterBoundary] ?? {}).reduce(
+        (s, v) => s + Number(v),
+        0,
+      ),
+    [props.earnedCreditsBySemester, currentSemesterBoundary],
+  );
+
+  const isDirty = useMemo(() => {
+    const allSems = new Set([
+      ...Object.keys(props.earnedCreditsBySemester).map(Number),
+      ...Object.keys(props.savedCreditsBySemester).map(Number),
+    ]);
+    for (const sem of allSems) {
+      const earned = props.earnedCreditsBySemester[sem] ?? {};
+      const saved  = props.savedCreditsBySemester[sem]  ?? {};
+      const allCodes = new Set([...Object.keys(earned), ...Object.keys(saved)]);
+      for (const code of allCodes) {
+        if (Number(earned[code] ?? 0) !== Number(saved[code] ?? 0)) return true;
+      }
+    }
+    return false;
+  }, [props.earnedCreditsBySemester, props.savedCreditsBySemester]);
+
+  if (!props.plan) {
+    return (
+      <Card sx={{ boxShadow: "none", border: "none", backgroundImage: "none" }}>
+        <CardContent>
+          <Stack spacing={3}>
+            <Box sx={{ p: { xs: 2, sm: 2.5 }, borderRadius: 2, border: "1px solid", borderColor: "divider", bgcolor: "action.hover" }}>
+              <Typography variant="h6">Degree Audit</Typography>
+              <Typography variant="body2" color="text.secondary">No plan of study assigned to this student.</Typography>
+            </Box>
+          </Stack>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const categoryDeficit = analyticsData.reduce(
+    (sum, row) => sum + Math.max(0, row.planTotal - row.earnedTotal - row.onStudy),
+    0,
+  );
+  const progressPct  = overallRequired > 0 ? Math.min(100, (overallEarned / overallRequired) * 100) : 0;
+  const isComplete   = overallEarned >= overallRequired && overallRequired > 0 && categoryDeficit === 0;
+  const remaining    = Math.max(Math.max(0, overallRequired - overallEarned), categoryDeficit);
+  const pastEarned   = Math.max(0, overallEarned - totalOnStudy);
+  const semesterLabel =
+    maxPlanSemester != null
+      ? `Semester ${currentSemesterBoundary} of ${maxPlanSemester}`
+      : `Semester ${currentSemesterBoundary}`;
+
+  // Active semester derived values
+  const activeSem        = sortedSemesters.find((s) => s.semester === activeSemNum) ?? sortedSemesters[0];
+  const isActivePast     = activeSemNum < currentSemesterBoundary;
+  const isActiveCurrent  = activeSemNum === currentSemesterBoundary;
+  const isActiveFuture   = activeSemNum > currentSemesterBoundary;
+  const activeSummary    = semesterSummaries.find((s) => s.semester === activeSemNum);
+  const activeSemEarned  = activeSummary?.earned ?? 0;
+  const activeSemTarget  = activeSummary?.toBeEarned ?? 0;
+  const activeSemComplete = activeSemEarned >= activeSemTarget && activeSemTarget > 0;
+  const activeSemPct     = activeSemTarget > 0 ? Math.min(100, (activeSemEarned / activeSemTarget) * 100) : 0;
+  const activeSemCodes   = isActiveFuture
+    ? activeCategoryCodes.filter((code) => Number(activeSem?.categories?.[code] ?? 0) > 0)
+    : activeCategoryCodes;
+
+  return (
+    <Card sx={{ boxShadow: "none", border: "none", backgroundImage: "none" }}>
+      <CardContent>
+        <Stack spacing={3}>
+
+          {/* ── Header panel — same pattern as all other pages ── */}
+          <Box
+            sx={{
+              p: { xs: 2, sm: 2.5 },
+              borderRadius: 2,
+              border: "1px solid",
+              borderColor: "divider",
+              bgcolor: "action.hover",
+            }}
+          >
+            {/* Navigation strip */}
+            {props.studentCount != null && props.studentCount > 1 && (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
+                <Tooltip title="Previous student" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => props.onNavigate?.(-1)}
+                      disabled={(props.studentIndex ?? 0) <= 0}
+                      aria-label="Previous student"
+                      sx={{ p: 0.375 }}
+                    >
+                      <ChevronLeftIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Typography variant="caption" color="text.secondary" sx={{ flex: 1, textAlign: "center" }}>
+                  {(props.studentIndex ?? 0) + 1} of {props.studentCount} students
+                </Typography>
+                <Tooltip title="Next student" arrow>
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => props.onNavigate?.(1)}
+                      disabled={(props.studentIndex ?? 0) >= (props.studentCount ?? 1) - 1}
+                      aria-label="Next student"
+                      sx={{ p: 0.375 }}
+                    >
+                      <ChevronRightIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Box>
+            )}
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.5}
+              sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "center" } }}
+            >
+              {/* Student identity */}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
+                <Avatar
+                  sx={{ width: 44, height: 44, bgcolor: "primary.main", fontSize: "1rem", fontWeight: 700, flexShrink: 0 }}
+                  aria-hidden="true"
+                >
+                  {getInitials(props.student.fullName)}
+                </Avatar>
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h6" sx={{ lineHeight: 1.25 }} noWrap>
+                    {props.student.fullName}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ fontFamily: "monospace" }} noWrap>
+                    {props.student.registrationNumber || "No registration number"}
+                  </Typography>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.5, flexWrap: "wrap" }}>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {props.plan.planName}
+                    </Typography>
+                    <Chip
+                      label={semesterLabel}
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      sx={{ height: 18, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
+                    />
+                  </Box>
+                </Box>
+              </Box>
+
+              {/* Overall degree progress */}
+              <Box sx={{ minWidth: 180, flexShrink: 0 }}>
+                <Box sx={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", gap: 0.5, mb: 0.5 }}>
+                  {isComplete && (
+                    <CheckCircleIcon sx={{ fontSize: "0.9rem", color: "success.main" }} aria-hidden="true" />
+                  )}
+                  <Typography
+                    variant="h5"
+                    sx={{ fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}
+                    color={isComplete ? "success.main" : "text.primary"}
+                    aria-label={`${overallEarned} of ${overallRequired} credits earned`}
+                  >
+                    {overallEarned}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    / {overallRequired} credits
+                  </Typography>
+                </Box>
+                <LinearProgress
+                  variant="determinate"
+                  value={progressPct}
+                  color={isComplete ? "success" : "primary"}
+                  aria-label={`Degree progress: ${Math.round(progressPct)}%`}
+                  sx={{ borderRadius: 4, height: 7 }}
+                />
+                <Typography
+                  variant="caption"
+                  color={isComplete ? "success.main" : "text.secondary"}
+                  sx={{ display: "block", textAlign: "right", mt: 0.375 }}
+                >
+                  {isComplete
+                    ? "All credits complete"
+                    : overallEarned >= overallRequired && categoryDeficit > 0
+                      ? `${categoryDeficit} credit${categoryDeficit === 1 ? "" : "s"} still needed in specific categories`
+                      : `${Math.round(progressPct)}% · ${remaining} credit${remaining === 1 ? "" : "s"} remaining`}
+                </Typography>
+                <Box sx={{ display: "flex", justifyContent: "flex-end", mt: 1 }}>
+                  <Tooltip title={isDirty ? "Save credit changes to the database" : "No unsaved changes"} arrow>
+                    <span>
+                      <Button
+                        type="button"
+                        size="small"
+                        variant={isDirty ? "contained" : "outlined"}
+                        color="primary"
+                        startIcon={props.isSaving
+                          ? <CircularProgress size={13} color="inherit" />
+                          : <SaveIcon fontSize="small" />
+                        }
+                        disabled={!isDirty || props.isSaving}
+                        onClick={props.onSaveEarnedCredits}
+                        sx={{ minWidth: 110 }}
+                      >
+                        {props.isSaving ? "Saving…" : "Save edits"}
+                      </Button>
+                    </span>
+                  </Tooltip>
+                </Box>
+              </Box>
+            </Stack>
+          </Box>
+
+          {/* ── Tab content — same Paper wrapper as My Account page ── */}
+          <Paper variant="outlined" sx={{ p: { xs: 1.5, sm: 2 } }}>
+            <Tabs
+              value={tab}
+              onChange={(_e, v) => setTab(v as number)}
+              aria-label="Degree audit sections"
+              sx={{ borderBottom: "1px solid", borderColor: "divider", mb: 0 }}
+            >
+              <Tab label="Plan of Study" id={TAB_IDS[0]} aria-controls={PANEL_IDS[0]} />
+              <Tab label="Analytics"    id={TAB_IDS[1]} aria-controls={PANEL_IDS[1]} />
+            </Tabs>
+
+        {/* ── Plan of Study panel ── */}
+        <Box
+          role="tabpanel"
+          id={PANEL_IDS[0]}
+          aria-labelledby={TAB_IDS[0]}
+          hidden={tab !== 0}
+          tabIndex={0}
+          sx={{ outline: "none" }}
+        >
+          {tab === 0 && (
+            <Stack spacing={1.5} sx={{ pt: 1.5 }}>
+
+              {/* Semester selector pills */}
+              <Box
+                sx={{
+                  display: "flex",
+                  gap: 0.75,
+                  overflowX: "auto",
+                  pb: 0.5,
+                  "&::-webkit-scrollbar": { display: "none" },
+                  scrollbarWidth: "none",
+                }}
+                role="tablist"
+                aria-label="Semester selector"
+              >
+                {sortedSemesters.map((sem) => {
+                  const s        = semesterSummaries.find((x) => x.semester === sem.semester);
+                  const isDone   = (s?.earned ?? 0) >= (s?.toBeEarned ?? 0) && (s?.toBeEarned ?? 0) > 0;
+                  const isPast   = sem.semester < currentSemesterBoundary;
+                  const isCurr   = sem.semester === currentSemesterBoundary;
+                  const isActive = sem.semester === activeSemNum;
+
+                  return (
+                    <Chip
+                      key={sem.semester}
+                      label={`Sem ${sem.semester}${isCurr ? " ★" : ""}`}
+                      size="small"
+                      onClick={() => setSelectedSemNum(sem.semester)}
+                      color={
+                        isActive   ? "primary"
+                        : isDone   ? "success"
+                        : isPast   ? "warning"
+                        : "default"
+                      }
+                      variant={isActive ? "filled" : "outlined"}
+                      icon={isDone && !isActive
+                        ? <CheckCircleIcon sx={{ fontSize: "0.65rem !important" }} />
+                        : undefined
+                      }
+                      sx={{ flexShrink: 0, fontWeight: isActive ? 700 : 400, fontSize: "0.72rem" }}
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-label={`Semester ${sem.semester}${isCurr ? ", current" : isDone ? ", complete" : isPast ? ", incomplete" : ", planned"}`}
+                    />
+                  );
+                })}
+              </Box>
+
+              {/* Selected semester detail */}
+              {activeSem && (
+                <Box
+                  sx={{
+                    border: "1px solid",
+                    borderColor: isActiveCurrent ? "primary.main" : "divider",
+                    borderRadius: 2,
+                    overflow: "hidden",
+                  }}
+                >
+                  {/* Semester card header */}
+                  <Box
+                    sx={(theme) => ({
+                      px: 1.5,
+                      py: 1,
+                      bgcolor: isActiveCurrent
+                        ? alpha(theme.palette.primary.main, 0.06)
+                        : "action.hover",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 1,
+                      flexWrap: "wrap",
+                    })}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                        Semester {activeSemNum}
+                      </Typography>
+                      {isActiveCurrent && (
+                        <Chip label="Current" size="small" color="primary" sx={{ height: 18, fontSize: "0.65rem" }} />
+                      )}
+                      {isActivePast && activeSemComplete && (
+                        <Chip
+                          icon={<CheckCircleIcon sx={{ fontSize: "0.65rem !important" }} />}
+                          label="Complete"
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                      )}
+                      {isActivePast && !activeSemComplete && (
+                        <Chip
+                          label="Incomplete"
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          sx={{ height: 18, fontSize: "0.65rem" }}
+                        />
+                      )}
+                      {isActiveFuture && (
+                        <Chip
+                          label="Planned"
+                          size="small"
+                          variant="outlined"
+                          sx={{ height: 18, fontSize: "0.65rem", borderColor: "divider", color: "text.disabled" }}
+                        />
+                      )}
+                    </Box>
+
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                      color={
+                        isActiveFuture    ? "text.secondary"
+                        : activeSemComplete ? "success.main"
+                        : activeSemEarned > activeSemTarget && activeSemTarget > 0 ? "info.main"
+                        : activeSemEarned > 0 ? "warning.main"
+                        : "text.secondary"
+                      }
+                    >
+                      {isActiveFuture
+                        ? `${activeSemTarget} cr planned`
+                        : `${activeSemEarned} / ${activeSemTarget} cr`}
+                    </Typography>
+                  </Box>
+
+                  {/* Semester progress bar — past/current only */}
+                  {!isActiveFuture && activeSemTarget > 0 && (
+                    <LinearProgress
+                      variant="determinate"
+                      value={activeSemPct}
+                      color={activeSemComplete ? "success" : "primary"}
+                      sx={{ height: 3 }}
+                      aria-label={`Semester ${activeSemNum}: ${Math.round(activeSemPct)}%`}
+                    />
+                  )}
+
+                  {/* Category table */}
+                  <Table
+                    size="small"
+                    aria-label={`Semester ${activeSemNum} credit breakdown`}
+                    sx={{ tableLayout: "fixed" }}
+                  >
+                    <TableHead>
+                      <TableRow
+                        sx={{
+                          "& .MuiTableCell-root": {
+                            py: 0.625,
+                            fontSize: "0.7rem",
+                            fontWeight: 600,
+                            color: "text.secondary",
+                            bgcolor: "action.hover",
+                          },
+                        }}
+                      >
+                        <TableCell scope="col" sx={{ pl: 1.5, width: "auto" }}>Category</TableCell>
+                        <TableCell scope="col" align="right" sx={{ width: 48 }}>Plan</TableCell>
+                        {!isActiveFuture && (
+                          <TableCell scope="col" align="center" sx={{ width: 80 }}>Earned</TableCell>
+                        )}
+                        {!isActiveFuture && (
+                          <TableCell scope="col" align="right" sx={{ width: 60, pr: 1.5 }}>Status</TableCell>
+                        )}
+                      </TableRow>
+                    </TableHead>
+
+                    <TableBody>
+                      {activeSemCodes.map((code) => {
+                        const target       = Number(activeSem?.categories?.[code] ?? 0);
+                        const earned       = Number(props.earnedCreditsBySemester[activeSemNum]?.[code] ?? 0);
+                        const categoryName = categoryNameByCode[code] ?? code;
+                        const met     = target > 0 && earned >= target;
+                        const over    = met && earned > target;
+                        const partial = target > 0 && earned > 0 && earned < target;
+                        const extra   = target === 0 && earned > 0;
+                        const diff    = earned - target;
+
+                        return (
+                          <TableRow
+                            key={code}
+                            sx={(theme) => ({
+                              bgcolor: met
+                                ? alpha(theme.palette.success.main, 0.04)
+                                : partial
+                                  ? alpha(theme.palette.warning.main, 0.04)
+                                  : extra
+                                    ? alpha(theme.palette.info.main, 0.04)
+                                    : "transparent",
+                              "& .MuiTableCell-root": { py: 0.75, borderBottom: "1px solid", borderBottomColor: "divider" },
+                            })}
+                          >
+                            {/* Category */}
+                            <TableCell sx={{ pl: 1.5, overflow: "hidden" }}>
+                              <Typography variant="body2" sx={{ fontWeight: 500, lineHeight: 1.2 }} noWrap>
+                                {categoryName}
+                              </Typography>
+                              <Typography variant="caption" color="text.disabled" sx={{ fontFamily: "monospace", fontSize: "0.65rem" }}>
+                                {code}{target === 0 && !isActiveFuture && " · unplanned"}
+                              </Typography>
+                            </TableCell>
+
+                            {/* Plan */}
+                            <TableCell align="right">
+                              <Typography
+                                variant="body2"
+                                color={target > 0 ? "text.secondary" : "text.disabled"}
+                                sx={{ fontVariantNumeric: "tabular-nums" }}
+                              >
+                                {target > 0 ? target : "—"}
+                              </Typography>
+                            </TableCell>
+
+                            {/* Earned (editable) */}
+                            {!isActiveFuture && (
+                              <TableCell align="center">
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  value={earned}
+                                  aria-label={`${categoryName}, semester ${activeSemNum} — earned.${target > 0 ? ` Plan: ${target}.` : " Unplanned."}`}
+                                  onChange={(e) => {
+                                    const parsed = Number(e.target.value);
+                                    props.onChangeEarnedCredit(
+                                      activeSemNum,
+                                      code,
+                                      Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0,
+                                    );
+                                  }}
+                                  sx={{
+                                    ...INPUT_SX,
+                                    "& .MuiOutlinedInput-root": {
+                                      ...(met     ? { "& fieldset": { borderColor: "success.main" } } : {}),
+                                      ...(partial ? { "& fieldset": { borderColor: "warning.main" } } : {}),
+                                      ...(extra   ? { "& fieldset": { borderColor: "info.main"    } } : {}),
+                                    },
+                                  }}
+                                />
+                              </TableCell>
+                            )}
+
+                            {/* Status */}
+                            {!isActiveFuture && (
+                              <TableCell align="right" sx={{ pr: 1.5, whiteSpace: "nowrap" }}>
+                                {met && !over && (
+                                  <CheckCircleIcon sx={{ fontSize: "1rem", color: "success.main", verticalAlign: "middle" }} aria-label="Target met" />
+                                )}
+                                {over && (
+                                  <Typography variant="caption" color="info.main" sx={{ fontVariantNumeric: "tabular-nums" }}>+{diff}</Typography>
+                                )}
+                                {partial && (
+                                  <Typography variant="caption" color="warning.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{Math.abs(diff)}</Typography>
+                                )}
+                                {extra && (
+                                  <Typography variant="caption" color="info.main" sx={{ fontVariantNumeric: "tabular-nums" }}>+{earned}</Typography>
+                                )}
+                                {!met && !partial && !extra && target > 0 && (
+                                  <Typography variant="caption" color="text.disabled">—</Typography>
+                                )}
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        );
+                      })}
+
+                      {/* Semester total */}
+                      <TableRow
+                        sx={{
+                          "& .MuiTableCell-root": {
+                            py: 0.75,
+                            borderTop: "2px solid",
+                            borderTopColor: "divider",
+                            borderBottom: "none",
+                          },
+                        }}
+                      >
+                        <TableCell sx={{ pl: 1.5 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary" }}>
+                            Total
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                            {activeSemTarget}
+                          </Typography>
+                        </TableCell>
+                        {!isActiveFuture && (
+                          <>
+                            <TableCell align="center">
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                                color={
+                                  activeSemComplete   ? "success.main"
+                                  : activeSemEarned > 0 ? "warning.main"
+                                  : "text.secondary"
+                                }
+                              >
+                                {activeSemEarned}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right" sx={{ pr: 1.5 }}>
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                                color={
+                                  activeSemComplete ? "success.main"
+                                  : activeSemEarned > activeSemTarget && activeSemTarget > 0 ? "info.main"
+                                  : activeSemEarned > 0 ? "warning.main"
+                                  : "text.secondary"
+                                }
+                              >
+                                {activeSemComplete
+                                  ? activeSemEarned > activeSemTarget ? `+${activeSemEarned - activeSemTarget}` : "✓"
+                                  : activeSemEarned > 0 ? `−${activeSemTarget - activeSemEarned}` : "—"}
+                              </Typography>
+                            </TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </Box>
+              )}
+
+              {/* Degree total strip */}
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  pt: 0.5,
+                  borderTop: "1px solid",
+                  borderTopColor: "divider",
+                }}
+              >
+                <Typography variant="caption" color={isComplete ? "success.main" : "text.secondary"}>
+                  {isComplete ? "All requirements met" : `${remaining} cr. remaining · ${Math.round(progressPct)}%`}
+                </Typography>
+                <Typography
+                  variant="caption"
+                  sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                  color={isComplete ? "success.main" : "text.secondary"}
+                >
+                  {overallEarned} / {overallRequired} total
+                </Typography>
+              </Box>
+            </Stack>
+          )}
+        </Box>
+
+        {/* ── Analytics panel ── */}
+        <Box
+          role="tabpanel"
+          id={PANEL_IDS[1]}
+          aria-labelledby={TAB_IDS[1]}
+          hidden={tab !== 1}
+          tabIndex={0}
+          sx={{ outline: "none" }}
+        >
+          {tab === 1 && (
+            <Stack spacing={2} sx={{ pt: 1.5 }}>
+
+              {/* 2×2 stat grid */}
+              <Box
+                component="dl"
+                sx={{ display: "flex", flexWrap: "wrap", gap: 1, m: 0 }}
+              >
+                {([
+                  { label: "Required",  value: overallRequired,  sub: "total credits",          color: "text.primary"  },
+                  { label: "Earned",    value: pastEarned,        sub: "past semesters",         color: isComplete ? "success.main" : "text.primary" },
+                  { label: "On Study",  value: totalOnStudy,      sub: `sem ${currentSemesterBoundary}`, color: "info.main" },
+                  { label: "Remaining", value: remaining,         sub: remaining === 0 ? "done!" : "credits needed", color: remaining === 0 ? "success.main" : "error.main" },
+                ] as const).map(({ label, value, sub, color }) => (
+                  <Box
+                    key={label}
+                    sx={{ flex: "1 1 150px", p: 1.25, border: "1px solid", borderColor: "divider", borderRadius: 1.5, bgcolor: "background.paper" }}
+                  >
+                    <Typography component="dt" variant="caption" color="text.secondary" sx={{ display: "block" }}>
+                      {label}
+                    </Typography>
+                    <Typography
+                      component="dd"
+                      variant="h5"
+                      sx={{ fontWeight: 800, m: 0, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}
+                      color={color}
+                    >
+                      {value}
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.125 }}>
+                      {sub}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              {/* Mobile: stacked cards */}
+              <Stack spacing={1} aria-label="Per-category credit breakdown" sx={{ display: { xs: "flex", md: "none" }, flexDirection: "column" }}>
+                {analyticsData.map(({ code, name, planTotal, earnedTotal, onStudy }) => {
+                  const complete = planTotal > 0 && earnedTotal >= planTotal;
+                  const deficit  = Math.max(0, planTotal - earnedTotal - onStudy);
+                  const pct      = planTotal > 0 ? Math.min(100, (earnedTotal / planTotal) * 100) : 0;
+
+                  return (
+                    <Box
+                      key={code}
+                      sx={(theme) => ({
+                        border: "1px solid",
+                        borderColor: complete ? theme.palette.success.main : "divider",
+                        borderRadius: 1.5,
+                        overflow: "hidden",
+                      })}
+                    >
+                      {/* Header: name + status chip */}
+                      <Box
+                        sx={(theme) => ({
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          px: 1.5,
+                          py: 0.875,
+                          bgcolor: complete
+                            ? alpha(theme.palette.success.main, 0.06)
+                            : "action.hover",
+                        })}
+                      >
+                        <Box sx={{ minWidth: 0, mr: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }} noWrap>
+                            {name}
+                          </Typography>
+                          <Typography
+                            variant="caption"
+                            color="text.disabled"
+                            sx={{ fontFamily: "monospace", fontSize: "0.65rem" }}
+                          >
+                            {code}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ flexShrink: 0 }}>
+                          {complete ? (
+                            <Chip
+                              icon={<CheckCircleIcon sx={{ fontSize: "0.75rem !important" }} />}
+                              label="Done"
+                              size="small"
+                              color="success"
+                              sx={{ height: 20, fontSize: "0.68rem", "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                          ) : deficit > 0 ? (
+                            <Chip
+                              label={`−${deficit} cr`}
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.68rem", "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                          ) : onStudy > 0 ? (
+                            <Chip
+                              label="On Study"
+                              size="small"
+                              color="info"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.68rem", "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                          ) : (
+                            <Chip
+                              label="Planned"
+                              size="small"
+                              variant="outlined"
+                              sx={{
+                                height: 20,
+                                fontSize: "0.68rem",
+                                "& .MuiChip-label": { px: 0.75 },
+                                color: "text.disabled",
+                                borderColor: "divider",
+                              }}
+                            />
+                          )}
+                        </Box>
+                      </Box>
+
+                      {/* Progress bar */}
+                      <LinearProgress
+                        variant="determinate"
+                        value={pct}
+                        color={complete ? "success" : earnedTotal > 0 ? "primary" : "inherit"}
+                        sx={{ height: 3 }}
+                        aria-label={`${name}: ${Math.round(pct)}%`}
+                      />
+
+                      {/* 4-stat row: Plan / Earned / On Study / Need */}
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(4, 1fr)",
+                          px: 1.5,
+                          py: 0.875,
+                        }}
+                      >
+                        {(([
+                          { label: "Plan",     value: planTotal,   color: "text.secondary"                                                                    },
+                          { label: "Earned",   value: earnedTotal, color: complete ? "success.main" : earnedTotal > 0 ? "text.primary" : "text.disabled"      },
+                          { label: "On Study", value: onStudy,     color: onStudy > 0 ? "info.main" : "text.disabled"                                         },
+                          { label: "Need",     value: deficit,     color: deficit > 0 ? "error.main" : "text.disabled"                                        },
+                        ]) as Array<{ label: string; value: number; color: string }>).map(({ label, value, color }) => (
+                          <Box key={label} sx={{ textAlign: "center" }}>
+                            <Typography
+                              variant="caption"
+                              color="text.disabled"
+                              sx={{ display: "block", fontSize: "0.6rem", lineHeight: 1.2, textTransform: "uppercase", letterSpacing: "0.04em" }}
+                            >
+                              {label}
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}
+                              color={color}
+                            >
+                              {value > 0 ? value : "—"}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Stack>
+
+              {/* Desktop: table view */}
+              <TableContainer sx={{ display: { xs: "none", md: "block" } }}>
+                <Table size="small" aria-label="Per-category credit breakdown">
+                  <TableHead>
+                    <TableRow
+                      sx={{
+                        "& .MuiTableCell-root": {
+                          fontWeight: 600,
+                          color: "text.secondary",
+                          fontSize: "0.75rem",
+                          bgcolor: "action.hover",
+                        },
+                      }}
+                    >
+                      <TableCell scope="col">Category</TableCell>
+                      <TableCell scope="col" align="right">Plan</TableCell>
+                      <TableCell scope="col" align="right">Earned</TableCell>
+                      <TableCell scope="col" align="right">On Study</TableCell>
+                      <TableCell scope="col" sx={{ minWidth: 100 }}>Progress</TableCell>
+                      <TableCell scope="col" align="right">Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {analyticsData.map(({ code, name, planTotal, earnedTotal, onStudy }) => {
+                      const complete = planTotal > 0 && earnedTotal >= planTotal;
+                      const deficit  = Math.max(0, planTotal - earnedTotal - onStudy);
+                      const pct      = planTotal > 0 ? Math.min(100, (earnedTotal / planTotal) * 100) : 0;
+                      return (
+                        <TableRow key={code}>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>{name}</Typography>
+                            <Typography variant="caption" color="text.disabled" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>{code}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{planTotal}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: complete ? 700 : 400, fontVariantNumeric: "tabular-nums" }}
+                              color={complete ? "success.main" : earnedTotal > 0 ? "text.primary" : "text.secondary"}
+                            >
+                              {earnedTotal}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography
+                              variant="body2"
+                              color={onStudy > 0 ? "info.main" : "text.disabled"}
+                              sx={{ fontVariantNumeric: "tabular-nums" }}
+                            >
+                              {onStudy > 0 ? onStudy : "—"}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <LinearProgress
+                              variant="determinate"
+                              value={pct}
+                              color={complete ? "success" : earnedTotal > 0 ? "primary" : "inherit"}
+                              aria-label={`${name}: ${Math.round(pct)}%`}
+                              sx={{ borderRadius: 3, height: 5 }}
+                            />
+                            {onStudy > 0 && !complete && (
+                              <Typography variant="caption" color="info.main" sx={{ fontSize: "0.62rem" }}>
+                                +{onStudy} on study
+                              </Typography>
+                            )}
+                          </TableCell>
+                          <TableCell align="right">
+                            {complete ? (
+                              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.25 }} aria-label="Complete">
+                                <CheckCircleIcon sx={{ fontSize: "0.875rem", color: "success.main" }} aria-hidden="true" />
+                                <Typography variant="body2" color="success.main" sx={{ fontWeight: 700 }}>Done</Typography>
+                              </Box>
+                            ) : deficit > 0 ? (
+                              <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{deficit}</Typography>
+                            ) : (
+                              <Typography variant="body2" color="text.disabled">—</Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Stack>
+          )}
+        </Box>
+          </Paper>
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}

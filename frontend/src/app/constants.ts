@@ -3,8 +3,17 @@ export const SESSION_REGULATIONS_CACHE_KEY = "fa_session_regulations";
 export const SESSION_PLAN_OF_STUDY_CACHE_KEY = "fa_session_plan_of_study";
 export const SESSION_PLAN_VALIDATION_CACHE_KEY = "fa_session_plan_validation";
 export const SESSION_PROGRAMMES_CACHE_KEY = "fa_session_programmes";
+export const SESSION_FACULTY_MENTORED_MINIMAL_KEY = "fa_session_faculty_mentored_minimal";
 export const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
 export const GOOGLE_IDP_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
+
+export const CREDIT_STATUSES = ["complete", "on-track", "marginal", "off-track"] as const;
+export const CREDIT_STATUS_LABELS: Record<string, string> = {
+  "complete": "Complete",
+  "on-track": "On Track",
+  "marginal": "Marginal",
+  "off-track": "Off Track",
+};
 
 export const ACTIVITY_LOGS_PAGE_SIZE = 25;
 export const ADMIN_DRAWER_WIDTH = 240;
@@ -20,3 +29,4 @@ export const ADMIN_CACHE_TTL_MS = {
   users: 30_000,
   facultyStudents: 30_000,
 } as const;
+
