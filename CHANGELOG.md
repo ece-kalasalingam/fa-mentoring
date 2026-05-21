@@ -3983,3 +3983,10 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Profile fields grid changed from responsive 2-col/3-col to a fixed 2-column layout to suit the narrower left column.
   - Added "View My Plan of Study" quick-action button that navigates to `regulations` view, placed between "View My Credits" and "My Profile".
 - Revert: none
+
+## 2026-05-21 | claude-sonnet-4-6 | fix
+- Summary: Fixed student dashboard quick-action buttons stacking without spacing on mobile.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Changed Stack from `direction="row" flexWrap="wrap"` to `direction={{ xs: "column", sm: "row" }}`. On mobile the buttons now stack vertically with consistent spacing and stretch full-width for easy touch targets. On sm+ they remain inline as before.
+- Revert: none

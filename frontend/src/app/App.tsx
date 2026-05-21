@@ -4677,7 +4677,7 @@ function App() {
                           </Box>{/* end two-column grid */}
 
                           {/* Quick actions */}
-                          <Stack direction="row" spacing={1.5} sx={{ flexWrap: "wrap" }}>
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                             <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { openStudentCredits(studentSelf); }}>
                               View My Credits
                             </Button>
