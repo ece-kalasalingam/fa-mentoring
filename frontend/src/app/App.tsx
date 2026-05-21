@@ -2429,6 +2429,10 @@ function App() {
     () => new Set(moderatorStudentRows.map((s) => s.batch).filter(Boolean)).size,
     [moderatorStudentRows],
   );
+  const facultyBatchCount = useMemo(
+    () => new Set(facultyStudentRows.map((s) => s.batch).filter(Boolean)).size,
+    [facultyStudentRows],
+  );
   const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
     if (hasFacultyRole) return "faculty";
     if (hasModeratorRole) return "moderator";
@@ -4342,75 +4346,113 @@ function App() {
                 ) : null}
                 {hasFacultyRole ? (
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
-                    <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2.5 }}>
+                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                      {/* Dashboard header */}
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
                         <Box>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75 }}>
-                            <SchoolIcon fontSize="small" color="primary" />
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>My Students</Typography>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
+                            <DashboardIcon fontSize="small" color="primary" />
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                              Faculty Dashboard
+                            </Typography>
+                            <Chip label="Faculty" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
                           </Stack>
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                            Students currently under your mentorship
+                          <Typography variant="body2" color="text.secondary">
+                            Overview of students currently under your mentorship
                           </Typography>
                         </Box>
-                        <Tooltip title="Refresh counts">
+                        <Tooltip title="Refresh all data">
                           <span>
-                            <IconButton size="small" aria-label="Refresh student counts" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
+                            <IconButton size="small" aria-label="Refresh faculty dashboard" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
                               <RefreshIcon fontSize="small" />
                             </IconButton>
                           </span>
                         </Tooltip>
                       </Stack>
+
+                      {/* Student stat cards */}
                       <Box
                         sx={{
                           display: "grid",
                           gridTemplateColumns: {
                             xs: "1fr",
-                            sm: `repeat(${Math.max(1, facultyMetricCardCount)}, minmax(0, 1fr))`,
+                            sm: facultyMetricCardCount === 0 ? "1fr" : `repeat(${facultyMetricCardCount + 1}, minmax(0, 1fr))`,
                           },
                           gap: 2,
+                          mb: 3,
                         }}
                       >
+                        {facultyMetricCardCount > 0 ? (
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "primary.main",
+                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
+                            }}
+                          >
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <GroupIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Total Mentored
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "primary.main" }}>
+                              {(facultyNotGraduatedCount + facultyGraduatedCount).toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                              Students assigned to you
+                            </Typography>
+                          </Paper>
+                        ) : null}
                         {facultyNotGraduatedCount !== 0 ? (
-                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "warning.main",
+                              bgcolor: (theme) => alpha(theme.palette.warning.main, 0.04),
+                            }}
+                          >
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
                                 In Progress
                               </Typography>
                             </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "warning.dark" }}>
                               {facultyNotGraduatedCount.toLocaleString()}
                             </Typography>
-                            <Button
-                              type="button"
-                              size="small"
-                              endIcon={<ArrowForwardIcon />}
-                              sx={{ p: 0, mt: 1 }}
-                              onClick={() => { void openScopedStudentsDirectory("faculty", "No"); }}
-                            >
-                              View in-progress students
+                            <Button type="button" size="small" color="warning" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory("faculty", "No"); }}>
+                              View students
                             </Button>
                           </Paper>
                         ) : null}
                         {facultyGraduatedCount !== 0 ? (
-                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "success.main",
+                              bgcolor: (theme) => alpha(theme.palette.success.main, 0.04),
+                            }}
+                          >
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
                                 Passed Out
                               </Typography>
                             </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "success.dark" }}>
                               {facultyGraduatedCount.toLocaleString()}
                             </Typography>
-                            <Button
-                              type="button"
-                              size="small"
-                              endIcon={<ArrowForwardIcon />}
-                              sx={{ p: 0, mt: 1 }}
-                              onClick={() => { void openScopedStudentsDirectory("faculty", "Yes"); }}
-                            >
+                            <Button type="button" size="small" color="success" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory("faculty", "Yes"); }}>
                               View passed out
                             </Button>
                           </Paper>
@@ -4421,20 +4463,38 @@ function App() {
                           </Typography>
                         ) : null}
                       </Box>
-                      <Box sx={{ mt: 2.5 }}>
-                        <Divider sx={{ mb: 2 }} />
-                        <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
-                          <FacultyAnalyticsReport
-                            students={facultyStudentRows}
-                            creditRows={facultyCreditTableRows}
-                            plansOfStudy={plansOfStudy}
-                            regulations={regulations}
-                            onViewStudents={(creditStatusFilter, batchFilter) => {
-                              void openScopedStudentsDirectory("faculty", null, creditStatusFilter ?? undefined, batchFilter);
-                            }}
-                          />
-                        </Suspense>
-                      </Box>
+
+                      {/* Batch status chart — width scales with batch count */}
+                      {facultyStudentRows.length > 0 ? (
+                        <Box sx={{ mb: 3, maxWidth: facultyBatchCount > 0 ? Math.min(facultyBatchCount * 320, 9999) : "100%" }}>
+                          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
+                            <FacultyAnalyticsReport
+                              students={facultyStudentRows}
+                              creditRows={facultyCreditTableRows}
+                              plansOfStudy={plansOfStudy}
+                              regulations={regulations}
+                              showBatchStatusByLabelCard
+                              chartOnly
+                            />
+                          </Suspense>
+                        </Box>
+                      ) : null}
+
+                      {/* Detailed batch analytics */}
+                      <Divider sx={{ mb: 2.5 }}>
+                        <Chip label="Batch Analytics" size="small" variant="outlined" />
+                      </Divider>
+                      <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
+                        <FacultyAnalyticsReport
+                          students={facultyStudentRows}
+                          creditRows={facultyCreditTableRows}
+                          plansOfStudy={plansOfStudy}
+                          regulations={regulations}
+                          onViewStudents={(creditStatusFilter, batchFilter) => {
+                            void openScopedStudentsDirectory("faculty", null, creditStatusFilter ?? undefined, batchFilter);
+                          }}
+                        />
+                      </Suspense>
                     </CardContent>
                   </Card>
                 ) : null}

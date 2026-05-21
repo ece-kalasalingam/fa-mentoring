@@ -3941,3 +3941,17 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - All credit values rendered via `formatCredits` from utils.ts (AGENTS.md Rule 9 compliant).
   - Zero-required categories filtered out; null plan gracefully shows a loading/empty state.
 - Revert: none
+
+## 2026-05-21 | claude-sonnet-4-6 | change
+- Summary: Redesigned faculty dashboard card to match the head/moderator visual style with proper header, colored stat cards, a batch status chart, and a labeled analytics divider.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced the SchoolIcon + subtitle1 "My Students" header with DashboardIcon + h6 "Faculty Dashboard" + Faculty role chip + subtitle + refresh button, matching head/moderator header pattern exactly.
+  - Changed inner CardContent padding from `p: { xs: 2, sm: 2.5 }` to `p: { xs: 2, sm: 3 }` for consistency.
+  - Added a "Total Mentored" summary card (blue tint, primary border) showing combined in-progress + passed-out count, visible when any metrics are non-zero.
+  - Updated "In Progress" and "Passed Out" stat cards to use color-tinted backgrounds (warning.main/success.main at 4% opacity) with matching colored borders, h3 count typography, and colored view buttons, identical to head/moderator card styling.
+  - Changed stat grid columns formula from `repeat(max(1, facultyMetricCardCount), ...)` to `repeat(facultyMetricCardCount + 1, ...)` to accommodate the new Total Mentored card.
+  - Added `facultyBatchCount` memo (unique non-null batch values from `facultyStudentRows`).
+  - Added a batch status chart (FacultyAnalyticsReport with `showBatchStatusByLabelCard chartOnly`) whose max-width scales as `facultyBatchCount × 320 px`, preventing chart stretching for small batch sets.
+  - Replaced the plain `Divider` before detailed analytics with a `Divider` containing a centered "Batch Analytics" `Chip` label, matching head/moderator layout.
+- Revert: none
