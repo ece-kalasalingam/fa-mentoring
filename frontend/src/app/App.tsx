@@ -27,7 +27,6 @@ import SchoolIcon from "@mui/icons-material/School";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
-import PersonOffIcon from "@mui/icons-material/PersonOff";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
 import { callApi, setCsrfToken } from "../shared/api/client";
@@ -136,11 +135,9 @@ function App() {
   const [menuAnchors, setMenuAnchors] = useState<Record<string, HTMLElement | null>>({});
   const [accountView, setAccountView] = useState<"profile" | "password" | "sessions">("profile");
   const [mySessions, setMySessions] = useState<MySession[]>([]);
-  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "student-credits" | "faculty-credit-table" | "account" | "session-admin" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
+  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "student-credits" | "faculty-credit-table" | "account" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
-  const [sessionTarget, setSessionTarget] = useState("");
-  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [logRows, setLogRows] = useState<LogRow[]>([]);
   const [logCursor, setLogCursor] = useState<string | null>(null);
   const [logHasMore, setLogHasMore] = useState(false);
@@ -2449,12 +2446,11 @@ function App() {
     }
   }
 
-  async function forceLogoutAllSessionsForUser(e: FormEvent) {
-    e.preventDefault();
+  async function logoutUserAllSessionsByIdentifier(rawIdentifier: string) {
     if (!(await ensureActiveServerSession())) {
       return;
     }
-    const identifier = sessionTarget.trim();
+    const identifier = rawIdentifier.trim();
     if (!identifier) {
       setStatus("Enter username, email, or subject.");
       return;
@@ -2478,7 +2474,6 @@ function App() {
         return;
       }
       setStatus(`Revoked ${res.revokedSessions ?? 0} active session(s) for ${res.identifier ?? identifier}.`);
-      setSessionTarget("");
       invalidateAdminCache(["active-users:first", "dashboard"]);
     } finally {
       setBusy(false);
@@ -2683,19 +2678,6 @@ function App() {
                 if (await ensureActiveServerSession()) {
                   navigateTo("active-users");
                   await loadActiveUsers();
-                }
-              })();
-            },
-          },
-          {
-            id: "session-admin",
-            label: "Force Logout User",
-            icon: <LogoutIcon fontSize="small" />,
-            active: superView === "session-admin",
-            onClick: () => {
-              void (async () => {
-                if (await ensureActiveServerSession()) {
-                  navigateTo("session-admin");
                 }
               })();
             },
@@ -4637,6 +4619,10 @@ function App() {
                     rows={userRows}
                     busy={busy}
                     onResetPassword={(row) => resetUserPassword(row)}
+                    onLogoutSessions={async (row) => {
+                      const identifier = (row.email ?? row.username ?? row.subject ?? "").trim();
+                      await logoutUserAllSessionsByIdentifier(identifier);
+                    }}
                     onSubmitRows={async (updates) => {
                       await submitUserRows(updates);
                     }}
@@ -5546,130 +5532,6 @@ function App() {
           </Card>
         ) : null}
 
-        {principal && isAdmin && superView === "session-admin" ? (
-          <Card>
-            <CardContent>
-              <Stack spacing={adminPageSx.pageStack.spacing}>
-                <Box sx={adminPageSx.headerPanel}>
-                  <Typography variant="h6" gutterBottom={false}>Force Logout User</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Revoke all active sessions for a user across all devices and browsers.
-                  </Typography>
-                </Box>
-
-                <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
-                  {/* Section header */}
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1.5,
-                      px: 2,
-                      py: 1.5,
-                      bgcolor: "action.hover",
-                      borderBottom: "1px solid",
-                      borderColor: "divider",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: "50%",
-                        bgcolor: (theme) => alpha(theme.palette.error.main, 0.12),
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <LogoutIcon sx={{ color: "error.main", fontSize: "1.1rem" }} />
-                    </Box>
-                    <Box>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>Revoke User Sessions</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Immediately terminates all active sessions for the target account.
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  <form onSubmit={forceLogoutAllSessionsForUser} aria-label="Revoke user sessions">
-                    <Stack spacing={2} sx={{ p: 2 }}>
-                      {/* Warning callout */}
-                      <Box
-                        sx={{
-                          display: "flex",
-                          alignItems: "flex-start",
-                          gap: 1,
-                          p: 1.5,
-                          borderRadius: 1.5,
-                          bgcolor: (theme) => alpha(theme.palette.warning.main, 0.08),
-                          border: "1px solid",
-                          borderColor: (theme) => alpha(theme.palette.warning.main, 0.3),
-                        }}
-                      >
-                        <WarningAmberIcon sx={{ color: "warning.main", fontSize: "1rem", mt: 0.15, flexShrink: 0 }} />
-                        <Typography variant="caption" color="text.secondary">
-                          This action is immediate and cannot be undone. The user will be signed out of all devices and browsers at once.
-                        </Typography>
-                      </Box>
-
-                      <TextField
-                        variant="outlined"
-                        size="small"
-                        fullWidth
-                        label="Username / Email / Subject"
-                        type="text"
-                        placeholder="user@example.com · local-username · subject-id"
-                        value={sessionTarget}
-                        onChange={(e) => { setSessionTarget(e.target.value); setConfirmRevoke(false); }}
-                      />
-
-                      <Box sx={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                        {confirmRevoke ? (
-                          <>
-                            <Typography variant="caption" color="error.main" sx={{ fontWeight: 600 }}>
-                              This cannot be undone. Confirm?
-                            </Typography>
-                            <Button
-                              type="button"
-                              variant="outlined"
-                              size="small"
-                              onClick={() => setConfirmRevoke(false)}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              type="submit"
-                              variant="contained"
-                              color="error"
-                              size="small"
-                              startIcon={<PersonOffIcon />}
-                              disabled={busy}
-                            >
-                              Confirm Revoke
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="contained"
-                            color="error"
-                            startIcon={<PersonOffIcon />}
-                            disabled={busy || !sessionTarget.trim()}
-                            onClick={() => setConfirmRevoke(true)}
-                          >
-                            Revoke All Sessions
-                          </Button>
-                        )}
-                      </Box>
-                    </Stack>
-                  </form>
-                </Paper>
-              </Stack>
-            </CardContent>
-          </Card>
-        ) : null}
         </Box>
         <Box sx={{ mt: "auto", pt: 1.5, pb: 0.5, borderTop: "1px solid", borderColor: "divider" }}>
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap" }}>

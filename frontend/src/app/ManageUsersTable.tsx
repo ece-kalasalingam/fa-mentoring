@@ -29,6 +29,7 @@ import {
 import KeyIcon from "@mui/icons-material/Key";
 import LockIcon from "@mui/icons-material/Lock";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
+import LogoutIcon from "@mui/icons-material/Logout";
 import { mkConfig } from "export-to-csv";
 import {
   getInitials,
@@ -61,6 +62,7 @@ type Props = {
   rows: UserRow[];
   busy: boolean;
   onResetPassword: (row: UserRow) => void;
+  onLogoutSessions: (row: UserRow) => Promise<void>;
   onSubmitRows: (updates: Array<{ row: UserRow; patch: UserPatch }>) => Promise<void>;
 };
 
@@ -87,6 +89,7 @@ export default function ManageUsersTable(props: Props) {
   const [draftRows, setDraftRows] = useState<UserRow[]>(props.rows);
   const [pendingBySubject, setPendingBySubject] = useState<Record<string, UserPatch>>({});
   const [rolesDialog, setRolesDialog] = useState<TableRow | null>(null);
+  const [logoutDialogRow, setLogoutDialogRow] = useState<TableRow | null>(null);
   const [pendingRoles, setPendingRoles] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -487,6 +490,19 @@ export default function ManageUsersTable(props: Props) {
             </span>
           </Tooltip>
         )}
+        <Tooltip title="Log out user from all active sessions" arrow>
+          <span>
+            <IconButton
+              size="small"
+              color="error"
+              disabled={props.busy}
+              aria-label="Log out user from all active sessions"
+              onClick={() => setLogoutDialogRow(row.original)}
+            >
+              <LogoutIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
       </Box>
     ),
 
@@ -635,6 +651,37 @@ export default function ManageUsersTable(props: Props) {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleRolesClose} variant="contained" size="small">Done</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(logoutDialogRow)}
+        onClose={() => setLogoutDialogRow(null)}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="logout-user-dialog-title"
+      >
+        <DialogTitle id="logout-user-dialog-title">Confirm User Logout</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2">
+            Log out <b>{logoutDialogRow?.fullName ?? "this user"}</b> from all active sessions?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLogoutDialogRow(null)} disabled={props.busy}>Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={props.busy || !logoutDialogRow}
+            onClick={() => {
+              if (!logoutDialogRow) return;
+              void props.onLogoutSessions(logoutDialogRow.source).finally(() => {
+                setLogoutDialogRow(null);
+              });
+            }}
+          >
+            Log Out
+          </Button>
         </DialogActions>
       </Dialog>
 

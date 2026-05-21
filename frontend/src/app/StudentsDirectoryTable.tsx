@@ -58,7 +58,7 @@ type Props = {
 
 const MOBILE_HIDDEN_COLUMNS: Record<string, boolean> = {
   email: false, planOfStudyCode: false, batch: false, programme: false, graduated: false, mentorName: false,
-  crTarget: false, crEarned: false, deficient: false,
+  crTarget: false, crEarned: false, crPercent: false, deficient: false,
 };
 
 const STATUS_ORDER: Record<CreditStatus, number> = {
@@ -375,7 +375,7 @@ export default function StudentsDirectoryTable(props: Props) {
       {
         accessorKey: "registrationNumber",
         header: "Reg. Number",
-        enableColumnFilterModes: false,
+        enableColumnFilterModes: true,
         Cell: ({ cell }) => {
           const val = String(cell.getValue<string>() ?? "").trim();
           return val
@@ -475,7 +475,7 @@ export default function StudentsDirectoryTable(props: Props) {
       {
         accessorKey: "currentSemester",
         header: "Semester",
-        enableColumnFilterModes: false,
+        enableColumnFilterModes: true,
         Cell: ({ row, cell }) => {
           const sem = cell.getValue<number | null>();
           if (sem == null) return <Typography variant="body2" color="text.disabled">—</Typography>;
@@ -595,7 +595,7 @@ export default function StudentsDirectoryTable(props: Props) {
         id: "crTarget",
         header: "Cr. Target",
         enableEditing: false,
-        enableColumnFilterModes: false,
+        enableColumnFilterModes: true,
         accessorFn: (row) => props.creditSummaries?.[row.userId]?.target ?? -1,
         Cell: ({ row }) => {
           const s = props.creditSummaries?.[row.original.userId];
@@ -607,7 +607,7 @@ export default function StudentsDirectoryTable(props: Props) {
         id: "crEarned",
         header: "Cr. Earned",
         enableEditing: false,
-        enableColumnFilterModes: false,
+        enableColumnFilterModes: true,
         accessorFn: (row) => props.creditSummaries?.[row.userId]?.earned ?? -1,
         Cell: ({ row }) => {
           const s = props.creditSummaries?.[row.original.userId];
@@ -619,6 +619,27 @@ export default function StudentsDirectoryTable(props: Props) {
               color={s.status === "complete" ? "success.main" : s.earned > 0 ? "text.primary" : "text.secondary"}
             >
               {s.earned}
+            </Typography>
+          );
+        },
+      },
+      {
+        id: "crPercent",
+        header: "%",
+        enableEditing: false,
+        enableColumnFilterModes: true,
+        accessorFn: (row) => {
+          const s = props.creditSummaries?.[row.userId];
+          if (!s || s.target <= 0) return -1;
+          return (s.earned / s.target) * 100;
+        },
+        Cell: ({ row }) => {
+          const s = props.creditSummaries?.[row.original.userId];
+          if (!s || s.target <= 0) return <Typography variant="body2" color="text.disabled">—</Typography>;
+          const percent = (s.earned / s.target) * 100;
+          return (
+            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
+              {`${percent.toFixed(1)}%`}
             </Typography>
           );
         },
@@ -643,7 +664,7 @@ export default function StudentsDirectoryTable(props: Props) {
         id: "status",
         header: "Status",
         enableEditing: false,
-        enableColumnFilterModes: false,
+        enableColumnFilterModes: true,
         filterVariant: "select",
         filterSelectOptions: CREDIT_STATUSES.map((v) => ({ label: CREDIT_STATUS_LABELS[v], value: v })),
         accessorFn: (row) => props.creditSummaries?.[row.userId]?.status ?? "",

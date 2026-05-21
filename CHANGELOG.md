@@ -3532,3 +3532,29 @@ px tsc --noEmit in rontend/.
   - Added a new mandatory product rule in `AGENTS.md` requiring app-wide credit formatting via shared formatter and prohibiting ad-hoc formatting.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-21 17:16 IST | codex | change
+- Summary: Added earned-to-target percentage column to the Students directory credits table.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Added a new `"%"` column in `StudentsDirectoryTable` that displays `earned / target * 100` for each student.
+  - Column is sortable via numeric accessor and shows `—` when credit summary is missing or target is zero.
+  - Included the new column in mobile hidden-column defaults alongside existing credit columns.
+- Revert: none
+## 2026-05-21 17:20 IST | codex | change
+- Summary: Enabled MRT native filter modes for selected Students directory columns.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Turned on `enableColumnFilterModes` for `Reg. Number`, `Semester`, `Cr. Target`, `Cr. Earned`, `%`, and `Status` columns.
+  - Keeps existing table filter UI while exposing MRT's built-in per-column filter mode selector on the requested fields.
+- Revert: none
+
+## 2026-05-21 17:33 IST | codex | change
+- Summary: Moved admin force-logout user action into Manage Users MRT row actions with confirmation dialog and existing API behavior.
+- Files: frontend/src/app/App.tsx, frontend/src/app/ManageUsersTable.tsx, CHANGELOG.md
+- Details:
+  - Added a per-user logout icon action in ManageUsersTable next to existing activate/deactivate and reset-password icons.
+  - Added a confirmation dialog in ManageUsersTable before executing user session revocation.
+  - Reused the existing /api/admin/users/logout-all-sessions flow via a shared App-level helper callback passed into the table.
+  - Removed the separate Force Logout User navigation item and dedicated session-admin page section from App.tsx.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
