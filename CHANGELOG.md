@@ -3924,3 +3924,20 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added `type ReactElement` to the existing react named import.
   - Replaced `JSX.Element` with `ReactElement` in the `userAccountMenuItems` array type annotation (line 631).
 - Revert: none
+
+## 2026-05-21 | claude-sonnet-4-6 | feature
+- Summary: Built the student-only dashboard with profile summary, plan of study overview, and credit progress tracking.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `studentSelf` memo (first row of `studentSelfDirectoryRows`) for the logged-in student's profile.
+  - Added `studentSelfCreditSummary` memo computing total required/earned credits, completion percentage, overall credit status, and per-category breakdown (code, required, earned, status) from `activeStudentPlan` and `studentEarnedCreditsByUser`.
+  - Added two `useEffect` hooks: one to auto-load plan-of-study, programmes, regulations, and plans when the student dashboard mounts; a second to load the student's earned credits once their directory row is available.
+  - Replaced the placeholder student card (single-line message) with a full dashboard featuring:
+    - Header with DashboardIcon, "My Dashboard" title, Student role chip, and a force-refresh button.
+    - Profile Paper: name, email, Active chip, plus a 6-field grid (Registration Number, Batch, Current Semester, Programme, Mentor, Plan of Study).
+    - Plan of Study Paper: plan name, regulation chip, and a row of semester boxes (current semester highlighted in blue, past semesters dimmed).
+    - Credit Progress Paper: overall status chip, completion LinearProgress bar, and a per-category grid showing each category code, a color-coded progress bar, category name, and earned/required credits.
+    - Quick Actions: "View My Credits" (opens student credit details table) and "My Profile" (navigates to account profile view).
+  - All credit values rendered via `formatCredits` from utils.ts (AGENTS.md Rule 9 compliant).
+  - Zero-required categories filtered out; null plan gracefully shows a loading/empty state.
+- Revert: none

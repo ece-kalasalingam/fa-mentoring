@@ -134,8 +134,8 @@ Navigation in `frontend/src/app/App.tsx` uses a data-driven modular system. All 
 ### Types (defined near top of App.tsx)
 
 ```typescript
-type NavLeaf = { id: string; label: string; icon: JSX.Element; active: boolean; disabled?: boolean; onClick: () => void };
-type NavGroup = { id: string; label: string; icon: JSX.Element; children: NavLeaf[] };
+type NavLeaf = { id: string; label: string; icon: ReactElement; active: boolean; disabled?: boolean; onClick: () => void };
+type NavGroup = { id: string; label: string; icon: ReactElement; children: NavLeaf[] };
 type NavItem = NavLeaf | NavGroup;
 type NavSection = { label: string; items: NavItem[] };
 ```
