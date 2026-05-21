@@ -3673,3 +3673,13 @@ px tsc --noEmit in rontend/.
   - Added the same mandatory role-section ordering rule under dashboard routing constraints in `AGENTS.md` to keep future implementations consistent.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-21 18:40 IST | codex | fix
+- Summary: Fixed dashboard status-chip navigation so Students Directory filtering stays scoped to the clicked batch.
+- Files: frontend/src/app/App.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Extended `FacultyAnalyticsReport` chip callback contract to pass both `creditStatusFilter` and `batchFilter` from each batch accordion.
+  - Added `initialBatchFilter` support in `StudentsDirectoryTable` and applied it to MRT column filters (`batch`) alongside existing graduated/status initial filters.
+  - Replaced the faculty-only directory opener with a scoped opener in `App.tsx` so faculty and moderator dashboard chips both route to Students Directory with correct role scope and pre-applied `status + batch` filters.
+  - Reset initial Students Directory quick filters (`graduated`, `status`, `batch`) when the main Students nav item is opened directly, preventing stale carry-over.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none

@@ -40,6 +40,7 @@ type Props = {
   busy: boolean;
   initialGraduatedFilter?: "Yes" | "No" | null;
   initialCreditStatusFilter?: CreditStatus | null;
+  initialBatchFilter?: number | null;
   canEdit?: boolean;
   showMentorName?: boolean;
   showProgramme?: boolean;
@@ -88,6 +89,7 @@ export default function StudentsDirectoryTable(props: Props) {
   const [tableGlobalFilter, setTableGlobalFilter] = useState<string>("");
   const lastAppliedInitialGraduatedFilterRef = useRef<"Yes" | "No" | null | undefined>(undefined);
   const lastAppliedCreditStatusFilterRef = useRef<string | null | undefined>(undefined);
+  const lastAppliedInitialBatchFilterRef = useRef<number | null | undefined>(undefined);
 
   useEffect(() => {
     setColumnVisibility(isDesktop ? {} : MOBILE_HIDDEN_COLUMNS);
@@ -128,6 +130,19 @@ export default function StudentsDirectoryTable(props: Props) {
       return [...without, { id: "status", value: props.initialCreditStatusFilter }];
     });
   }, [props.initialCreditStatusFilter]);
+
+  useEffect(() => {
+    if (props.initialBatchFilter === lastAppliedInitialBatchFilterRef.current) {
+      return;
+    }
+    lastAppliedInitialBatchFilterRef.current = props.initialBatchFilter ?? null;
+
+    setTableColumnFilters((prev) => {
+      const without = prev.filter((f) => f.id !== "batch");
+      if (props.initialBatchFilter == null) return without;
+      return [...without, { id: "batch", value: String(props.initialBatchFilter) }];
+    });
+  }, [props.initialBatchFilter]);
 
   useEffect(() => {
     if (pendingCount === 0) return;

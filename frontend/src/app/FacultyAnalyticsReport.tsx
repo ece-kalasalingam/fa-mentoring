@@ -70,7 +70,7 @@ type Props = {
   creditRows: FacultyCreditTableRow[];
   plansOfStudy: PlanOfStudy[];
   regulations: Regulation[];
-  onViewStudents?: (creditStatusFilter: CreditStatus | null) => void;
+  onViewStudents?: (creditStatusFilter: CreditStatus | null, batchFilter: number | null) => void;
   defaultExpandFirstBatch?: boolean;
 };
 
@@ -121,10 +121,11 @@ function buildCategoryAnalytics(students: StudentAnalytic[], catNameMap: Map<str
 
 // ── BatchPanel ────────────────────────────────────────────────────────────────
 type BatchPanelProps = {
+  batch: number | null;
   batchLabel: string;
   students: StudentAnalytic[];
   catNameMap: Map<string, string>;
-  onViewStudents?: (status: CreditStatus | null) => void;
+  onViewStudents?: (status: CreditStatus | null, batchFilter: number | null) => void;
 };
 
 // ── Tooltip that activates only when text is actually clipped ─────────────────
@@ -144,7 +145,7 @@ function OverflowTooltip({ text, sx }: { text: string; sx?: object }) {
   );
 }
 
-function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchPanelProps) {
+function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }: BatchPanelProps) {
   const theme = useTheme();
   const isMobile  = useMediaQuery(theme.breakpoints.down("sm"));
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
@@ -512,7 +513,7 @@ function BatchPanel({ batchLabel, students, catNameMap, onViewStudents }: BatchP
             {onViewStudents && CREDIT_STATUSES.map((s) => statusCounts[s] > 0 && (
               <Chip key={s} size="small" label={`${OVERALL_LABELS[s]} (${statusCounts[s]})`}
                 color={overallChipColor(s)} variant="outlined"
-                onClick={() => onViewStudents(s)}
+                onClick={() => onViewStudents(s, batch)}
                 sx={{ fontSize: "0.62rem", height: 22, cursor: "pointer" }}
               />
             ))}
@@ -814,6 +815,7 @@ export default function FacultyAnalyticsReport({
               </Tooltip>
             </Box>
             <BatchPanel
+              batch={batch}
               batchLabel={label}
               students={batchStudents}
               catNameMap={catNameMap}

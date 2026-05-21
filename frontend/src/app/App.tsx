@@ -182,6 +182,7 @@ function App() {
   const [studentsDirectoryHasMore, setStudentsDirectoryHasMore] = useState(false);
   const [studentsDirectoryGraduatedFilter, setStudentsDirectoryGraduatedFilter] = useState<"Yes" | "No" | null>(null);
   const [studentsDirectoryCreditStatusFilter, setStudentsDirectoryCreditStatusFilter] = useState<CreditStatus | null>(null);
+  const [studentsDirectoryBatchFilter, setStudentsDirectoryBatchFilter] = useState<number | null>(null);
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [newUserFullName, setNewUserFullName] = useState("");
   const [newUserEmail, setNewUserEmail] = useState("");
@@ -1441,16 +1442,23 @@ function App() {
     }
   }
 
-  async function openFacultyStudentsDirectory(
+  async function openScopedStudentsDirectory(
+    scope: "faculty" | "moderator",
     graduatedFilter?: "Yes" | "No" | null,
     creditStatusFilter?: CreditStatus | null,
+    batchFilter?: number | null,
   ) {
     setStudentsDirectoryGraduatedFilter(graduatedFilter ?? null);
     setStudentsDirectoryCreditStatusFilter(creditStatusFilter ?? null);
+    setStudentsDirectoryBatchFilter(batchFilter ?? null);
     navigateTo("students-directory");
     await loadProgrammes();
     await loadRegulations();
     await loadPlansOfStudy();
+    if (scope === "moderator") {
+      await loadModeratorStudents();
+      return;
+    }
     await loadFacultyStudents();
   }
 
@@ -2665,6 +2673,8 @@ function App() {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
                     setStudentsDirectoryGraduatedFilter(null);
+                    setStudentsDirectoryCreditStatusFilter(null);
+                    setStudentsDirectoryBatchFilter(null);
                     navigateTo("students-directory");
                     await loadProgrammes({ force: true });
                     await loadPlansOfStudy();
@@ -3859,8 +3869,8 @@ function App() {
                             plansOfStudy={plansOfStudy}
                             regulations={regulations}
                             defaultExpandFirstBatch={false}
-                            onViewStudents={() => {
-                              navigateTo("students-directory");
+                            onViewStudents={(creditStatusFilter, batchFilter) => {
+                              void openScopedStudentsDirectory("moderator", null, creditStatusFilter ?? undefined, batchFilter);
                             }}
                           />
                         </Suspense>
@@ -3915,7 +3925,7 @@ function App() {
                               size="small"
                               endIcon={<ArrowForwardIcon />}
                               sx={{ p: 0, mt: 1 }}
-                              onClick={() => { void openFacultyStudentsDirectory("No"); }}
+                              onClick={() => { void openScopedStudentsDirectory("faculty", "No"); }}
                             >
                               View in-progress students
                             </Button>
@@ -3937,7 +3947,7 @@ function App() {
                               size="small"
                               endIcon={<ArrowForwardIcon />}
                               sx={{ p: 0, mt: 1 }}
-                              onClick={() => { void openFacultyStudentsDirectory("Yes"); }}
+                              onClick={() => { void openScopedStudentsDirectory("faculty", "Yes"); }}
                             >
                               View graduated
                             </Button>
@@ -3957,8 +3967,8 @@ function App() {
                             creditRows={facultyCreditTableRows}
                             plansOfStudy={plansOfStudy}
                             regulations={regulations}
-                            onViewStudents={(creditStatusFilter) => {
-                              void openFacultyStudentsDirectory(null, creditStatusFilter ?? undefined);
+                            onViewStudents={(creditStatusFilter, batchFilter) => {
+                              void openScopedStudentsDirectory("faculty", null, creditStatusFilter ?? undefined, batchFilter);
                             }}
                           />
                         </Suspense>
@@ -4924,6 +4934,7 @@ function App() {
                     busy={busy}
                     initialGraduatedFilter={studentsDirectoryGraduatedFilter}
                     initialCreditStatusFilter={studentsDirectoryCreditStatusFilter}
+                    initialBatchFilter={studentsDirectoryBatchFilter}
                     planOfStudyOptions={planOfStudyOptions}
                     planSemesterBounds={planSemesterBounds}
                     mentorNameOptions={mentorNameOptions}
