@@ -2429,10 +2429,7 @@ function App() {
     () => new Set(moderatorStudentRows.map((s) => s.batch).filter(Boolean)).size,
     [moderatorStudentRows],
   );
-  const facultyBatchCount = useMemo(
-    () => new Set(facultyStudentRows.map((s) => s.batch).filter(Boolean)).size,
-    [facultyStudentRows],
-  );
+
   const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
     if (hasFacultyRole) return "faculty";
     if (hasModeratorRole) return "moderator";
@@ -4463,22 +4460,6 @@ function App() {
                           </Typography>
                         ) : null}
                       </Box>
-
-                      {/* Batch status chart — width scales with batch count */}
-                      {facultyStudentRows.length > 0 ? (
-                        <Box sx={{ mb: 3, maxWidth: facultyBatchCount > 0 ? Math.min(facultyBatchCount * 320, 9999) : "100%" }}>
-                          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
-                            <FacultyAnalyticsReport
-                              students={facultyStudentRows}
-                              creditRows={facultyCreditTableRows}
-                              plansOfStudy={plansOfStudy}
-                              regulations={regulations}
-                              showBatchStatusByLabelCard
-                              chartOnly
-                            />
-                          </Suspense>
-                        </Box>
-                      ) : null}
 
                       {/* Detailed batch analytics */}
                       <Divider sx={{ mb: 2.5 }}>

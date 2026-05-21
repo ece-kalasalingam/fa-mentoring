@@ -3955,3 +3955,11 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added a batch status chart (FacultyAnalyticsReport with `showBatchStatusByLabelCard chartOnly`) whose max-width scales as `facultyBatchCount × 320 px`, preventing chart stretching for small batch sets.
   - Replaced the plain `Divider` before detailed analytics with a `Divider` containing a centered "Batch Analytics" `Chip` label, matching head/moderator layout.
 - Revert: none
+
+## 2026-05-21 | claude-sonnet-4-6 | change
+- Summary: Removed the "Status Composition by Batch" chart from the faculty dashboard.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed the FacultyAnalyticsReport `showBatchStatusByLabelCard chartOnly` block and its wrapping Box from the faculty dashboard.
+  - Removed the now-unused `facultyBatchCount` useMemo.
+- Revert: none
