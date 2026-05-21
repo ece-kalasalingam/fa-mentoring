@@ -3972,3 +3972,14 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Category section: replaced bordered grid boxes with a flat vertical list; each row shows the category code (monospace, colored by status), category name, and earned/required credits on one line, followed by a thin (h:3) progress bar — no border, no % chip.
   - Removed the 2-column grid layout for categories in favour of a single-column list with consistent gap, improving readability on all screen sizes.
 - Revert: none
+
+## 2026-05-21 | claude-sonnet-4-6 | change
+- Summary: Redesigned student dashboard layout and credit progress card for a cleaner, more balanced desktop/mobile experience.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Credit progress card: replaced bordered per-category boxes with a flat inline-bar list — each row shows the category code (monospace, colored by status), category name (flex, truncates), a fixed-width progress bar (80 px), and earned/required credits right-aligned. Overall section shows a large colored earned-credit number, progress bar (h:6), and a single caption line.
+  - Layout restructure: wrapped Profile, Plan of Study, and Credit Progress in a two-column grid (`xs: 1fr`, `md: 1fr 1fr`). Left column stacks Profile Paper + Plan of Study Paper vertically; right column holds Credit Progress Paper. On mobile all three stack in a single column.
+  - Equal-height columns: removed `alignItems: start` from the outer grid (default `stretch` makes both columns equal height); added `flex: 1` to Plan of Study Paper so it grows to fill the left column; added `height: 100%` to Credit Progress Paper so it fills the right grid cell.
+  - Profile fields grid changed from responsive 2-col/3-col to a fixed 2-column layout to suit the narrower left column.
+  - Added "View My Plan of Study" quick-action button that navigates to `regulations` view, placed between "View My Credits" and "My Profile".
+- Revert: none
