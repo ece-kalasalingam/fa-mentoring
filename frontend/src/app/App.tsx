@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -628,7 +628,7 @@ function App() {
     const raw = principal.fullName?.trim() || principal.email?.trim() || principal.subject.trim();
     return raw.startsWith("local-") ? raw.slice("local-".length) : raw;
   }, [principal]);
-  const userAccountMenuItems: Array<{ id: string; label: string; icon: JSX.Element; onClick: () => void }> = [
+  const userAccountMenuItems: Array<{ id: string; label: string; icon: ReactElement; onClick: () => void }> = [
     {
       id: "account-profile",
       label: "My Account",
