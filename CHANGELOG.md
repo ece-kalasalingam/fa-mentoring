@@ -3871,3 +3871,56 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added mentor_name to returned row mapping without changing existing mentor_email field.
   - Keeps compatibility for other roles while enabling student-role UI to render mentor name consistently.
 - Revert: none
+
+## 2026-05-21 19:56 IST | claude-sonnet-4-6 | change
+- Summary: Redesigned head and moderator dashboard cards with improved visual hierarchy, colored stat cards, and scaled chart width.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced plain "Active Students" heading with a proper dashboard header containing a title, role chip (Head / Moderator), subtitle, and refresh button.
+  - Replaced Turso billing metrics list with a 4-column centered layout showing usage percentage prominently in color (green/amber/red) with a thin progress bar below.
+  - Split stat cards into three color-coded Papers: Total Active (blue tint), In Progress (amber tint), Passed Out (green tint), each with a matching colored border and button.
+  - Added `headBatchCount` and `moderatorBatchCount` memos; used them to cap the batch status chart width to `batchCount × 320 px` so the chart is not stretched on small batch sets.
+  - Moved batch status chart out of the stats grid into its own full-width `Box`, eliminating the double-border caused by the previous outer `Paper` wrapper.
+  - Replaced bare `Divider` before detailed analytics with a `Divider` containing a centered "Batch Analytics" `Chip` label.
+- Revert: none
+
+## 2026-05-21 19:56 IST | claude-sonnet-4-6 | change
+- Summary: Renamed "Graduated" to "Passed Out" across all UI labels, table headers, filter toggles, and export headers.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/FacultyCreditDetailsTable.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Updated overline chip labels in head, moderator, and faculty dashboard stat cards from "Graduated" to "Passed Out".
+  - Updated button text "View graduated" to "View passed out" in all three dashboard cards.
+  - Updated `StudentsDirectoryTable` column header, edit field label, mobile row label, and PDF export headers from "Graduated" to "Passed Out".
+  - Updated `FacultyCreditDetailsTable` column header and PDF export header.
+  - Updated `FacultyAnalyticsReport` CSV export column header.
+  - Data field values (`graduated: "Yes" | "No"`) and variable names are unchanged.
+- Revert: none
+
+## 2026-05-21 19:56 IST | claude-sonnet-4-6 | fix
+- Summary: Fixed dashboard stat card navigation buttons to pass correct graduated and credit-status filters to the students directory.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Head "View students" button now sets `graduatedFilter = "No"` and clears credit/batch filters before navigating to students-directory.
+  - Head "View passed out" button now sets `graduatedFilter = "Yes"` and clears credit/batch filters before navigating.
+  - Moderator "View students" button now calls `openScopedStudentsDirectory("moderator", "No")` instead of passing `null` as the graduated filter.
+  - Moderator "View passed out" button now calls `openScopedStudentsDirectory("moderator", "Yes")`.
+  - Fixed head dashboard `onViewStudents` callback in `FacultyAnalyticsReport` to receive and apply both `creditStatusFilter` and `batchFilter` parameters when navigating from batch analytics status chips.
+- Revert: none
+
+## 2026-05-21 19:56 IST | claude-sonnet-4-6 | change
+- Summary: Improved batch analytics category detail cards with a completion progress bar and credits earned/required row.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Added `LinearProgress` to MUI imports in `FacultyAnalyticsReport.tsx`.
+  - Added a `LinearProgress` bar directly below the category code and completion-percentage chip, color-coded by completion level (success ≥100%, primary ≥60%, warning ≥30%, error otherwise).
+  - Added a "Credits: earned / required" summary row between the category name and the status breakdown list, showing `formatCredits` values for `cat.totalEarned` and `cat.totalRequired`.
+  - Converted `batchGroups.map` arrow from implicit return to block body to compute per-batch `batchStatusCounts` (used for the chip row, replacing the previous per-chip `filter` scan).
+- Revert: none
+
+## 2026-05-21 19:57 IST | claude-sonnet-4-6 | fix
+- Summary: Fixed "Cannot find namespace JSX" TypeScript error by importing ReactElement from react.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `type ReactElement` to the existing react named import.
+  - Replaced `JSX.Element` with `ReactElement` in the `userAccountMenuItems` array type annotation (line 631).
+- Revert: none
