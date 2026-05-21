@@ -3963,3 +3963,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Removed the FacultyAnalyticsReport `showBatchStatusByLabelCard chartOnly` block and its wrapping Box from the faculty dashboard.
   - Removed the now-unused `facultyBatchCount` useMemo.
 - Revert: none
+
+## 2026-05-21 | claude-sonnet-4-6 | change
+- Summary: Redesigned student dashboard credit progress card for a more compact, modern look.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Overall section: progress bar moved directly below the title/chip row (h:6, rounded), with a single compact caption line below ("X of Y cr · Z% complete") instead of separate bold text + caption.
+  - Category section: replaced bordered grid boxes with a flat vertical list; each row shows the category code (monospace, colored by status), category name, and earned/required credits on one line, followed by a thin (h:3) progress bar — no border, no % chip.
+  - Removed the 2-column grid layout for categories in favour of a single-column list with consistent gap, improving readability on all screen sizes.
+- Revert: none

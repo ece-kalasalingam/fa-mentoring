@@ -4584,7 +4584,7 @@ function App() {
                           {/* Credit progress */}
                           {studentSelfCreditSummary ? (
                             <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
-                              <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                              <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
                                 <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Credit Progress</Typography>
                                 <Chip
                                   label={CREDIT_STATUS_LABELS[studentSelfCreditSummary.overallStatus]}
@@ -4594,53 +4594,52 @@ function App() {
                                     studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
                                     studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
                                   }
-                                  sx={{ height: 22, fontSize: "0.7rem" }}
+                                  sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }}
                                 />
                               </Stack>
-                              <Box sx={{ mb: studentSelfCreditSummary.categories.length > 0 ? 2.5 : 0 }}>
-                                <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "baseline", mb: 0.75 }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                    {formatCredits(studentSelfCreditSummary.totalEarned)} cr earned
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary">
-                                    of {formatCredits(studentSelfCreditSummary.totalRequired)} cr · {studentSelfCreditSummary.completionPct}%
-                                  </Typography>
-                                </Stack>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={Math.min(100, studentSelfCreditSummary.completionPct)}
-                                  color={
-                                    studentSelfCreditSummary.overallStatus === "complete" ? "success" :
-                                    studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
-                                    studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
-                                  }
-                                  sx={{ height: 8, borderRadius: 1 }}
-                                />
-                              </Box>
+                              <LinearProgress
+                                variant="determinate"
+                                value={Math.min(100, studentSelfCreditSummary.completionPct)}
+                                color={
+                                  studentSelfCreditSummary.overallStatus === "complete" ? "success" :
+                                  studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
+                                  studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
+                                }
+                                sx={{ height: 6, borderRadius: 1, mb: 0.75 }}
+                              />
+                              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: studentSelfCreditSummary.categories.length > 0 ? 2 : 0 }}>
+                                {formatCredits(studentSelfCreditSummary.totalEarned)} of {formatCredits(studentSelfCreditSummary.totalRequired)} cr &nbsp;·&nbsp; {studentSelfCreditSummary.completionPct}% complete
+                              </Typography>
                               {studentSelfCreditSummary.categories.length > 0 && (
-                                <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 1.5 }}>
+                                <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
                                   {studentSelfCreditSummary.categories.map((cat) => {
                                     const catName = visibleRegulations[0]?.curriculumStructure?.categories?.find((c) => c.code === cat.code)?.name ?? cat.code;
                                     const catPct = cat.required > 0 ? Math.round((cat.earned / cat.required) * 100) : 0;
                                     const catColor = cat.status === "complete" ? "success" : cat.status === "on-track" ? "primary" : cat.status === "marginal" ? "warning" : "error";
+                                    const catColorMain = cat.status === "complete" ? "success.main" : cat.status === "on-track" ? "primary.main" : cat.status === "marginal" ? "warning.main" : "error.main";
                                     return (
-                                      <Box key={cat.code} sx={{ p: 1.5, borderRadius: 1.5, border: "1px solid", borderColor: "divider" }}>
-                                        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 0.5 }}>
-                                          <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.8rem" }}>{cat.code}</Typography>
-                                          <Chip label={`${catPct}%`} size="small" color={catColor} variant="outlined" sx={{ height: 18, fontSize: "0.65rem" }} />
+                                      <Box key={cat.code}>
+                                        <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "baseline", mb: 0.5 }}>
+                                          <Stack direction="row" sx={{ alignItems: "baseline", gap: 0.75, minWidth: 0 }}>
+                                            <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.75rem", color: catColorMain, flexShrink: 0 }}>
+                                              {cat.code}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                              {catName}
+                                            </Typography>
+                                          </Stack>
+                                          <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.68rem", flexShrink: 0, ml: 1 }}>
+                                            {formatCredits(cat.earned)}/{formatCredits(cat.required)} cr
+                                          </Typography>
                                         </Stack>
-                                        <LinearProgress variant="determinate" value={Math.min(100, catPct)} color={catColor} sx={{ height: 4, borderRadius: 1, mb: 0.75 }} />
-                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem", display: "block" }}>{catName}</Typography>
-                                        <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.68rem" }}>
-                                          {formatCredits(cat.earned)} / {formatCredits(cat.required)} cr
-                                        </Typography>
+                                        <LinearProgress variant="determinate" value={Math.min(100, catPct)} color={catColor} sx={{ height: 3, borderRadius: 1 }} />
                                       </Box>
                                     );
                                   })}
                                 </Box>
                               )}
                               {!studentSelfCreditSummary.creditsLoaded && (
-                                <Typography variant="caption" color="text.secondary">Loading credit data...</Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: studentSelfCreditSummary.categories.length > 0 ? 1.5 : 0 }}>Loading credit data...</Typography>
                               )}
                             </Paper>
                           ) : null}
