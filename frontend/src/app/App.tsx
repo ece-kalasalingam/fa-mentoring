@@ -2352,6 +2352,14 @@ function App() {
     () => [headNotGraduatedCount, headGraduatedCount].filter((value) => value !== 0).length,
     [headNotGraduatedCount, headGraduatedCount],
   );
+  const headBatchCount = useMemo(
+    () => new Set(headStudentRows.map((s) => s.batch).filter(Boolean)).size,
+    [headStudentRows],
+  );
+  const moderatorBatchCount = useMemo(
+    () => new Set(moderatorStudentRows.map((s) => s.batch).filter(Boolean)).size,
+    [moderatorStudentRows],
+  );
   const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
     if (hasFacultyRole) return "faculty";
     if (hasModeratorRole) return "moderator";
@@ -3906,13 +3914,40 @@ function App() {
               <Box sx={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, mt: isAdmin ? 2.5 : 0 }}>
                 {hasHeadRole ? (
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
-                    <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
-                      {dashboard?.system?.isTurso && dashboard?.system?.turso ? (
-                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, mb: 2.5 }}>
-                          <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
-                            Turso DB · Billing Cycle Usage
+                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                      {/* Dashboard header */}
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
+                        <Box>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
+                            <DashboardIcon fontSize="small" color="primary" />
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                              Head Dashboard
+                            </Typography>
+                            <Chip label="Head" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary">
+                            System-wide overview of all active student accounts
                           </Typography>
-                          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2.5, mt: 1.5 }}>
+                        </Box>
+                        <Tooltip title="Refresh all data">
+                          <span>
+                            <IconButton size="small" aria-label="Refresh head dashboard" onClick={() => { void loadHeadStudents({ force: true }); }} disabled={busy}>
+                              <RefreshIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+
+                      {/* Turso billing usage */}
+                      {dashboard?.system?.isTurso && dashboard?.system?.turso ? (
+                        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 2 }}>
+                            <StorageIcon sx={{ fontSize: "0.9rem", color: "text.secondary" }} />
+                            <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.65rem", letterSpacing: 1.2 }}>
+                              Turso DB · Billing Cycle Usage
+                            </Typography>
+                          </Stack>
+                          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 2 }}>
                             {[
                               { label: "Reads", value: dashboard.system.turso.rowsRead ?? 0, max: 500_000_000, isBytes: false },
                               { label: "Writes", value: dashboard.system.turso.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
@@ -3923,88 +3958,116 @@ function App() {
                               const fmt = (n: number) => isBytes
                                 ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
                                 : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
+                              const barColor: "error" | "warning" | "success" = pct > 80 ? "error" : pct > 50 ? "warning" : "success";
                               return (
-                                <Box key={label}>
-                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.5 }}>
-                                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{label}</Typography>
-                                    <Typography variant="caption" color="text.secondary">
-                                      {fmt(value)}{" "}
-                                      <Typography component="span" variant="caption" color="text.disabled">/ {fmt(max)}</Typography>
-                                    </Typography>
-                                  </Box>
+                                <Box key={label} sx={{ textAlign: "center" }}>
+                                  <Typography variant="h5" sx={{ fontWeight: 700, color: `${barColor}.main`, lineHeight: 1.2 }}>
+                                    {pct.toFixed(1)}%
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mt: 0.25 }}>
+                                    {label}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 0.75 }}>
+                                    {fmt(value)} / {fmt(max)}
+                                  </Typography>
                                   <LinearProgress
                                     variant="determinate"
                                     value={pct}
-                                    color={pct > 80 ? "error" : pct > 50 ? "warning" : "primary"}
-                                    sx={{ height: 6, borderRadius: 1 }}
+                                    color={barColor}
+                                    sx={{ height: 5, borderRadius: 1 }}
                                     aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
                                   />
-                                  <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.25, textAlign: "right" }}>
-                                    {pct.toFixed(1)}%
-                                  </Typography>
                                 </Box>
                               );
                             })}
                           </Box>
                         </Paper>
                       ) : null}
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2.5 }}>
-                        <Box>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75 }}>
-                            <SchoolIcon fontSize="small" color="primary" />
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Active Students</Typography>
-                          </Stack>
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                            All active student accounts in the system
-                          </Typography>
-                        </Box>
-                        <Tooltip title="Refresh counts">
-                          <span>
-                            <IconButton size="small" aria-label="Refresh head student counts" onClick={() => { void loadHeadStudents({ force: true }); }} disabled={busy}>
-                              <RefreshIcon fontSize="small" />
-                            </IconButton>
-                          </span>
-                        </Tooltip>
-                      </Stack>
+
+                      {/* Student stat cards */}
                       <Box
                         sx={{
                           display: "grid",
                           gridTemplateColumns: {
                             xs: "1fr",
-                            sm: `repeat(${Math.max(1, headMetricCardCount + 1)}, minmax(0, 1fr))`,
+                            sm: headMetricCardCount === 0 ? "1fr" : `repeat(${headMetricCardCount + 1}, minmax(0, 1fr))`,
                           },
                           gap: 2,
+                          mb: 3,
                         }}
                       >
+                        {headMetricCardCount > 0 ? (
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "primary.main",
+                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
+                            }}
+                          >
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <GroupIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Total Active
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "primary.main" }}>
+                              {(headNotGraduatedCount + headGraduatedCount).toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                              Students enrolled
+                            </Typography>
+                          </Paper>
+                        ) : null}
                         {headNotGraduatedCount !== 0 ? (
-                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "warning.main",
+                              bgcolor: (theme) => alpha(theme.palette.warning.main, 0.04),
+                            }}
+                          >
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
                                 In Progress
                               </Typography>
                             </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "warning.dark" }}>
                               {headNotGraduatedCount.toLocaleString()}
                             </Typography>
-                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
-                              View in-progress students
+                            <Button type="button" size="small" color="warning" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { setStudentsDirectoryGraduatedFilter("No"); setStudentsDirectoryCreditStatusFilter(null); setStudentsDirectoryBatchFilter(null); navigateTo("students-directory"); }}>
+                              View students
                             </Button>
                           </Paper>
                         ) : null}
                         {headGraduatedCount !== 0 ? (
-                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "success.main",
+                              bgcolor: (theme) => alpha(theme.palette.success.main, 0.04),
+                            }}
+                          >
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Graduated
+                                Passed Out
                               </Typography>
                             </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "success.dark" }}>
                               {headGraduatedCount.toLocaleString()}
                             </Typography>
-                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
-                              View graduated
+                            <Button type="button" size="small" color="success" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { setStudentsDirectoryGraduatedFilter("Yes"); setStudentsDirectoryCreditStatusFilter(null); setStudentsDirectoryBatchFilter(null); navigateTo("students-directory"); }}>
+                              View passed out
                             </Button>
                           </Paper>
                         ) : null}
@@ -4013,7 +4076,11 @@ function App() {
                             No student status metrics to show yet.
                           </Typography>
                         ) : null}
-                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 1.5, py: 1.25 }}>
+                      </Box>
+
+                      {/* Batch status chart — width scales with batch count */}
+                      {headStudentRows.length > 0 ? (
+                        <Box sx={{ mb: 3, maxWidth: headBatchCount > 0 ? Math.min(headBatchCount * 320, 9999) : "100%" }}>
                           <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
                             <FacultyAnalyticsReport
                               students={headStudentRows}
@@ -4024,86 +4091,141 @@ function App() {
                               chartOnly
                             />
                           </Suspense>
-                        </Paper>
-                      </Box>
-                      <Box sx={{ mt: 2.5 }}>
-                        <Divider sx={{ mb: 2 }} />
-                        <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
-                          <FacultyAnalyticsReport
-                            students={headStudentRows}
-                            creditRows={headCreditTableRows}
-                            plansOfStudy={plansOfStudy}
-                            regulations={regulations}
-                            defaultExpandFirstBatch={false}
-                            onViewStudents={() => {
-                              navigateTo("students-directory");
-                            }}
-                          />
-                        </Suspense>
-                      </Box>
+                        </Box>
+                      ) : null}
+
+                      {/* Detailed batch analytics */}
+                      <Divider sx={{ mb: 2.5 }}>
+                        <Chip label="Batch Analytics" size="small" variant="outlined" />
+                      </Divider>
+                      <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
+                        <FacultyAnalyticsReport
+                          students={headStudentRows}
+                          creditRows={headCreditTableRows}
+                          plansOfStudy={plansOfStudy}
+                          regulations={regulations}
+                          defaultExpandFirstBatch={false}
+                          onViewStudents={(creditStatusFilter, batchFilter) => {
+                            setStudentsDirectoryGraduatedFilter(null);
+                            setStudentsDirectoryCreditStatusFilter(creditStatusFilter);
+                            setStudentsDirectoryBatchFilter(batchFilter);
+                            navigateTo("students-directory");
+                          }}
+                        />
+                      </Suspense>
                     </CardContent>
                   </Card>
                 ) : null}
                 {hasModeratorRole ? (
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
-                    <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2.5 }}>
+                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                      {/* Dashboard header */}
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
                         <Box>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75 }}>
-                            <SchoolIcon fontSize="small" color="primary" />
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Active Students</Typography>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
+                            <DashboardIcon fontSize="small" color="primary" />
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                              Moderator Dashboard
+                            </Typography>
+                            <Chip label="Moderator" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
                           </Stack>
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                            All active student accounts in the system
+                          <Typography variant="body2" color="text.secondary">
+                            System-wide overview of all active student accounts
                           </Typography>
                         </Box>
-                        <Tooltip title="Refresh counts">
+                        <Tooltip title="Refresh all data">
                           <span>
-                            <IconButton size="small" aria-label="Refresh moderator student counts" onClick={() => { void loadModeratorStudents({ force: true }); }} disabled={busy}>
+                            <IconButton size="small" aria-label="Refresh moderator dashboard" onClick={() => { void loadModeratorStudents({ force: true }); }} disabled={busy}>
                               <RefreshIcon fontSize="small" />
                             </IconButton>
                           </span>
                         </Tooltip>
                       </Stack>
+
+                      {/* Student stat cards */}
                       <Box
                         sx={{
                           display: "grid",
                           gridTemplateColumns: {
                             xs: "1fr",
-                            sm: `repeat(${Math.max(1, moderatorMetricCardCount + 1)}, minmax(0, 1fr))`,
+                            sm: moderatorMetricCardCount === 0 ? "1fr" : `repeat(${moderatorMetricCardCount + 1}, minmax(0, 1fr))`,
                           },
                           gap: 2,
+                          mb: 3,
                         }}
                       >
+                        {moderatorMetricCardCount > 0 ? (
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "primary.main",
+                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
+                            }}
+                          >
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <GroupIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Total Active
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "primary.main" }}>
+                              {(moderatorNotGraduatedCount + moderatorGraduatedCount).toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                              Students enrolled
+                            </Typography>
+                          </Paper>
+                        ) : null}
                         {moderatorNotGraduatedCount !== 0 ? (
-                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "warning.main",
+                              bgcolor: (theme) => alpha(theme.palette.warning.main, 0.04),
+                            }}
+                          >
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
                                 In Progress
                               </Typography>
                             </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "warning.dark" }}>
                               {moderatorNotGraduatedCount.toLocaleString()}
                             </Typography>
-                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
-                              View in-progress students
+                            <Button type="button" size="small" color="warning" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory("moderator", "No"); }}>
+                              View students
                             </Button>
                           </Paper>
                         ) : null}
                         {moderatorGraduatedCount !== 0 ? (
-                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              borderRadius: 2,
+                              px: 3,
+                              py: 2.5,
+                              borderColor: "success.main",
+                              bgcolor: (theme) => alpha(theme.palette.success.main, 0.04),
+                            }}
+                          >
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Graduated
+                                Passed Out
                               </Typography>
                             </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "success.dark" }}>
                               {moderatorGraduatedCount.toLocaleString()}
                             </Typography>
-                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
-                              View graduated
+                            <Button type="button" size="small" color="success" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory("moderator", "Yes"); }}>
+                              View passed out
                             </Button>
                           </Paper>
                         ) : null}
@@ -4112,7 +4234,11 @@ function App() {
                             No student status metrics to show yet.
                           </Typography>
                         ) : null}
-                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 1.5, py: 1.25 }}>
+                      </Box>
+
+                      {/* Batch status chart — width scales with batch count */}
+                      {moderatorStudentRows.length > 0 ? (
+                        <Box sx={{ mb: 3, maxWidth: moderatorBatchCount > 0 ? Math.min(moderatorBatchCount * 320, 9999) : "100%" }}>
                           <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
                             <FacultyAnalyticsReport
                               students={moderatorStudentRows}
@@ -4123,23 +4249,25 @@ function App() {
                               chartOnly
                             />
                           </Suspense>
-                        </Paper>
-                      </Box>
-                      <Box sx={{ mt: 2.5 }}>
-                        <Divider sx={{ mb: 2 }} />
-                        <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
-                          <FacultyAnalyticsReport
-                            students={moderatorStudentRows}
-                            creditRows={moderatorCreditTableRows}
-                            plansOfStudy={plansOfStudy}
-                            regulations={regulations}
-                            defaultExpandFirstBatch={false}
-                            onViewStudents={(creditStatusFilter, batchFilter) => {
-                              void openScopedStudentsDirectory("moderator", null, creditStatusFilter ?? undefined, batchFilter);
-                            }}
-                          />
-                        </Suspense>
-                      </Box>
+                        </Box>
+                      ) : null}
+
+                      {/* Detailed batch analytics */}
+                      <Divider sx={{ mb: 2.5 }}>
+                        <Chip label="Batch Analytics" size="small" variant="outlined" />
+                      </Divider>
+                      <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
+                        <FacultyAnalyticsReport
+                          students={moderatorStudentRows}
+                          creditRows={moderatorCreditTableRows}
+                          plansOfStudy={plansOfStudy}
+                          regulations={regulations}
+                          defaultExpandFirstBatch={false}
+                          onViewStudents={(creditStatusFilter, batchFilter) => {
+                            void openScopedStudentsDirectory("moderator", null, creditStatusFilter ?? undefined, batchFilter);
+                          }}
+                        />
+                      </Suspense>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -4201,7 +4329,7 @@ function App() {
                             <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
                               <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
                               <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Graduated
+                                Passed Out
                               </Typography>
                             </Stack>
                             <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
@@ -4214,7 +4342,7 @@ function App() {
                               sx={{ p: 0, mt: 1 }}
                               onClick={() => { void openScopedStudentsDirectory("faculty", "Yes"); }}
                             >
-                              View graduated
+                              View passed out
                             </Button>
                           </Paper>
                         ) : null}

@@ -51,7 +51,7 @@ export default function FacultyCreditDetailsTable(props: Props) {
       {
         accessorFn: (row) => row.graduated === "Yes",
         id: "graduated",
-        header: "Graduated",
+        header: "Passed Out",
         filterVariant: "checkbox",
         enableColumnFilterModes: false,
         Cell: ({ row }) => <Typography variant="body2">{row.original.graduated}</Typography>,
@@ -138,7 +138,7 @@ export default function FacultyCreditDetailsTable(props: Props) {
             }))
           }
           pdfFilename="faculty-student-credit-table.pdf"
-          pdfHeaders={["Reg. No", "Category ID", "Graduated", "Semester", "Credits", "Modified By Username", "Modified Time (IST)"]}
+          pdfHeaders={["Reg. No", "Category ID", "Passed Out", "Semester", "Credits", "Modified By Username", "Modified Time (IST)"]}
           getPdfBody={(rows) =>
             rows.map((row) => [
               row.registrationNumber ?? "",

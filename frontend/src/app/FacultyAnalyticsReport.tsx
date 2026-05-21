@@ -8,6 +8,7 @@ import {
   Chip,
   Divider,
   IconButton,
+  LinearProgress,
   Paper,
   Stack,
   Table,
@@ -318,7 +319,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
   const handleExportCsv = useCallback(() => {
     const catCodes = categoryAnalytics.map((c) => c.code);
     const headers = [
-      "Reg. No", "Name", "Batch", "Semester", "Graduated", "Plan",
+      "Reg. No", "Name", "Batch", "Semester", "Passed Out", "Plan",
       "Target Cr.", "Earned Cr.", "Overall %", "Overall Status",
       ...catCodes.flatMap((c) => [`${c} Req`, `${c} Earned`, `${c} Status`]),
     ];
@@ -442,7 +443,8 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                   }),
                   transition: "border-color 0.15s, box-shadow 0.15s, background-color 0.15s",
                 }}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" sx={{ mb: 1 }}>
+                  {/* Code + completion % */}
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
                     <Typography variant="body2" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1rem" }}>
                       {cat.code}
                     </Typography>
@@ -450,9 +452,26 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                       color={cat.completionPct >= 100 ? "success" : cat.completionPct >= 60 ? "primary" : cat.completionPct >= 30 ? "warning" : "error"}
                       variant="outlined" sx={{ fontSize: "0.7rem", height: 20 }} />
                   </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.75rem", display: "block", mb: 1.5, lineHeight: 1.4 }}>
+                  {/* Completion progress bar */}
+                  <LinearProgress
+                    variant="determinate"
+                    value={Math.min(100, cat.completionPct)}
+                    color={cat.completionPct >= 100 ? "success" : cat.completionPct >= 60 ? "primary" : cat.completionPct >= 30 ? "warning" : "error"}
+                    sx={{ height: 4, borderRadius: 1, mb: 1.25 }}
+                  />
+                  {/* Category name */}
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.75rem", display: "block", mb: 1.25, lineHeight: 1.4 }}>
                     {cat.name}
                   </Typography>
+                  {/* Credits earned / required */}
+                  <Stack direction="row" justifyContent="space-between" alignItems="baseline" sx={{ mb: 1.25 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem" }}>Credits</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 700, fontSize: "0.75rem" }}>
+                      {formatCredits(cat.totalEarned)}
+                      <Typography component="span" variant="caption" color="text.disabled" sx={{ fontWeight: 400 }}> / {formatCredits(cat.totalRequired)}</Typography>
+                    </Typography>
+                  </Stack>
+                  {/* Status breakdown */}
                   <Stack spacing={0.75}>
                     {CREDIT_STATUSES.map((s) => {
                       const n = cat.counts[s];
@@ -472,6 +491,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, onViewStudents }:
                       );
                     })}
                   </Stack>
+                  {/* Footer */}
                   <Box sx={{ mt: 1.25, pt: 1, borderTop: "1px solid", borderColor: "divider" }}>
                     {atRisk > 0 ? (
                       <Typography variant="caption" sx={{ fontSize: "0.72rem", color: "warning.main", fontWeight: 600 }}>
@@ -868,66 +888,71 @@ export default function FacultyAnalyticsReport({
           </Box>
         </Paper>
       ) : null}
-      {!chartOnly ? batchGroups.map(({ batch, label, students: batchStudents }, idx) => (
-        <Accordion
-          key={batch ?? "unknown"}
-          defaultExpanded={defaultExpandFirstBatch && idx === 0}
-          disableGutters
-          elevation={0}
-          sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: "8px !important",
-            "&:before": { display: "none" },
-            "&.Mui-expanded": { borderColor: "primary.main" },
-          }}
-        >
-          <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 52, "& .MuiAccordionSummary-content": { my: 1, mr: 1 } }}>
-            <Stack sx={{ flex: 1, minWidth: 0, gap: 0.75 }}>
-              <Stack direction="row" spacing={1.5} alignItems="center">
-                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{label}</Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.72rem", flexShrink: 0 }}>
-                  {batchStudents.length} student{batchStudents.length === 1 ? "" : "s"}
-                </Typography>
+      {!chartOnly ? batchGroups.map(({ batch, label, students: batchStudents }, idx) => {
+        const batchStatusCounts: Record<CreditStatus, number> = { complete: 0, "on-track": 0, marginal: 0, "off-track": 0 };
+        for (const sa of batchStudents) batchStatusCounts[sa.overallStatus]++;
+        const batchTotal = batchStudents.length;
+        return (
+          <Accordion
+            key={batch ?? "unknown"}
+            defaultExpanded={defaultExpandFirstBatch && idx === 0}
+            disableGutters
+            elevation={0}
+            sx={{
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: "8px !important",
+              "&:before": { display: "none" },
+              "&.Mui-expanded": { borderColor: "primary.main" },
+            }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />} sx={{ minHeight: 52, "& .MuiAccordionSummary-content": { my: 1, mr: 1 } }}>
+              <Stack sx={{ flex: 1, minWidth: 0, gap: 0.75 }}>
+                <Stack direction="row" spacing={1.5} alignItems="center">
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{label}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.72rem", flexShrink: 0 }}>
+                    {batchTotal} student{batchTotal === 1 ? "" : "s"}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" flexWrap="wrap" sx={{ gap: 0.5 }}>
+                  {CREDIT_STATUSES.map((s) => {
+                    const count = batchStatusCounts[s];
+                    if (count === 0) return null;
+                    return (
+                      <Chip key={s} size="small"
+                        label={`${OVERALL_LABELS[s]}: ${count}`}
+                        color={overallChipColor(s)}
+                        variant="outlined"
+                        sx={{ fontSize: "0.6rem", height: 20 }}
+                      />
+                    );
+                  })}
+                </Stack>
               </Stack>
-              <Stack direction="row" flexWrap="wrap" sx={{ gap: 0.5 }}>
-                {CREDIT_STATUSES.map((s) => {
-                  const count = batchStudents.filter((sa) => sa.overallStatus === s).length;
-                  if (count === 0) return null;
-                  return (
-                    <Chip key={s} size="small"
-                      label={`${OVERALL_LABELS[s]}: ${count}`}
-                      color={overallChipColor(s)}
-                      variant="outlined"
-                      sx={{ fontSize: "0.6rem", height: 20 }}
-                    />
-                  );
-                })}
-              </Stack>
-            </Stack>
-          </AccordionSummary>
-          <AccordionDetails id={`batch-content-${batch ?? "unknown"}`} sx={{ pt: 0, pb: 2, px: { xs: 1, sm: 2 } }}>
-            <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 0.5 }}>
-              <Tooltip title="Print batch report" placement="top">
-                <IconButton
-                  size="small"
-                  onClick={() => handlePrintBatch(`batch-content-${batch ?? "unknown"}`)}
-                  sx={{ color: "text.secondary" }}
-                >
-                  <PrintIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-            <BatchPanel
-              batch={batch}
-              batchLabel={label}
-              students={batchStudents}
-              catNameMap={catNameMap}
-              onViewStudents={onViewStudents}
-            />
-          </AccordionDetails>
-        </Accordion>
-      )) : null}
+            </AccordionSummary>
+            <AccordionDetails id={`batch-content-${batch ?? "unknown"}`} sx={{ pt: 0, pb: 2, px: { xs: 1, sm: 2 } }}>
+              <Box sx={{ display: "flex", justifyContent: "flex-end", mb: 0.5 }}>
+                <Tooltip title="Print batch report" placement="top">
+                  <IconButton
+                    size="small"
+                    onClick={() => handlePrintBatch(`batch-content-${batch ?? "unknown"}`)}
+                    sx={{ color: "text.secondary" }}
+                  >
+                    <PrintIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+              <BatchPanel
+                batch={batch}
+                batchLabel={label}
+                students={batchStudents}
+                catNameMap={catNameMap}
+                onViewStudents={onViewStudents}
+              />
+            </AccordionDetails>
+          </Accordion>
+        );
+      }) : null}
     </Stack>
   );
 }

@@ -569,7 +569,7 @@ export default function StudentsDirectoryTable(props: Props) {
       }] as MRT_ColumnDef<StudentDirectoryRow>[] : []),
       {
         accessorKey: "graduated",
-        header: "Graduated",
+        header: "Passed Out",
         enableColumnFilterModes: false,
         filterVariant: "checkbox",
         accessorFn: (row) => row.graduated === "Yes",
@@ -589,7 +589,7 @@ export default function StudentsDirectoryTable(props: Props) {
               select
               fullWidth
               autoFocus
-              label="Graduated"
+              label="Passed Out"
               variant="standard"
               value={current.graduated}
               onChange={(e) => {
@@ -886,12 +886,12 @@ export default function StudentsDirectoryTable(props: Props) {
           pdfFilename="students-directory-export.pdf"
           pdfHeaders={
             showProgramme && showMentorName
-              ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Programme", "Graduated", "Mentor"]
+              ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Programme", "Passed Out", "Mentor"]
               : showProgramme
-                ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Programme", "Graduated"]
+                ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Programme", "Passed Out"]
                 : showMentorName
-                  ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Graduated", "Mentor"]
-                  : ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Graduated"]
+                  ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Passed Out", "Mentor"]
+                  : ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Passed Out"]
           }
           getPdfBody={(rows) =>
             rows.map((r) => [
@@ -1041,7 +1041,7 @@ export default function StudentsDirectoryTable(props: Props) {
         ...(showProgramme ? [{ label: "Programme", value: programmeName ?? "Not Allotted" }] : []),
         { label: "Plan of Study", value: planName ?? "Not Allotted" },
         { label: "Semester", value: semLabel },
-        { label: "Graduated", value: row.original.graduated },
+        { label: "Passed Out", value: row.original.graduated },
         ...(showMentorName ? [{ label: "Mentor", value: String(row.original.mentorName ?? "").trim() || "—" }] : []),
         ...(showModifiedAudit ? [{ label: "Modified By", value: String(row.original.modifiedByName ?? "").trim() || "—" }] : []),
         ...(showModifiedAudit ? [{ label: "Modified At (IST)", value: formatIst(row.original.modifiedAt) }] : []),
