@@ -28,6 +28,33 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-21 20:50 IST | codex | fix
+- Summary: Scoped desktop left navigation removal to student-only sessions instead of all roles.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Restored the permanent desktop sidebar drawer for non-student-only authenticated sessions.
+  - Added `isStudentOnlySession` guard so only student-only users do not see the desktop left sidebar.
+  - Restored desktop main-content left offset only when the permanent drawer is present.
+- Revert: none
+
+## 2026-05-21 20:49 IST | codex | change
+- Summary: Removed the desktop left navigation drawer and kept only the mobile hamburger navigation drawer.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed the permanent desktop `Drawer` navigation block from `App.tsx`.
+  - Kept the temporary mobile `Drawer` (`xs` only) and existing hamburger trigger behavior unchanged.
+  - Removed desktop main-content left offset tied to drawer width (`ml` now `0`) so content uses full width on desktop.
+- Revert: none
+
+## 2026-05-21 20:47 IST | codex | change
+- Summary: Removed student-role visibility of the Academic navigation group and its submenu items across shared navigation surfaces.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated `navSections` role-gating in `App.tsx` so the `Academics` section is no longer included for `student` role access.
+  - Removed `hasStudentRole` from the `Students` submenu gate under `Academic` to keep role access consistent within the same section.
+  - Because top bar, left sidebar, and mobile hamburger all render from `navSections`, the change applies uniformly across all three navigation UIs.
+- Revert: none
+
 ## 2026-05-21 19:20 IST | codex | fix
 - Summary: Forced post-login navigation to always land on Dashboard and cleared stale view state across auth transitions.
 - Files: frontend/src/app/App.tsx, CHANGELOG.md

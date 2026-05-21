@@ -1,6 +1,6 @@
 import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { ChangeEvent, FormEvent } from "react";
-import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography, useMediaQuery } from "@mui/material";
+import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import MenuIcon from "@mui/icons-material/Menu";
 import DashboardIcon from "@mui/icons-material/Dashboard";
@@ -266,7 +266,6 @@ function App() {
 
   const theme = useTheme();
   const echartsTheme = theme.palette.mode === "dark" ? "dark" : undefined;
-  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const isDark = theme.palette.mode === "dark";
   const shellColors = {
     pageBg: isDark ? "grey.950" : "grey.100",
@@ -2839,7 +2838,7 @@ function App() {
         },
       }],
     }] : []),
-    ...((principal && (hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || isAdmin)) ? [{
+    ...((principal && (hasFacultyRole || hasHeadRole || hasModeratorRole || isAdmin)) ? [{
       label: "Academics",
       items: [
         {
@@ -2862,7 +2861,7 @@ function App() {
                 })();
               },
             },
-            ...((isAdmin || hasHeadRole || hasModeratorRole || hasFacultyRole || hasStudentRole) ? [{
+            ...((isAdmin || hasHeadRole || hasModeratorRole || hasFacultyRole) ? [{
               id: "students-directory",
               label: "Students",
               icon: <GroupIcon fontSize="small" />,
@@ -3386,30 +3385,32 @@ function App() {
       </AppBar>
       {principal ? (
         <Box component="nav">
-          <Drawer
-            variant="permanent"
-            sx={{
-              display: { xs: "none", md: "block" },
-              "& .MuiDrawer-paper": {
-                width: ADMIN_DRAWER_WIDTH,
-                boxSizing: "border-box",
-                bgcolor: shellColors.drawerBg,
-                color: shellColors.textPrimary,
-                borderRight: "1px solid",
-                borderColor: shellColors.border,
-                top: 66,
-                height: "calc(100% - 66px)",
-                overflowX: "hidden",
-                scrollbarWidth: "none",
-                "&::-webkit-scrollbar": { display: "none" },
-              },
-            }}
-            open
-          >
-            <Box sx={{ py: 0.5 }}>
-              {renderSidebarNav()}
-            </Box>
-          </Drawer>
+          {!isStudentOnlySession ? (
+            <Drawer
+              variant="permanent"
+              sx={{
+                display: { xs: "none", md: "block" },
+                "& .MuiDrawer-paper": {
+                  width: ADMIN_DRAWER_WIDTH,
+                  boxSizing: "border-box",
+                  bgcolor: shellColors.drawerBg,
+                  color: shellColors.textPrimary,
+                  borderRight: "1px solid",
+                  borderColor: shellColors.border,
+                  top: 66,
+                  height: "calc(100% - 66px)",
+                  overflowX: "hidden",
+                  scrollbarWidth: "none",
+                  "&::-webkit-scrollbar": { display: "none" },
+                },
+              }}
+              open
+            >
+              <Box sx={{ py: 0.5 }}>
+                {renderSidebarNav()}
+              </Box>
+            </Drawer>
+          ) : null}
           <Drawer
             variant="temporary"
             open={mobileOpen}
@@ -3458,7 +3459,7 @@ function App() {
       <Box
         component="main"
         sx={{
-          ml: principal && isDesktop ? `${ADMIN_DRAWER_WIDTH}px` : 0,
+          ml: principal && !isStudentOnlySession ? { md: `${ADMIN_DRAWER_WIDTH}px` } : 0,
           minHeight: "100vh",
           display: "flex",
           flexDirection: "column",
