@@ -72,6 +72,8 @@ type Props = {
   regulations: Regulation[];
   onViewStudents?: (creditStatusFilter: CreditStatus | null, batchFilter: number | null) => void;
   defaultExpandFirstBatch?: boolean;
+  showBatchStatusByLabelCard?: boolean;
+  chartOnly?: boolean;
 };
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
@@ -619,7 +621,13 @@ export default function FacultyAnalyticsReport({
   regulations,
   onViewStudents,
   defaultExpandFirstBatch = true,
+  showBatchStatusByLabelCard = false,
+  chartOnly = false,
 }: Props) {
+  const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
+  const echartsTheme = isDark ? "dark" : undefined;
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const analytics = useMemo(() => {
     const activeMentored = students.filter((s) => s.studentActive);
@@ -730,6 +738,85 @@ export default function FacultyAnalyticsReport({
   }, [students, creditRows, plansOfStudy, regulations]);
 
   const { totalActive, batchGroups, catNameMap } = analytics;
+  const batchStatusCardOption = useMemo<EChartsOption>(() => {
+    const trendGroups = [...batchGroups].sort((a, b) => {
+      const av = a.batch ?? Number.MAX_SAFE_INTEGER;
+      const bv = b.batch ?? Number.MAX_SAFE_INTEGER;
+      return av - bv;
+    });
+    const labels = trendGroups.map((group) => group.label);
+    const statusCountsByBatch = trendGroups.map((group) =>
+      CREDIT_STATUSES.map((status) => group.students.filter((student) => student.overallStatus === status).length)
+    );
+    const totalsByBatch = trendGroups.map((group) => group.students.length);
+    const statusPercentsByBatch = statusCountsByBatch.map((counts, idx) => {
+      const total = Math.max(1, totalsByBatch[idx] ?? 0);
+      return counts.map((count) => Number(((count / total) * 100).toFixed(2)));
+    });
+    const statusColors: Record<CreditStatus, string> = {
+      complete: theme.palette.success.main,
+      "on-track": theme.palette.primary.main,
+      marginal: theme.palette.warning.main,
+      "off-track": theme.palette.error.main,
+    };
+    const stackedSeries = CREDIT_STATUSES.map((status, statusIdx) => ({
+      name: OVERALL_LABELS[status],
+      type: "bar" as const,
+      stack: "composition",
+      data: statusPercentsByBatch.map((pct) => pct[statusIdx] ?? 0),
+      barMaxWidth: 44,
+      emphasis: { focus: "series" as const },
+      itemStyle: { color: statusColors[status] },
+      label: {
+        show: !isMobile,
+        position: "inside" as const,
+        formatter: ({ value }: { value: number }) => (Number(value) >= 8 ? `${Math.round(Number(value))}%` : ""),
+        color: "#fff",
+        fontSize: 10,
+        fontWeight: 600,
+      },
+    }));
+    return {
+      backgroundColor: "transparent",
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (items: Array<{ seriesName: string; value: number; dataIndex?: number }>) => {
+          const rowIndex = Math.max(0, Math.min(labels.length - 1, Number(items?.[0]?.dataIndex ?? 0)));
+          const counts = statusCountsByBatch[rowIndex] ?? [0, 0, 0, 0];
+          const total = totalsByBatch[rowIndex] ?? 0;
+          let html = `<div style="font-weight:700;margin-bottom:4px">${labels[rowIndex]}</div>`;
+          CREDIT_STATUSES.forEach((status, sIdx) => {
+            const pct = statusPercentsByBatch[rowIndex]?.[sIdx] ?? 0;
+            html += `<div>${OVERALL_LABELS[status]}: <strong>${counts[sIdx]}</strong> <span style="opacity:0.75">(${pct.toFixed(1)}%)</span></div>`;
+          });
+          html += `<div style="margin-top:4px">Total Users: <strong>${total}</strong></div>`;
+          return html;
+        },
+      },
+      legend: {
+        top: 4,
+        data: CREDIT_STATUSES.map((status) => OVERALL_LABELS[status]),
+        textStyle: { color: theme.palette.text.primary, fontSize: isMobile ? 10 : 11 },
+      },
+      grid: { left: 8, right: 18, top: isMobile ? 58 : 44, bottom: isMobile ? 58 : 24, containLabel: true },
+      xAxis: {
+        type: "category",
+        data: labels,
+        axisLabel: { color: theme.palette.text.secondary, fontSize: isMobile ? 10 : 11, rotate: isMobile ? 30 : 0 },
+        axisTick: { show: false },
+        axisLine: { lineStyle: { color: isDark ? "#333" : "#d9d9d9" } },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 100,
+        axisLabel: { color: theme.palette.text.primary, fontSize: isMobile ? 10 : 11, formatter: "{value}%" },
+        splitLine: { lineStyle: { color: isDark ? "#333" : "#f0f0f0" } },
+      },
+      series: stackedSeries,
+    };
+  }, [batchGroups, isDark, isMobile, theme]);
 
   const handlePrintBatch = useCallback((contentId: string) => {
     const styleEl = document.createElement("style");
@@ -764,7 +851,24 @@ export default function FacultyAnalyticsReport({
 
   return (
     <Stack spacing={1}>
-      {batchGroups.map(({ batch, label, students: batchStudents }, idx) => (
+      {showBatchStatusByLabelCard ? (
+        <Paper variant="outlined" sx={{ borderRadius: 2, p: 1.5, mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+            Status Composition by Batch
+          </Typography>
+          <Typography variant="caption" color="text.secondary" />
+          <Box sx={{ mt: 1, height: 300 }}>
+            <ReactECharts
+              theme={echartsTheme}
+              option={batchStatusCardOption}
+              notMerge
+              lazyUpdate
+              style={{ height: "100%", width: "100%" }}
+            />
+          </Box>
+        </Paper>
+      ) : null}
+      {!chartOnly ? batchGroups.map(({ batch, label, students: batchStudents }, idx) => (
         <Accordion
           key={batch ?? "unknown"}
           defaultExpanded={defaultExpandFirstBatch && idx === 0}
@@ -823,7 +927,7 @@ export default function FacultyAnalyticsReport({
             />
           </AccordionDetails>
         </Accordion>
-      ))}
+      )) : null}
     </Stack>
   );
 }

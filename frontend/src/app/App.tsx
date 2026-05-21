@@ -96,6 +96,7 @@ const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
   "students-directory:first",
   "faculty-students:first",
   "moderator-students:first",
+  "head-students:first",
 ];
 type BrowserCacheEnvelope<T> = {
   cachedAt: number;
@@ -170,6 +171,8 @@ function App() {
   const [facultyCreditTableRows, setFacultyCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [moderatorStudentRows, setModeratorStudentRows] = useState<FacultyStudentRow[]>([]);
   const [moderatorCreditTableRows, setModeratorCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
+  const [headStudentRows, setHeadStudentRows] = useState<FacultyStudentRow[]>([]);
+  const [headCreditTableRows, setHeadCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [, setFacultyMentoredMinimalRows] = useState<FacultyMentoredStudentMinimal[]>([]);
   const [mentorNameOptions, setMentorNameOptions] = useState<string[]>([]);
   const [programmeOptions, setProgrammeOptions] = useState<Array<{ id: number; name: string }>>([]);
@@ -232,8 +235,8 @@ function App() {
   const hasModeratorRole = useMemo(() => Boolean(principal?.roles.includes("moderator")), [principal]);
   const hasGuestRole = useMemo(() => Boolean(principal?.roles.includes("guest")), [principal]);
   const hasScopedStudentDashboardRole = useMemo(
-    () => hasFacultyRole || hasModeratorRole,
-    [hasFacultyRole, hasModeratorRole],
+    () => hasFacultyRole || hasModeratorRole || hasHeadRole,
+    [hasFacultyRole, hasModeratorRole, hasHeadRole],
   );
   const isScopedStudentDashboardOnly = useMemo(
     () => hasScopedStudentDashboardRole && !(isAdmin || hasHeadRole),
@@ -1232,11 +1235,15 @@ function App() {
   }
 
   async function loadScopedStudents(
-    roleContext: "faculty" | "moderator",
+    roleContext: "faculty" | "moderator" | "head",
     options?: { force?: boolean },
   ) {
     const force = Boolean(options?.force);
-    const cacheKey: AdminCacheKey = roleContext === "faculty" ? "faculty-students:first" : "moderator-students:first";
+    const cacheKey: AdminCacheKey = roleContext === "faculty"
+      ? "faculty-students:first"
+      : roleContext === "moderator"
+        ? "moderator-students:first"
+        : "head-students:first";
     if (!force) {
       const cached = getCachedAdminPayload<FacultyStudentRow[]>(cacheKey, ADMIN_CACHE_TTL_MS.facultyStudents);
       if (cached) {
@@ -1245,15 +1252,17 @@ function App() {
           const minimalFromCached = toFacultyMentoredMinimalRows(cached);
           setFacultyMentoredMinimalRows(minimalFromCached);
           writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalFromCached);
-        } else {
+        } else if (roleContext === "moderator") {
           setModeratorStudentRows(cached);
+        } else {
+          setHeadStudentRows(cached);
         }
         return;
       }
     }
     const res = await callApi(`/api/students?limit=100&roleContext=${roleContext}`, "GET");
     if (!res.ok) {
-      const scopeLabel = roleContext === "moderator" ? "active students" : "mentored students";
+      const scopeLabel = roleContext === "faculty" ? "mentored students" : "active students";
       setStatus(`Unable to load ${scopeLabel}: ${res.error ?? "Unknown error"}`);
       return;
     }
@@ -1279,13 +1288,15 @@ function App() {
       const minimalRows: FacultyMentoredStudentMinimal[] = toFacultyMentoredMinimalRows(normalizedRows);
       setFacultyMentoredMinimalRows(minimalRows);
       writeSessionJson(SESSION_FACULTY_MENTORED_MINIMAL_KEY, minimalRows);
-    } else {
+    } else if (roleContext === "moderator") {
       setModeratorStudentRows(normalizedRows);
+    } else {
+      setHeadStudentRows(normalizedRows);
     }
     setCachedAdminPayload(cacheKey, normalizedRows);
   }
 
-  async function loadScopedCreditTable(roleContext: "faculty" | "moderator") {
+  async function loadScopedCreditTable(roleContext: "faculty" | "moderator" | "head") {
     const res = await callApi(`/api/student-credit-table?roleContext=${roleContext}`, "GET");
     if (!res.ok) {
       const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
@@ -1308,8 +1319,10 @@ function App() {
     });
     if (roleContext === "faculty") {
       setFacultyCreditTableRows(normalizedRows);
-    } else {
+    } else if (roleContext === "moderator") {
       setModeratorCreditTableRows(normalizedRows);
+    } else {
+      setHeadCreditTableRows(normalizedRows);
     }
   }
 
@@ -1320,6 +1333,9 @@ function App() {
   async function loadModeratorStudents(options?: { force?: boolean }) {
     await loadScopedStudents("moderator", options);
   }
+  async function loadHeadStudents(options?: { force?: boolean }) {
+    await loadScopedStudents("head", options);
+  }
 
   async function loadFacultyCreditTable() {
     await loadScopedCreditTable("faculty");
@@ -1327,6 +1343,9 @@ function App() {
 
   async function loadModeratorCreditTable() {
     await loadScopedCreditTable("moderator");
+  }
+  async function loadHeadCreditTable() {
+    await loadScopedCreditTable("head");
   }
 
   async function loadPrimaryScopedStudents(options?: { force?: boolean }) {
@@ -1521,7 +1540,7 @@ function App() {
         throw new Error(res.error ?? "Student batch update failed");
       }
       setStatus(`Students updated (${payload.length} row${payload.length === 1 ? "" : "s"}).`);
-      invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "dashboard"]);
+      invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first", "dashboard"]);
       if (isScopedStudentDashboardOnly) {
         await loadPrimaryScopedStudents({ force: true });
       } else {
@@ -1626,7 +1645,7 @@ function App() {
         blurActiveElement();
         setStudentCsvImportResult({ imported, failed, errors });
       }
-      invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "dashboard"]);
+      invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first", "dashboard"]);
       if (isScopedStudentDashboardOnly) {
         await loadPrimaryScopedStudents({ force: true });
       } else {
@@ -2153,11 +2172,11 @@ function App() {
   }, [accountView, canChangeOwnPassword]);
 
   useEffect(() => {
-    if (!principal || superView !== "dashboard" || !isAdmin) {
+    if (!principal || superView !== "dashboard" || !(isAdmin || hasHeadRole)) {
       return;
     }
     void loadDashboard();
-  }, [principal, superView, isAdmin]);
+  }, [principal, superView, isAdmin, hasHeadRole]);
 
   useEffect(() => {
     if (!principal || superView !== "dashboard" || !hasScopedStudentDashboardRole) {
@@ -2171,7 +2190,11 @@ function App() {
       void loadModeratorStudents();
       void loadModeratorCreditTable();
     }
-  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole]);
+    if (hasHeadRole) {
+      void loadHeadStudents();
+      void loadHeadCreditTable();
+    }
+  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   useEffect(() => {
     if (!principal || superView !== "regulations") {
@@ -2213,7 +2236,10 @@ function App() {
     if (hasModeratorRole) {
       void loadModeratorStudents();
     }
-  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole]);
+    if (hasHeadRole) {
+      void loadHeadStudents();
+    }
+  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   const facultyGraduatedCount = useMemo(
     () => facultyStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
@@ -2238,6 +2264,18 @@ function App() {
   const moderatorMetricCardCount = useMemo(
     () => [moderatorNotGraduatedCount, moderatorGraduatedCount].filter((value) => value !== 0).length,
     [moderatorNotGraduatedCount, moderatorGraduatedCount],
+  );
+  const headGraduatedCount = useMemo(
+    () => headStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
+    [headStudentRows]
+  );
+  const headNotGraduatedCount = useMemo(
+    () => headStudentRows.filter((student) => student.studentActive && student.graduated !== "Yes").length,
+    [headStudentRows]
+  );
+  const headMetricCardCount = useMemo(
+    () => [headNotGraduatedCount, headGraduatedCount].filter((value) => value !== 0).length,
+    [headNotGraduatedCount, headGraduatedCount],
   );
   const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
     if (hasFacultyRole) return "faculty";
@@ -3783,11 +3821,142 @@ function App() {
             {(hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || hasGuestRole) ? (
               <Box sx={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, mt: isAdmin ? 2.5 : 0 }}>
                 {hasHeadRole ? (
-                  <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Head</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Department-level rollups and escalation insights will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
+                  <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
+                    <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+                      {dashboard?.system?.isTurso && dashboard?.system?.turso ? (
+                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, mb: 2.5 }}>
+                          <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
+                            Turso DB · Billing Cycle Usage
+                          </Typography>
+                          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2.5, mt: 1.5 }}>
+                            {[
+                              { label: "Reads", value: dashboard.system.turso.rowsRead ?? 0, max: 500_000_000, isBytes: false },
+                              { label: "Writes", value: dashboard.system.turso.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
+                              { label: "Syncs", value: dashboard.system.turso.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
+                              { label: "Storage", value: dashboard.system.turso.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
+                            ].map(({ label, value, max, isBytes }) => {
+                              const pct = Math.min(100, (value / max) * 100);
+                              const fmt = (n: number) => isBytes
+                                ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
+                                : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
+                              return (
+                                <Box key={label}>
+                                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.5 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{label}</Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {fmt(value)}{" "}
+                                      <Typography component="span" variant="caption" color="text.disabled">/ {fmt(max)}</Typography>
+                                    </Typography>
+                                  </Box>
+                                  <LinearProgress
+                                    variant="determinate"
+                                    value={pct}
+                                    color={pct > 80 ? "error" : pct > 50 ? "warning" : "primary"}
+                                    sx={{ height: 6, borderRadius: 1 }}
+                                    aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
+                                  />
+                                  <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.25, textAlign: "right" }}>
+                                    {pct.toFixed(1)}%
+                                  </Typography>
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                        </Paper>
+                      ) : null}
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2.5 }}>
+                        <Box>
+                          <Stack direction="row" sx={{ alignItems: "center", gap: 0.75 }}>
+                            <SchoolIcon fontSize="small" color="primary" />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Active Students</Typography>
+                          </Stack>
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                            All active student accounts in the system
+                          </Typography>
+                        </Box>
+                        <Tooltip title="Refresh counts">
+                          <span>
+                            <IconButton size="small" aria-label="Refresh head student counts" onClick={() => { void loadHeadStudents({ force: true }); }} disabled={busy}>
+                              <RefreshIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: {
+                            xs: "1fr",
+                            sm: `repeat(${Math.max(1, headMetricCardCount + 1)}, minmax(0, 1fr))`,
+                          },
+                          gap: 2,
+                        }}
+                      >
+                        {headNotGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                In Progress
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                              {headNotGraduatedCount.toLocaleString()}
+                            </Typography>
+                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
+                              View in-progress students
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {headGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5 }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Graduated
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5 }}>
+                              {headGraduatedCount.toLocaleString()}
+                            </Typography>
+                            <Button type="button" size="small" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }}>
+                              View graduated
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {headMetricCardCount === 0 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            No student status metrics to show yet.
+                          </Typography>
+                        ) : null}
+                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 1.5, py: 1.25 }}>
+                          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
+                            <FacultyAnalyticsReport
+                              students={headStudentRows}
+                              creditRows={headCreditTableRows}
+                              plansOfStudy={plansOfStudy}
+                              regulations={regulations}
+                              showBatchStatusByLabelCard
+                              chartOnly
+                            />
+                          </Suspense>
+                        </Paper>
+                      </Box>
+                      <Box sx={{ mt: 2.5 }}>
+                        <Divider sx={{ mb: 2 }} />
+                        <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
+                          <FacultyAnalyticsReport
+                            students={headStudentRows}
+                            creditRows={headCreditTableRows}
+                            plansOfStudy={plansOfStudy}
+                            regulations={regulations}
+                            defaultExpandFirstBatch={false}
+                            onViewStudents={() => {
+                              navigateTo("students-directory");
+                            }}
+                          />
+                        </Suspense>
+                      </Box>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -3817,7 +3986,7 @@ function App() {
                           display: "grid",
                           gridTemplateColumns: {
                             xs: "1fr",
-                            sm: `repeat(${Math.max(1, moderatorMetricCardCount)}, minmax(0, 1fr))`,
+                            sm: `repeat(${Math.max(1, moderatorMetricCardCount + 1)}, minmax(0, 1fr))`,
                           },
                           gap: 2,
                         }}
@@ -3859,6 +4028,18 @@ function App() {
                             No student status metrics to show yet.
                           </Typography>
                         ) : null}
+                        <Paper variant="outlined" sx={{ borderRadius: 2, px: 1.5, py: 1.25 }}>
+                          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
+                            <FacultyAnalyticsReport
+                              students={moderatorStudentRows}
+                              creditRows={moderatorCreditTableRows}
+                              plansOfStudy={plansOfStudy}
+                              regulations={regulations}
+                              showBatchStatusByLabelCard
+                              chartOnly
+                            />
+                          </Suspense>
+                        </Paper>
                       </Box>
                       <Box sx={{ mt: 2.5 }}>
                         <Divider sx={{ mb: 2 }} />

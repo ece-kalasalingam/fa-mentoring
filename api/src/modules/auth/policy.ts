@@ -11,7 +11,7 @@ const ROUTE_POLICIES: Record<string, AccessPolicy> = {
   "GET /": OPEN_POLICY,
   "GET /api/health": OPEN_POLICY,
   "GET /api/setup-status": OPEN_POLICY,
-  "GET /api/admin/dashboard": { anyRole: ["admin"] },
+  "GET /api/admin/dashboard": { anyRole: ["admin", "head"] },
   "GET /api/admin/active-users": { anyRole: ["admin"] },
   "GET /api/admin/login-attempts": { anyRole: ["admin"] },
   "GET /api/admin/users": { anyRole: ["admin"] },

@@ -3673,6 +3673,89 @@ px tsc --noEmit in rontend/.
   - Added the same mandatory role-section ordering rule under dashboard routing constraints in `AGENTS.md` to keep future implementations consistent.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none
+## 2026-05-21 18:44 IST | codex | change
+- Summary: Added head dashboard parity with moderator analytics using `roleContext=head` and active-student scoped data.
+- Files: api/src/app/worker.ts, frontend/src/app/App.tsx, frontend/src/app/types.ts, CHANGELOG.md
+- Details:
+  - Extended API role-context handling to support `roleContext=head` with the same active-student restriction behavior used by moderator role context.
+  - Added head-scoped dashboard data stores and loaders in `App.tsx` for students and credit-table analytics, backed by `/api/students?roleContext=head` and `/api/student-credit-table?roleContext=head`.
+  - Replaced head dashboard placeholder card with the same analytics UI structure as moderator card, using head-scoped datasets and collapsed-by-default batch accordions.
+  - Added `head-students:first` to admin cache key types/list and included this cache in invalidation paths after student write/import operations.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:46 IST | codex | change
+- Summary: Added Turso billing usage card to the top of the head dashboard and enabled head access to dashboard metrics source.
+- Files: api/src/modules/auth/policy.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Extended dashboard metrics endpoint policy/access checks so `head` role can read `/api/admin/dashboard` data used for the Turso usage panel.
+  - Updated frontend dashboard data loading to fetch dashboard metrics for head users in addition to admin users.
+  - Added `Turso DB · Billing Cycle Usage` card as the first top card inside the head dashboard section, reusing the same metric rendering pattern used in the administrator dashboard.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:49 IST | codex | change
+- Summary: Added batch-wise four-label user-distribution chart cards to head and moderator dashboards.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Extended `FacultyAnalyticsReport` with optional `showBatchStatusByLabelCard` prop.
+  - Added a native ECharts stacked horizontal bar chart card titled `Batch Status Distribution`, showing per-batch counts across the four labels: `Complete`, `On Track`, `Marginal`, `Off Track`.
+  - Enabled the new card in Head and Moderator dashboard usages while leaving Faculty behavior unchanged.
+  - Chart uses the same computed student analytics dataset currently used by dashboard batch accordions to keep counts consistent.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:51 IST | codex | change
+- Summary: Replaced head/moderator batch status card with a growth-focused trend chart for presentation use.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Replaced stacked horizontal bar chart with a multi-series line/area trend chart (native ECharts) ordered chronologically by batch.
+  - Added an overlaid dashed `Total` trend line to help track overall department growth alongside the four status labels.
+  - Updated card title/description to emphasize growth tracking and presentation readiness.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:52 IST | codex | change
+- Summary: Replaced head/moderator growth card with a batch-vs-status heatmap for clearer multi-batch comparison.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Switched chart type to native ECharts `heatmap` for better readability when comparing up to ~9 batches.
+  - Configured matrix axes as `batch` (X) and status labels (`Complete`, `On Track`, `Marginal`, `Off Track`) on Y, with each cell showing exact user count.
+  - Added color-scale `visualMap` to make low/high concentration immediately visible for presentation and review.
+  - Updated card title/description to reflect comparison-oriented usage.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:55 IST | codex | change
+- Summary: Implemented 100% stacked bar plus thin total-users line overlay for head/moderator batch comparison card.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Replaced the heatmap card with a dual-insight chart:
+    - 100% stacked bars per batch for status composition (`Complete`, `On Track`, `Marginal`, `Off Track`).
+    - Thin overlaid line on a secondary Y-axis for absolute `Total Users` growth by batch.
+  - Added percentage labels inside stacked bars (when legible), kept detailed tooltip with both counts and percentages.
+  - Updated title/description to reflect composition + growth interpretation.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:55 IST | codex | change
+- Summary: Removed total-users line overlay from head/moderator batch composition chart.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Removed the `Total Users` line series and secondary Y-axis from the batch composition card.
+  - Kept the 100% stacked bar chart and tooltip composition details intact.
+  - Updated card title/description to reflect composition-only view.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:57 IST | codex | change
+- Summary: Repositioned head/moderator composition chart beside the two student count cards.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `chartOnly` mode to `FacultyAnalyticsReport` so the chart card can be rendered standalone without the batch accordions.
+  - Updated Head and Moderator dashboard metric grids to include the chart as a third side-by-side card (same row as `In Progress` and `Graduated` cards).
+  - Removed duplicate chart rendering from the lower analytics sections by disabling `showBatchStatusByLabelCard` there.
+  - Verification passed: `npx tsc --noEmit` in `frontend/` and `npx tsc --noEmit` in `api/`.
+- Revert: none
+## 2026-05-21 18:58 IST | codex | change
+- Summary: Removed batch-composition helper sentence from the head/moderator chart card.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Removed the sentence `100% stacked bars show status composition for each batch.` from the chart card caption area as requested.
+- Revert: none
 ## 2026-05-21 18:40 IST | codex | fix
 - Summary: Fixed dashboard status-chip navigation so Students Directory filtering stays scoped to the clicked batch.
 - Files: frontend/src/app/App.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md

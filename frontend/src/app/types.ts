@@ -250,7 +250,8 @@ export type AdminCacheKey =
   | "users:first"
   | "students-directory:first"
   | "faculty-students:first"
-  | "moderator-students:first";
+  | "moderator-students:first"
+  | "head-students:first";
 
 export type AdminCacheEntry = { cachedAt: number; payload: unknown };
 

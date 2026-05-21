@@ -192,6 +192,7 @@ export const worker = {
       const roleContext = new URL(request.url).searchParams.get("roleContext");
       const preferFacultyScope = roleContext === "faculty";
       const preferModeratorActiveScope = roleContext === "moderator";
+      const preferHeadActiveScope = roleContext === "head";
       const resolveScopedStudentAccess = (currentPrincipal: NonNullable<typeof principal>) => {
         if (preferFacultyScope && currentPrincipal.roles.includes("faculty")) {
           const facultyScopedPrincipal = {
@@ -206,7 +207,8 @@ export const worker = {
         return resolveStudentScope(currentPrincipal);
       };
       const shouldRestrictToActiveStudents = (currentPrincipal: NonNullable<typeof principal>) =>
-        preferModeratorActiveScope && currentPrincipal.roles.includes("moderator");
+        (preferModeratorActiveScope && currentPrincipal.roles.includes("moderator"))
+        || (preferHeadActiveScope && currentPrincipal.roles.includes("head"));
       principalSubject = principal?.subject ?? null;
       authProvider = identityProvider.name;
 
@@ -289,10 +291,10 @@ export const worker = {
           event = "request.unauthorized";
           return respond({ ok: false, error: "Unauthorized" }, 401);
         }
-        if (!principal.roles.includes("admin")) {
+        if (!principal.roles.includes("admin") && !principal.roles.includes("head")) {
           statusCode = 403;
           event = "request.forbidden";
-          return respond({ ok: false, error: "Admin access required." }, 403);
+          return respond({ ok: false, error: "Admin or head access required." }, 403);
         }
         const data = await getAdminDashboard(env);
         statusCode = 200;
