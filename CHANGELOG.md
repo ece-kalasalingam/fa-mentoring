@@ -28,6 +28,24 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-21 18:10 IST | codex | change
+- Summary: Reordered multi-role dashboard card rendering priority to Administrator, Moderator, Faculty, then Student.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Reordered role-card rendering so moderator content appears before faculty and student content within the shared dashboard role section.
+  - Ensured student content renders after faculty content for users with both roles.
+  - Preserved existing administrator dashboard section placement (rendered above role cards), maintaining Administrator-first visibility.
+- Revert: none
+
+## 2026-05-21 18:07 IST | codex | change
+- Summary: Removed forced two-column layout from role-based dashboard cards so the section uses a single-column default flow.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated the dashboard role-section container to stop using `md: "repeat(2, 1fr)"`.
+  - Set the container grid template to a single-column default (`"1fr"`) across breakpoints.
+  - Preserved existing role-card rendering logic and per-card content/behavior.
+- Revert: none
+
 ## 2026-05-15 16:34 IST | codex | fix
 - Summary: Fixed production localhost API fallback/CORS mismatch and ensured Password tab is hidden for non-local providers.
 - Files: frontend/src/app/App.tsx, frontend/src/shared/api/client.ts, api/src/core/http.ts, CHANGELOG.md
@@ -3591,5 +3609,17 @@ px tsc --noEmit in rontend/.
   - Root cause: `loadUsers()` requested only one `limit=100` page and did not follow `nextCursor`.
   - Updated `loadUsers()` to iterate cursor pages (`/api/admin/users`) and aggregate rows until pagination is exhausted.
   - Preserved existing first-page cache key usage, now storing the full aggregated result set for `users:first`.
+  - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+## 2026-05-21 18:18 IST | codex | fix
+- Summary: Enforced faculty-scope data for faculty dashboard requests when users have mixed roles (for example `faculty` + `moderator`).
+- Files: api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added optional request query flag `roleContext=faculty` handling in API worker scope resolution.
+  - When `roleContext=faculty` is provided and the principal includes `faculty`, student scope is forced to faculty mentor-scope (if mentor email can be derived), instead of broader admin/moderator/head scope.
+  - Updated faculty dashboard loaders to call:
+    - `/api/students?limit=100&roleContext=faculty`
+    - `/api/student-credit-table?roleContext=faculty`
+  - This keeps broader-role behavior unchanged outside explicit faculty-context views.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
 - Revert: none

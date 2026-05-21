@@ -1232,7 +1232,7 @@ function App() {
         return;
       }
     }
-    const res = await callApi("/api/students?limit=100", "GET");
+    const res = await callApi("/api/students?limit=100&roleContext=faculty", "GET");
     if (!res.ok) {
       setStatus(`Unable to load mentored students: ${res.error ?? "Unknown error"}`);
       return;
@@ -1262,7 +1262,7 @@ function App() {
   }
 
   async function loadFacultyCreditTable() {
-    const res = await callApi("/api/student-credit-table", "GET");
+    const res = await callApi("/api/student-credit-table?roleContext=faculty", "GET");
     if (!res.ok) {
       const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
       setStatus(msg);
@@ -3669,12 +3669,12 @@ function App() {
             ) : null}
 
             {(hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || hasGuestRole) ? (
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, 1fr)" }, gap: 2, mt: isAdmin ? 2.5 : 0 }}>
-                {hasStudentRole ? (
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, mt: isAdmin ? 2.5 : 0 }}>
+                {hasModeratorRole ? (
                   <Card>
                     <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Student</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Learning dashboard and assigned mentoring actions will appear here.</Typography>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Moderator</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Moderation review items and flagged activity summary will appear here.</Typography>
                       <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>
@@ -3765,20 +3765,20 @@ function App() {
                     </CardContent>
                   </Card>
                 ) : null}
+                {hasStudentRole ? (
+                  <Card>
+                    <CardContent>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Student</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Learning dashboard and assigned mentoring actions will appear here.</Typography>
+                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
+                    </CardContent>
+                  </Card>
+                ) : null}
                 {hasHeadRole ? (
                   <Card>
                     <CardContent>
                       <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Head</Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Department-level rollups and escalation insights will appear here.</Typography>
-                      <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
-                    </CardContent>
-                  </Card>
-                ) : null}
-                {hasModeratorRole ? (
-                  <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Moderator</Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Moderation review items and flagged activity summary will appear here.</Typography>
                       <Box sx={{ mt: 1.5 }}><Button type="button" size="small" onClick={() => { navigateTo("account"); setAccountView("profile"); }}>Open My Account</Button></Box>
                     </CardContent>
                   </Card>

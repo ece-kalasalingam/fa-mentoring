@@ -189,6 +189,21 @@ export const worker = {
 
       const identityProvider = createIdentityProvider(env);
       const principal = await identityProvider.authenticate(request, env);
+      const roleContext = new URL(request.url).searchParams.get("roleContext");
+      const preferFacultyScope = roleContext === "faculty";
+      const resolveScopedStudentAccess = (currentPrincipal: NonNullable<typeof principal>) => {
+        if (preferFacultyScope && currentPrincipal.roles.includes("faculty")) {
+          const facultyScopedPrincipal = {
+            ...currentPrincipal,
+            roles: ["faculty"] as typeof currentPrincipal.roles,
+          };
+          const facultyScope = resolveStudentScope(facultyScopedPrincipal);
+          if (facultyScope.type === "mentor") {
+            return facultyScope;
+          }
+        }
+        return resolveStudentScope(currentPrincipal);
+      };
       principalSubject = principal?.subject ?? null;
       authProvider = identityProvider.name;
 
@@ -898,7 +913,7 @@ export const worker = {
           event = "request.forbidden";
           return respond({ ok: false, error: "Forbidden" }, 403);
         }
-        const scope = resolveStudentScope(principal);
+        const scope = resolveScopedStudentAccess(principal);
         const url = new URL(request.url);
         const data = await listStudentsByScope(env, scope, url.searchParams.get("limit"), url.searchParams.get("cursor"));
         statusCode = 200;
@@ -1043,7 +1058,7 @@ export const worker = {
           event = "request.forbidden";
           return respond({ ok: false, error: "Forbidden" }, 403);
         }
-        const scope = resolveStudentScope(principal);
+        const scope = resolveScopedStudentAccess(principal);
         const data = await getStudentStatsByScope(env, scope);
         statusCode = 200;
         return respond({ ok: true, ...data });
@@ -1054,7 +1069,7 @@ export const worker = {
         if (!studentId) {
           return respond({ ok: false, error: "studentId is required" }, 400);
         }
-        const scope = resolveStudentScope(principal!);
+        const scope = resolveScopedStudentAccess(principal!);
         if (scope.type === "mentor") {
           await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
         }
@@ -1083,7 +1098,7 @@ export const worker = {
             credits: toTwoDecimalNumber(Number(e.credits ?? 0)),
           }))
           .filter((e) => e.categoryId.length > 0 && e.semesterTaken > 0 && e.credits >= 0);
-        const scope = resolveStudentScope(principal!);
+        const scope = resolveScopedStudentAccess(principal!);
         if (scope.type === "mentor") {
           await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
         }
@@ -1127,7 +1142,7 @@ export const worker = {
             credits: toTwoDecimalNumber(Number(r.credits ?? 0)),
           }))
           .filter((r) => r.registrationNumber && r.semester > 0 && r.categoryCode && r.credits >= 0);
-        const scope = resolveStudentScope(principal!);
+        const scope = resolveScopedStudentAccess(principal!);
         const modifiedById = await resolveUserAccountIdByPrincipal(env, principal!);
         const result = await bulkImportStudentCredits(
           env,
@@ -1143,7 +1158,7 @@ export const worker = {
       }
 
       if (pathname === "/api/student-credit-table" && request.method === "GET") {
-        const scope = resolveStudentScope(principal!);
+        const scope = resolveScopedStudentAccess(principal!);
         const rows = await listStudentCreditTableByScope(env, scope);
         statusCode = 200;
         return respond({ ok: true, rows });
