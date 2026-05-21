@@ -54,9 +54,9 @@ const ROUTE_POLICIES: Record<string, AccessPolicy> = {
   "POST /api/students-directory/update-batch": { anyRole: ["faculty", "head", "moderator", "admin"] },
   "GET /api/students/stats": { anyRole: ["faculty", "head", "admin"] },
   "POST /api/import/students": { anyRole: ["faculty", "moderator", "admin"] },
-  "GET /api/student-credits": { anyRole: ["faculty", "head", "moderator", "admin"] },
-  "POST /api/student-credits/summaries": { anyRole: ["faculty", "head", "moderator", "admin"] },
-  "POST /api/student-credits": { anyRole: ["faculty", "head", "moderator", "admin"] },
+  "GET /api/student-credits": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
+  "POST /api/student-credits/summaries": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
+  "POST /api/student-credits": { anyRole: ["student", "faculty", "head", "moderator", "admin"] },
   "POST /api/student-credits/import-batch": { anyRole: ["faculty", "head", "moderator", "admin"] },
   "GET /api/student-credit-table": { anyRole: ["faculty", "head", "moderator", "admin"] }
 };

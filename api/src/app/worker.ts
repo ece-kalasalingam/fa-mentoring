@@ -36,7 +36,7 @@ import { fetchProgrammesFromJson } from "../modules/programmes/programmes.servic
 import { fetchRegulationsFromJson } from "../modules/regulations/regulations.service";
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
-import { bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits } from "../modules/students/students.service";
+import { assertStudentCanAccessOwnUserId, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits } from "../modules/students/students.service";
 import { assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
@@ -1081,8 +1081,15 @@ export const worker = {
           return respond({ ok: false, error: "studentId is required" }, 400);
         }
         const scope = resolveScopedStudentAccess(principal!);
+        if (scope.type === "none") {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
         if (scope.type === "mentor") {
           await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
+        } else if (scope.type === "self") {
+          await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
         }
         const credits = await getStudentCredits(env, studentId);
         statusCode = 200;
@@ -1110,8 +1117,15 @@ export const worker = {
           }))
           .filter((e) => e.categoryId.length > 0 && e.semesterTaken > 0 && e.credits >= 0);
         const scope = resolveScopedStudentAccess(principal!);
+        if (scope.type === "none") {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
         if (scope.type === "mentor") {
           await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
+        } else if (scope.type === "self") {
+          await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
         }
         const modifiedById = await resolveUserAccountIdByPrincipal(env, principal!);
         await upsertStudentCredits(
@@ -1131,6 +1145,19 @@ export const worker = {
         const body = await request.json();
         const rawIds = isObject(body) && Array.isArray(body.studentIds) ? body.studentIds : [];
         const studentIds = (rawIds as unknown[]).filter((id): id is string => typeof id === "string" && id.length > 0);
+        const scope = resolveScopedStudentAccess(principal!);
+        if (scope.type === "none") {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
+        if (scope.type === "mentor") {
+          await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, studentIds);
+        } else if (scope.type === "self") {
+          for (const studentId of studentIds) {
+            await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
+          }
+        }
         const summaries = await getStudentCreditSummaries(env, studentIds);
         statusCode = 200;
         return respond({ ok: true, summaries });

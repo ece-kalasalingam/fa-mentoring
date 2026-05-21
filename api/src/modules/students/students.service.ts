@@ -71,6 +71,7 @@ export async function listStudentsByScope(
             student_ua.full_name,
             student_ua.email,
             student_ua.active as student_active,
+            coalesce(nullif(trim(mentor_ua.full_name), ''), nullif(trim(mentor_ua.email), '')) as mentor_name,
             mentor_ua.email as mentor_email
           from students s
           left join user_accounts student_ua on student_ua.id = s.user_id
@@ -92,6 +93,7 @@ export async function listStudentsByScope(
     full_name: row.full_name == null ? null : String(row.full_name),
     email: row.email == null ? null : String(row.email),
     student_active: row.student_active == null ? 0 : Number(row.student_active),
+    mentor_name: row.mentor_name == null ? null : String(row.mentor_name),
     mentor_email: row.mentor_email == null ? null : String(row.mentor_email),
   }));
   const hasMore = result.rows.length > limit;
@@ -166,6 +168,23 @@ export async function getStudentCredits(env: Env, studentId: string) {
     semesterTaken: Number(row.semester_taken),
     credits: toTwoDecimalNumber(Number(row.credits)),
   }));
+}
+
+export async function assertStudentCanAccessOwnUserId(env: Env, studentEmail: string, studentId: string) {
+  const db = getDb(env);
+  const result = await db.execute({
+    sql: `select 1
+          from students s
+          inner join user_accounts student_ua on student_ua.id = s.user_id
+          where s.user_id = ?
+            and lower(trim(student_ua.email)) = ?
+            and student_ua.active = 1
+          limit 1`,
+    args: [studentId, String(studentEmail).trim().toLowerCase()],
+  });
+  if (result.rows.length === 0) {
+    throw new Error("Forbidden");
+  }
 }
 
 export type StudentCreditTableRow = {

@@ -177,6 +177,8 @@ function App() {
   const [mentorNameOptions, setMentorNameOptions] = useState<string[]>([]);
   const [programmeOptions, setProgrammeOptions] = useState<Array<{ id: number; name: string }>>([]);
   const [regulations, setRegulations] = useState<Regulation[]>([]);
+  const [studentSelfPlanOfStudyCode, setStudentSelfPlanOfStudyCode] = useState<number | null>(null);
+  const [studentSelfDirectoryRows, setStudentSelfDirectoryRows] = useState<StudentDirectoryRow[]>([]);
   const [regulationTab, setRegulationTab] = useState(0);
   const [plansOfStudy, setPlansOfStudy] = useState<PlanOfStudy[]>([]);
   const [plansValidationReport, setPlansValidationReport] = useState<PlansValidationReport | null>(null);
@@ -234,6 +236,10 @@ function App() {
   const hasHeadRole = useMemo(() => Boolean(principal?.roles.includes("head")), [principal]);
   const hasModeratorRole = useMemo(() => Boolean(principal?.roles.includes("moderator")), [principal]);
   const hasGuestRole = useMemo(() => Boolean(principal?.roles.includes("guest")), [principal]);
+  const isStudentOnlySession = useMemo(
+    () => hasStudentRole && !(isAdmin || hasFacultyRole || hasHeadRole || hasModeratorRole),
+    [hasStudentRole, isAdmin, hasFacultyRole, hasHeadRole, hasModeratorRole],
+  );
   const hasScopedStudentDashboardRole = useMemo(
     () => hasFacultyRole || hasModeratorRole || hasHeadRole,
     [hasFacultyRole, hasModeratorRole, hasHeadRole],
@@ -496,16 +502,41 @@ function App() {
     .map((value) => (value > 0 ? value : null));
   const dashboardErrorLogs = Number(dashboard?.logging?.errorLogs48h ?? 0);
   const dashboardWarnLogs = Number(dashboard?.logging?.warnLogs48h ?? 0);
+  const visibleRegulations = useMemo(() => {
+    if (!isStudentOnlySession) {
+      return regulations;
+    }
+    if (!Number.isInteger(studentSelfPlanOfStudyCode) || Number(studentSelfPlanOfStudyCode) <= 0) {
+      return [];
+    }
+    const studentPlan = plansOfStudy.find((plan) => Number(plan.planCode) === Number(studentSelfPlanOfStudyCode));
+    if (!studentPlan) {
+      return [];
+    }
+    return regulations.filter((regulation) => regulation.code === studentPlan.regulationCode);
+  }, [isStudentOnlySession, plansOfStudy, regulations, studentSelfPlanOfStudyCode]);
+  const activeStudentPlan = useMemo(() => {
+    if (!isStudentOnlySession) return null;
+    if (!Number.isInteger(studentSelfPlanOfStudyCode) || Number(studentSelfPlanOfStudyCode) <= 0) return null;
+    return plansOfStudy.find((plan) => Number(plan.planCode) === Number(studentSelfPlanOfStudyCode)) ?? null;
+  }, [isStudentOnlySession, plansOfStudy, studentSelfPlanOfStudyCode]);
   const selectedRegulationCode = useMemo(() => {
-    if (regulations.length === 0) return null;
-    const activeIndex = Math.min(regulationTab, regulations.length - 1);
-    const active = regulations[activeIndex];
+    if (visibleRegulations.length === 0) return null;
+    const activeIndex = Math.min(regulationTab, visibleRegulations.length - 1);
+    const active = visibleRegulations[activeIndex];
     return active?.code ?? null;
-  }, [regulations, regulationTab]);
+  }, [visibleRegulations, regulationTab]);
   const filteredPlansOfStudy = useMemo(() => {
+    if (isStudentOnlySession) {
+      return activeStudentPlan ? [activeStudentPlan] : [];
+    }
     if (!selectedRegulationCode) return [];
     return plansOfStudy.filter((plan) => plan.regulationCode === selectedRegulationCode);
-  }, [plansOfStudy, selectedRegulationCode]);
+  }, [activeStudentPlan, isStudentOnlySession, plansOfStudy, selectedRegulationCode]);
+  const regulationTabMax = Math.max(visibleRegulations.length - 1, 0);
+  const planOfStudyTabMax = Math.max(filteredPlansOfStudy.length - 1, 0);
+  const safeRegulationTab = Math.min(regulationTab, regulationTabMax);
+  const safePlanOfStudyTab = Math.min(planOfStudyTab, planOfStudyTabMax);
   const planOfStudyOptions = useMemo(
     () =>
       plansOfStudy
@@ -1294,6 +1325,37 @@ function App() {
       setHeadStudentRows(normalizedRows);
     }
     setCachedAdminPayload(cacheKey, normalizedRows);
+  }
+
+  async function loadStudentSelfPlanOfStudy(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    if (!force && (studentSelfPlanOfStudyCode !== null || studentSelfDirectoryRows.length > 0)) {
+      return;
+    }
+    const res = await callApi("/api/students?limit=1", "GET");
+    if (!res.ok) return;
+    const row = Array.isArray(res.rows) && res.rows.length > 0 ? (res.rows[0] as Record<string, unknown>) : null;
+    const codeRaw = row?.plan_of_study_code;
+    const code = codeRaw == null ? null : Number(codeRaw);
+    setStudentSelfPlanOfStudyCode(Number.isInteger(code) && Number(code) > 0 ? Number(code) : null);
+    if (row) {
+      setStudentSelfDirectoryRows([{
+        userId: String(row.userId ?? row.user_id ?? "").trim(),
+        fullName: String(row.full_name ?? "").trim() || "Unnamed Student",
+        email: String(row.email ?? "").trim(),
+        registrationNumber: String(row.registration_number ?? "").trim() || "Not Allotted",
+        planOfStudyCode: code == null || !Number.isInteger(code) ? null : Number(code),
+        currentSemester: row.current_semester == null ? 1 : Number(row.current_semester),
+        batch: row.batch == null ? null : Number(row.batch),
+        programme: row.programme == null ? null : Number(row.programme),
+        graduated: String(row.graduated ?? "").trim().toLowerCase() === "yes" ? "Yes" : "No",
+        mentorName: String(row.mentor_name ?? row.mentor_full_name ?? row.mentor_email ?? "").trim(),
+        modifiedByName: "",
+        modifiedAt: null,
+      }]);
+    } else {
+      setStudentSelfDirectoryRows([]);
+    }
   }
 
   async function loadScopedCreditTable(roleContext: "faculty" | "moderator" | "head") {
@@ -2202,11 +2264,24 @@ function App() {
     }
     void loadRegulations();
     void loadPlansOfStudy();
-  }, [principal, superView]);
+    if (isStudentOnlySession) {
+      void loadStudentSelfPlanOfStudy();
+    }
+  }, [principal, superView, isStudentOnlySession]);
+
+  useEffect(() => {
+    if (!principal) {
+      setStudentSelfPlanOfStudyCode(null);
+      setStudentSelfDirectoryRows([]);
+    }
+  }, [principal]);
 
   useEffect(() => {
     if (!principal || superView !== "students-directory") {
       return;
+    }
+    if (isStudentOnlySession) {
+      void loadStudentSelfPlanOfStudy();
     }
     if (programmeOptions.length > 0) {
       if (plansOfStudy.length > 0 && regulations.length > 0) {
@@ -2223,7 +2298,7 @@ function App() {
       await loadRegulations();
       await loadPlansOfStudy();
     })();
-  }, [principal, superView, programmeOptions.length, plansOfStudy.length, regulations.length]);
+  }, [principal, superView, programmeOptions.length, plansOfStudy.length, regulations.length, isStudentOnlySession]);
 
   useEffect(() => {
     if (!principal || superView !== "students-directory" || !hasScopedStudentDashboardRole) {
@@ -2311,26 +2386,29 @@ function App() {
     },
     [scopedDashboardStudentRows, scopedDashboardRoleContext, principal?.fullName]
   );
+  const studentsDirectorySourceRows = useMemo<StudentDirectoryRow[]>(
+    () => (isStudentOnlySession
+      ? studentSelfDirectoryRows
+      : (isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows)),
+    [isStudentOnlySession, studentSelfDirectoryRows, isScopedStudentDashboardOnly, facultyStudentsDirectoryRows, studentDirectoryRows],
+  );
   useEffect(() => {
     if (!selectedStudentForCredits?.userId) return;
-    const sourceRows = isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows;
+    const sourceRows = studentsDirectorySourceRows;
     const updated = sourceRows.find((row) => row.userId === selectedStudentForCredits.userId);
     if (updated) setSelectedStudentForCredits(updated);
-  }, [facultyStudentsDirectoryRows, isScopedStudentDashboardOnly, selectedStudentForCredits, studentDirectoryRows]);
+  }, [studentsDirectorySourceRows, selectedStudentForCredits]);
 
   // Updated by StudentsDirectoryTable whenever the user sorts/filters — persists after the table unmounts
   const [creditNavRows, setCreditNavRows] = useState<StudentDirectoryRow[]>([]);
-  const creditNavFallback = useMemo(
-    () => isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows,
-    [facultyStudentsDirectoryRows, isScopedStudentDashboardOnly, studentDirectoryRows],
-  );
+  const creditNavFallback = useMemo(() => studentsDirectorySourceRows, [studentsDirectorySourceRows]);
   // Use the table's sorted+filtered list when available; fall back to raw source on first load
   const effectiveCreditNavRows = creditNavRows.length > 0 ? creditNavRows : creditNavFallback;
 
   const creditSummaries = useMemo(() => {
     const result: Record<string, import("./types").StudentCreditSummary> = {};
     const seenIds = new Set<string>();
-    for (const student of [...studentDirectoryRows, ...facultyStudentsDirectoryRows]) {
+    for (const student of studentsDirectorySourceRows) {
       if (!student.userId || seenIds.has(student.userId)) continue;
       seenIds.add(student.userId);
       if (!student.planOfStudyCode) continue;
@@ -2357,7 +2435,7 @@ function App() {
       result[student.userId] = { target, earned, expected, deficit, status };
     }
     return result;
-  }, [studentSavedCreditsByUser, studentCreditTotals, creditTotalsLoaded, studentDirectoryRows, facultyStudentsDirectoryRows, plansOfStudy, regulations]);
+  }, [studentSavedCreditsByUser, studentCreditTotals, creditTotalsLoaded, studentsDirectorySourceRows, plansOfStudy, regulations]);
   const selectedStudentIndex = selectedStudentForCredits
     ? effectiveCreditNavRows.findIndex((r) => r.userId === selectedStudentForCredits.userId)
     : -1;
@@ -2375,13 +2453,11 @@ function App() {
   // Load credit totals for all visible students whenever the directory list changes
   useEffect(() => {
     if (!principal) return;
-    const sourceRows = isScopedStudentDashboardOnly
-      ? facultyStudentsDirectoryRows
-      : studentDirectoryRows;
+    const sourceRows = studentsDirectorySourceRows;
     const userIds = sourceRows.map((r) => r.userId).filter((id) => id.length > 0);
     if (userIds.length > 0) void loadStudentCreditSummaries(userIds);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principal, studentDirectoryRows.length, facultyStudentsDirectoryRows.length, isScopedStudentDashboardOnly]);
+  }, [principal, studentsDirectorySourceRows.length]);
 
   async function runStep(path: string, label: string, body?: unknown) {
     if (principal) {
@@ -2497,6 +2573,10 @@ function App() {
     sessionStorage.setItem(TAB_SESSION_MARKER_KEY, "1");
     localStorage.setItem("fa_last_login_tab", tabIdRef.current || crypto.randomUUID());
     setSessionTakenOver(false);
+    setOpenGroups({});
+    setMenuAnchors({});
+    setPrevSuperView(null);
+    setSuperView("dashboard");
     lastActivityAtRef.current = Date.now();
     inactivityWarnedRef.current = false;
     inactivityLogoutInFlightRef.current = false;
@@ -2544,6 +2624,8 @@ function App() {
     setOtherSessionsCount(0);
     setOpenGroups({});
     setMenuAnchors({});
+    setPrevSuperView(null);
+    setSuperView("dashboard");
     setStatus(reason ?? "Logged out");
   }
 
@@ -2702,7 +2784,7 @@ function App() {
                 })();
               },
             },
-            ...((isAdmin || hasHeadRole || hasModeratorRole || hasFacultyRole) ? [{
+            ...((isAdmin || hasHeadRole || hasModeratorRole || hasFacultyRole || hasStudentRole) ? [{
               id: "students-directory",
               label: "Students",
               icon: <GroupIcon fontSize="small" />,
@@ -2716,7 +2798,9 @@ function App() {
                     navigateTo("students-directory");
                     await loadProgrammes({ force: true });
                     await loadPlansOfStudy();
-                    if (isScopedStudentDashboardOnly) {
+                    if (isStudentOnlySession) {
+                      await loadStudentSelfPlanOfStudy({ force: true });
+                    } else if (isScopedStudentDashboardOnly) {
                       await loadPrimaryScopedStudents();
                     } else {
                       await loadStudentsDirectory();
@@ -5046,7 +5130,7 @@ function App() {
           </Card>
         ) : null}
 
-        {principal && (isAdmin || hasHeadRole || hasModeratorRole || hasFacultyRole) && superView === "students-directory" ? (
+        {principal && (isAdmin || hasHeadRole || hasModeratorRole || hasFacultyRole || hasStudentRole) && superView === "students-directory" ? (
           <Card>
             <CardContent>
               <Stack spacing={adminPageSx.pageStack.spacing}>
@@ -5058,11 +5142,13 @@ function App() {
                   >
                     <Box>
                       <Typography variant="h6">Students Directory</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {isScopedStudentDashboardOnly
-                          ? `${facultyStudentsDirectoryRows.length} active student account${facultyStudentsDirectoryRows.length === 1 ? "" : "s"} loaded`
-                          : `${studentDirectoryRows.length} student account${studentDirectoryRows.length === 1 ? "" : "s"} loaded`}
-                      </Typography>
+                      {!isStudentOnlySession ? (
+                        <Typography variant="body2" color="text.secondary">
+                          {isScopedStudentDashboardOnly
+                            ? `${facultyStudentsDirectoryRows.length} active student account${facultyStudentsDirectoryRows.length === 1 ? "" : "s"} loaded`
+                            : `${studentDirectoryRows.length} student account${studentDirectoryRows.length === 1 ? "" : "s"} loaded`}
+                        </Typography>
+                      ) : null}
                     </Box>
                     <Box sx={{ display: "flex", justifyContent: "flex-end", alignSelf: { xs: "flex-start", sm: "flex-start" } }}>
                       <Tooltip title="Refresh" arrow>
@@ -5074,7 +5160,9 @@ function App() {
                             onClick={() => {
                               void (async () => {
                                 await loadProgrammes({ force: true });
-                                if (isScopedStudentDashboardOnly) {
+                                if (isStudentOnlySession) {
+                                  await loadStudentSelfPlanOfStudy({ force: true });
+                                } else if (isScopedStudentDashboardOnly) {
                                   await loadPrimaryScopedStudents({ force: true });
                                 } else {
                                   await loadStudentsDirectory(undefined, { force: true });
@@ -5094,13 +5182,17 @@ function App() {
                       </Tooltip>
                     </Box>
                   </Stack>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
-                    Use table column filters and search to refine student results.
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
-                    Update student details CSV columns: required <code>email</code>; optional <code>registration_number</code>, <code>plan_of_study_code</code>, <code>programme</code>, <code>current_semester</code>, <code>batch</code>, <code>graduated</code>, <code>mentor_email</code>.
-                  </Typography>
-                  {isScopedStudentDashboardOnly ? (
+                  {!isStudentOnlySession ? (
+                    <>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
+                        Use table column filters and search to refine student results.
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                        Update student details CSV columns: required <code>email</code>; optional <code>registration_number</code>, <code>plan_of_study_code</code>, <code>programme</code>, <code>current_semester</code>, <code>batch</code>, <code>graduated</code>, <code>mentor_email</code>.
+                      </Typography>
+                    </>
+                  ) : null}
+                  {isScopedStudentDashboardOnly && !isStudentOnlySession ? (
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
                       {scopedDashboardRoleContext === "moderator"
                         ? "Showing all active students."
@@ -5111,7 +5203,7 @@ function App() {
 
                 <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading students directory table...</Typography>}>
                   <StudentsDirectoryTable
-                    rows={isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows}
+                    rows={isStudentOnlySession ? studentSelfDirectoryRows : (isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows)}
                     busy={busy}
                     initialGraduatedFilter={studentsDirectoryGraduatedFilter}
                     initialCreditStatusFilter={studentsDirectoryCreditStatusFilter}
@@ -5123,13 +5215,15 @@ function App() {
                     showMentorName={!isScopedStudentDashboardOnly}
                     showProgramme={!isScopedStudentDashboardOnly}
                     showModifiedAudit={(isAdmin || hasHeadRole || hasModeratorRole)}
-                    canEdit={true}
+                    canEdit={!isStudentOnlySession}
                     onOpenStudentCredits={(row) => openStudentCredits(row)}
                     onSubmitRows={async (updates) => {
-                      await submitStudentsDirectoryRows(updates);
+                      if (!isStudentOnlySession) {
+                        await submitStudentsDirectoryRows(updates);
+                      }
                     }}
-                    onImportStudentsCsv={importStudentsFromCsvFile}
-                    onImportCredits={async (rows) => {
+                    onImportStudentsCsv={isStudentOnlySession ? undefined : importStudentsFromCsvFile}
+                    onImportCredits={isStudentOnlySession ? undefined : async (rows) => {
                       const result = await callApi("/api/student-credits/import-batch", "POST", undefined, {
                         writeMode: "replace_all",
                         allowClearAll: false,
@@ -5145,7 +5239,7 @@ function App() {
                     creditSummaries={creditSummaries}
                   />
                 </Suspense>
-                {studentsDirectoryHasMore && !isScopedStudentDashboardOnly ? (
+                {studentsDirectoryHasMore && !isScopedStudentDashboardOnly && !isStudentOnlySession ? (
                   <Stack direction="row" sx={{ justifyContent: "flex-end" }}>
                     <Button type="button" variant="outlined" onClick={() => { void loadStudentsDirectory(studentsDirectoryCursor); }}>
                       Load More
@@ -5183,6 +5277,9 @@ function App() {
                             onClick={() => {
                               void loadRegulations({ force: true });
                               void loadPlansOfStudy({ force: true });
+                              if (isStudentOnlySession) {
+                                void loadStudentSelfPlanOfStudy({ force: true });
+                              }
                             }}
                           >
                             <RefreshIcon
@@ -5197,7 +5294,7 @@ function App() {
                       </Tooltip>
                     </Box>
                   </Stack>
-                  {plansValidationReport?.hasErrors ? (
+                  {plansValidationReport?.hasErrors && !isStudentOnlySession ? (
                     <Alert severity="error" sx={{ mt: 1.5 }}>
                       {`Validation found ${plansValidationReport.totalErrors} issue(s).`}
                       <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
@@ -5214,16 +5311,16 @@ function App() {
                   ) : null}
                 </Box>
 
-              {regulations.length > 0 ? (
+              {visibleRegulations.length > 0 ? (
                 <Paper variant="outlined">
                     <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
                       <Tabs
-                        value={Math.min(regulationTab, regulations.length - 1)}
+                        value={safeRegulationTab}
                         onChange={(_, v: number) => { setRegulationTab(v); }}
                         variant="scrollable"
                         scrollButtons="auto"
                       >
-                        {regulations.map((reg, i) => (
+                        {visibleRegulations.map((reg, i) => (
                           <Tab
                             key={reg.code}
                             value={i}
@@ -5242,8 +5339,8 @@ function App() {
                       </Tabs>
                     </Box>
 
-                    {regulations.map((regulation, i) => {
-                      if (i !== Math.min(regulationTab, regulations.length - 1)) return null;
+                    {visibleRegulations.map((regulation, i) => {
+                      if (i !== safeRegulationTab) return null;
                       const total = regulation.curriculumStructure.totalCreditsRequired;
                       const categories = regulation.curriculumStructure.categories;
                       const rangeCount = categories.filter((c) => c.rule.type === "range").length;
@@ -5330,7 +5427,9 @@ function App() {
                 <Paper variant="outlined" sx={{ p: 3 }}>
                   <Box sx={{ textAlign: "center" }}>
                     <Typography variant="body2" color="text.secondary">
-                      No regulations found. Click Refresh to reload.
+                      {isStudentOnlySession
+                        ? "No regulations found for your assigned plan of study."
+                        : "No regulations found. Click Refresh to reload."}
                     </Typography>
                   </Box>
                 </Paper>
@@ -5340,7 +5439,7 @@ function App() {
                 <Paper variant="outlined">
                     <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
                       <Tabs
-                        value={Math.min(planOfStudyTab, filteredPlansOfStudy.length - 1)}
+                        value={safePlanOfStudyTab}
                         onChange={(_, v: number) => { setPlanOfStudyTab(v); }}
                         variant="scrollable"
                         scrollButtons="auto"
@@ -5372,7 +5471,7 @@ function App() {
                       </Tabs>
                     </Box>
                     {filteredPlansOfStudy.map((plan, i) => {
-                      if (i !== Math.min(planOfStudyTab, filteredPlansOfStudy.length - 1)) return null;
+                      if (i !== safePlanOfStudyTab) return null;
                       const computedCategoryTotals = plan.semesters.reduce<Record<string, number>>((acc, semester) => {
                         Object.entries(semester.categories ?? {}).forEach(([code, rawValue]) => {
                           const value = Number(rawValue ?? 0);

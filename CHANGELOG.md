@@ -28,6 +28,15 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-21 19:20 IST | codex | fix
+- Summary: Forced post-login navigation to always land on Dashboard and cleared stale view state across auth transitions.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated `finalizeSuccessfulLogin()` to reset sidebar/topbar open state, clear `prevSuperView`, and set `superView` to `dashboard` before loading authenticated data.
+  - Updated `logout()` to also clear `prevSuperView` and set `superView` to `dashboard`, preventing a subsequent user from inheriting a previous user’s last in-app page.
+  - Preserved role-based dashboard rendering and existing super-admin/mitigation access controls.
+- Revert: none
+
 ## 2026-05-21 18:10 IST | codex | change
 - Summary: Reordered multi-role dashboard card rendering priority to Administrator, Moderator, Faculty, then Student.
 - Files: frontend/src/app/App.tsx, CHANGELOG.md
@@ -3765,4 +3774,100 @@ px tsc --noEmit in rontend/.
   - Replaced the faculty-only directory opener with a scoped opener in `App.tsx` so faculty and moderator dashboard chips both route to Students Directory with correct role scope and pre-applied `status + batch` filters.
   - Reset initial Students Directory quick filters (`graduated`, `status`, `batch`) when the main Students nav item is opened directly, preventing stale carry-over.
   - Verification passed: `npx tsc --noEmit` in `frontend/`.
+- Revert: none
+
+## 2026-05-21 19:04 IST | codex | change
+- Summary: Filtered Regulations page for student-only sessions to show only the signed-in student's plan-linked regulation and plan.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added a student-self plan lookup via /api/students?limit=1 and stored the resolved plan_of_study_code in App state.
+  - Scoped Regulations tabs to only the regulation associated with the student's plan and scoped Plans Of Study tabs to that single plan for student-only sessions.
+  - Kept existing behavior for admin/faculty/head/moderator roles, including refresh support and safe tab-index clamping.
+- Revert: none
+
+
+## 2026-05-21 19:04 IST | codex | change
+- Summary: Hid regulations validation error banner for student-only sessions.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated the regulations-page validation alert condition to suppress rendering when the session is student-only.
+  - Preserved existing validation visibility for non-student/admin-staff sessions.
+- Revert: none
+
+
+## 2026-05-21 19:08 IST | codex | change
+- Summary: Enabled Students menu/page for student role with self-only rows and removed student-visible toolbar/header extras in Students Directory.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added student-role access to Academic -> Students navigation and students-directory view gating.
+  - Implemented student self-row hydration via /api/students?limit=1 and bound Students Directory rows to that self-scoped dataset for student-only sessions.
+  - Hid student-only page header text blocks and suppressed edit/import/credit-import toolbar actions by disabling edit mode and omitting import handlers for student-only sessions.
+  - Kept existing behavior unchanged for admin/head/moderator/faculty roles, including refresh and scoped loading paths.
+- Revert: none
+
+
+## 2026-05-21 19:09 IST | codex | fix
+- Summary: Restored Students Directory page heading for student-only sessions while keeping auxiliary header text hidden.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated the Students Directory header block to always render the Students Directory title.
+  - Kept student-only suppression of secondary header/helper text unchanged.
+- Revert: none
+
+
+## 2026-05-21 19:10 IST | codex | change
+- Summary: Enabled student-role Full Name click-through in Students Directory to open the same student credits page used by other roles.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed the student-only guard that disabled onOpenStudentCredits in Students Directory table props.
+  - Kept student-only edit/import restrictions intact; this change only restores navigation parity for the Full Name link action.
+- Revert: none
+
+
+## 2026-05-21 19:12 IST | codex | change
+- Summary: Enabled student-role read/save on student credits with strict self-only ownership checks.
+- Files: api/src/modules/students/students.service.ts, api/src/app/worker.ts, api/src/modules/auth/policy.ts, CHANGELOG.md
+- Details:
+  - Allowed GET /api/student-credits and POST /api/student-credits for student role in route policy.
+  - Added ssertStudentCanAccessOwnUserId to verify the requested studentId belongs to the authenticated student's own active account (email-bound lookup).
+  - Enforced self/mentor/none scope checks in worker handlers: students can access only self, faculty scope remains mentor-checked, and unresolved scope fails closed with 403.
+- Revert: none
+
+
+## 2026-05-21 19:15 IST | codex | fix
+- Summary: Fixed student-role Students MRT credit summary refresh by enabling and scoping the summaries endpoint for student self-access.
+- Files: api/src/modules/auth/policy.ts, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Allowed POST /api/student-credits/summaries for the student role in access policy.
+  - Added scope enforcement in worker: 
+one => 403, mentor => faculty ownership assertion, self => strict self-only studentId assertion for each requested id.
+  - Ensures student MRT credit-related values can load/update for the logged-in student while remaining access-safe.
+- Revert: none
+
+
+## 2026-05-21 19:16 IST | codex | fix
+- Summary: Fixed empty credit columns for student-role Students MRT by aligning summary calculation/loading with student-only row source.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added a unified studentsDirectorySourceRows selector that resolves to studentSelfDirectoryRows for student-only sessions.
+  - Updated selected-student sync, credit navigation fallback, credit summary computation, and summary fetch trigger to use that unified source.
+  - Resolved role-specific mismatch where student table rows differed from the rows used to compute/fetch credit metrics.
+- Revert: none
+
+
+## 2026-05-21 19:17 IST | codex | fix
+- Summary: Restored mentor display in student-role Students MRT by populating student-self row mentor field from available API mentor attributes.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated student-self row mapping to set mentorName from mentor_name, fallback mentor_full_name, then mentor_email.
+  - Scope-limited change to student-only row hydration path; no behavior change for faculty/head/moderator/admin row sources.
+- Revert: none
+
+## 2026-05-21 20:34 IST | codex | fix
+- Summary: Updated student-scope students payload to provide mentor display name (faculty full name with email fallback) so student MRT shows faculty name instead of raw email.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Extended listStudentsByScope select to include mentor_name as coalesce(mentor full_name, mentor email) from user_accounts.
+  - Added mentor_name to returned row mapping without changing existing mentor_email field.
+  - Keeps compatibility for other roles while enabling student-role UI to render mentor name consistently.
 - Revert: none
