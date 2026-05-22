@@ -4305,3 +4305,15 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added explicit admin dashboard Refresh button in the dashboard header.
   - Increased frontend dashboard local cache TTL to 10 minutes and invalidated local dashboard cache after credit save/import success.
 - Revert: none
+## 2026-05-22 10:16 IST | codex-gpt-5 | perf
+- Summary: Implemented ordered dashboard-read optimizations: removed duplicate summary fetches, added summary/scoped-students caching, batched self-scope checks, and reduced student-credit summary scans.
+- Files: api/src/app/worker.ts, api/src/modules/students/students.service.ts, api/src/modules/setup/migrations.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Step 1: Removed duplicate dashboard summary-trigger calls by relying on the existing source-row effect, preventing repeated `/api/student-credits/summaries` requests during initial section loads/toggles.
+  - Step 2: Added session-scoped client cache for student credit summaries keyed by role-context + student-id set (10-minute TTL), with automatic invalidation alongside dashboard/students cache invalidations.
+  - Step 3: Added server-side cache for first-page `/api/students` scoped reads (per principal + role context + scope + active-only + limit) with force bypass support (`force=1`).
+  - Step 4: Reworked `getStudentCreditSummaries` to use a single aggregated SQL pass (CTE + window sums) instead of separate totals and by-category scans.
+  - Step 5: Added migration `0030_student_credit_details_summary_lookup_index` to create `idx_credit_details_student_category_status` for summary query acceleration.
+  - Step 6: Replaced per-student self-scope authorization loop in `/api/student-credits/summaries` with a batched `IN (...)` validator (`assertStudentCanAccessOwnUserIds`).
+  - Preserved existing response shapes, role access rules, and UI behavior.
+- Revert: none

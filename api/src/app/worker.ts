@@ -36,7 +36,7 @@ import { fetchProgrammesFromJson } from "../modules/programmes/programmes.servic
 import { fetchRegulationsFromJson } from "../modules/regulations/regulations.service";
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
-import { assertStudentCanAccessOwnUserId, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, getStudentUnits, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits, upsertStudentUnits } from "../modules/students/students.service";
+import { assertStudentCanAccessOwnUserId, assertStudentCanAccessOwnUserIds, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, getStudentUnits, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits, upsertStudentUnits } from "../modules/students/students.service";
 import { assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
@@ -86,8 +86,11 @@ const ROOT_ENDPOINTS = [
 ];
 
 const ADMIN_DASHBOARD_CACHE_TTL_MS = 10 * 60 * 1000;
+const SCOPED_STUDENTS_CACHE_TTL_MS = 10 * 60 * 1000;
 type AdminDashboardPayload = Awaited<ReturnType<typeof getAdminDashboard>>;
 const adminDashboardCacheByPrincipal = new Map<string, { cachedAt: number; payload: AdminDashboardPayload }>();
+type ScopedStudentsPayload = Awaited<ReturnType<typeof listStudentsByScope>>;
+const scopedStudentsCacheByPrincipal = new Map<string, { cachedAt: number; payload: ScopedStudentsPayload }>();
 
 function getAdminDashboardCacheKey(principal: { provider: string; subject: string } | null | undefined): string | null {
   if (!principal) return null;
@@ -115,10 +118,42 @@ function invalidateAdminDashboardCacheForPrincipal(principal: { provider: string
   const cacheKey = getAdminDashboardCacheKey(principal);
   if (!cacheKey) return;
   adminDashboardCacheByPrincipal.delete(cacheKey);
+  for (const key of scopedStudentsCacheByPrincipal.keys()) {
+    if (key.startsWith(`${cacheKey}|`)) {
+      scopedStudentsCacheByPrincipal.delete(key);
+    }
+  }
 }
 
 function invalidateAllAdminDashboardCaches(): void {
   adminDashboardCacheByPrincipal.clear();
+  scopedStudentsCacheByPrincipal.clear();
+}
+
+function getScopedStudentsCacheKey(
+  principal: { provider: string; subject: string } | null | undefined,
+  roleContext: string,
+  scopeKey: string,
+  activeOnly: boolean,
+  limit: string
+): string | null {
+  const principalKey = getAdminDashboardCacheKey(principal);
+  if (!principalKey) return null;
+  return `${principalKey}|students|${roleContext}|${scopeKey}|active:${activeOnly ? 1 : 0}|limit:${limit}`;
+}
+
+function readScopedStudentsCache(cacheKey: string): ScopedStudentsPayload | null {
+  const entry = scopedStudentsCacheByPrincipal.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > SCOPED_STUDENTS_CACHE_TTL_MS) {
+    scopedStudentsCacheByPrincipal.delete(cacheKey);
+    return null;
+  }
+  return entry.payload;
+}
+
+function writeScopedStudentsCache(cacheKey: string, payload: ScopedStudentsPayload): void {
+  scopedStudentsCacheByPrincipal.set(cacheKey, { cachedAt: Date.now(), payload });
 }
 
 function toTwoDecimalNumber(value: number): number {
@@ -971,15 +1006,33 @@ export const worker = {
           event = "request.forbidden";
           return respond({ ok: false, error: "Forbidden" }, 403);
         }
-        const scope = resolveScopedStudentAccess(principal);
         const url = new URL(request.url);
-        const data = await listStudentsByScope(
-          env,
-          scope,
-          url.searchParams.get("limit"),
-          url.searchParams.get("cursor"),
-          shouldRestrictToActiveStudents(principal),
-        );
+        const limitParam = url.searchParams.get("limit");
+        const cursorParam = url.searchParams.get("cursor");
+        const roleContextParam = String(url.searchParams.get("roleContext") ?? "").trim().toLowerCase();
+        const forceRefresh = ["1", "true", "yes"].includes(String(url.searchParams.get("force") ?? "").trim().toLowerCase());
+        const scope = resolveScopedStudentAccess(principal);
+        const activeOnly = shouldRestrictToActiveStudents(principal);
+        const scopeKey =
+          scope.type === "mentor"
+            ? `mentor:${scope.mentorEmail}`
+            : scope.type === "self"
+              ? `self:${scope.studentEmail}`
+              : scope.type;
+        const cacheKey = !cursorParam
+          ? getScopedStudentsCacheKey(principal, roleContextParam, scopeKey, activeOnly, String(limitParam ?? ""))
+          : null;
+        if (!forceRefresh && cacheKey) {
+          const cached = readScopedStudentsCache(cacheKey);
+          if (cached) {
+            statusCode = 200;
+            return respond({ ok: true, ...cached });
+          }
+        }
+        const data = await listStudentsByScope(env, scope, limitParam, cursorParam, activeOnly);
+        if (cacheKey) {
+          writeScopedStudentsCache(cacheKey, data);
+        }
         statusCode = 200;
         return respond({ ok: true, ...data });
       }
@@ -1227,9 +1280,7 @@ export const worker = {
         if (scope.type === "mentor") {
           await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, studentIds);
         } else if (scope.type === "self") {
-          for (const studentId of studentIds) {
-            await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
-          }
+          await assertStudentCanAccessOwnUserIds(env, scope.studentEmail, studentIds);
         }
         const summaries = await getStudentCreditSummaries(env, studentIds);
         statusCode = 200;

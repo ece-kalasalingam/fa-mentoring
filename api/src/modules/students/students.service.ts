@@ -142,38 +142,46 @@ export async function getStudentCreditSummaries(
   const db = getDb(env);
   const placeholders = studentIds.map(() => "?").join(", ");
   const result = await db.execute({
-    sql: `select
+    sql: `with per_category as (
+            select
+              student_id,
+              category_id,
+              coalesce(sum(credits), 0) as total_value,
+              coalesce(sum(case when coalesce(status, 0) = 5 then credits else 0 end), 0) as total_units_category,
+              coalesce(sum(case when coalesce(status, 0) = 5 then 0 else credits end), 0) as total_credits_category
+            from student_credit_details
+            where student_id in (${placeholders})
+            group by student_id, category_id
+          )
+          select
             student_id,
-            coalesce(sum(case when coalesce(status, 0) = 5 then 0 else credits end), 0) as total_credits,
-            coalesce(sum(case when coalesce(status, 0) = 5 then credits else 0 end), 0) as total_units
-          from student_credit_details
-          where student_id in (${placeholders})
-          group by student_id`,
-    args: studentIds as Array<string | number | null>,
-  });
-  const byCategoryResult = await db.execute({
-    sql: `select student_id, category_id, coalesce(sum(credits), 0) as total_value
-          from student_credit_details
-          where student_id in (${placeholders})
-          group by student_id, category_id`,
+            category_id,
+            total_value,
+            coalesce(sum(total_credits_category) over (partition by student_id), 0) as total_credits,
+            coalesce(sum(total_units_category) over (partition by student_id), 0) as total_units
+          from per_category
+          order by student_id asc, category_id asc`,
     args: studentIds as Array<string | number | null>,
   });
   const byStudentCategory = new Map<string, Record<string, number>>();
-  for (const row of byCategoryResult.rows) {
+  const totalCreditsByStudent = new Map<string, number>();
+  const totalUnitsByStudent = new Map<string, number>();
+  for (const row of result.rows) {
     const studentId = String(row.student_id ?? "");
     const categoryId = String(row.category_id ?? "");
     if (!studentId || !categoryId) continue;
     const bucket = byStudentCategory.get(studentId) ?? {};
     bucket[categoryId] = toTwoDecimalNumber(Number(row.total_value ?? 0));
     byStudentCategory.set(studentId, bucket);
+    totalCreditsByStudent.set(studentId, toTwoDecimalNumber(Number(row.total_credits ?? 0)));
+    totalUnitsByStudent.set(studentId, toTwoDecimalNumber(Number(row.total_units ?? 0)));
   }
 
-  return result.rows.map((row) => {
-    const studentId = String(row.student_id ?? "");
+  return Array.from(byStudentCategory.keys()).map((studentId) => {
     return {
       studentId,
-      totalCredits: toTwoDecimalNumber(Number(row.total_credits ?? 0)),
-      totalUnits: toTwoDecimalNumber(Number(row.total_units ?? 0)),
+      totalCredits: totalCreditsByStudent.get(studentId) ?? 0,
+      totalUnits: totalUnitsByStudent.get(studentId) ?? 0,
       byCategory: byStudentCategory.get(studentId) ?? {},
     };
   });
@@ -225,6 +233,33 @@ export async function assertStudentCanAccessOwnUserId(env: Env, studentEmail: st
     args: [studentId, String(studentEmail).trim().toLowerCase()],
   });
   if (result.rows.length === 0) {
+    throw new Error("Forbidden");
+  }
+}
+
+export async function assertStudentCanAccessOwnUserIds(env: Env, studentEmail: string, studentIds: string[]) {
+  const db = getDb(env);
+  const normalizedEmail = String(studentEmail).trim().toLowerCase();
+  const scopedStudentIds = Array.from(
+    new Set(
+      studentIds
+        .map((id) => String(id ?? "").trim())
+        .filter((id) => id.length > 0)
+    )
+  );
+  if (!normalizedEmail || scopedStudentIds.length === 0) return;
+  const placeholders = scopedStudentIds.map(() => "?").join(", ");
+  const result = await db.execute({
+    sql: `select distinct s.user_id
+          from students s
+          inner join user_accounts student_ua on student_ua.id = s.user_id
+          where s.user_id in (${placeholders})
+            and lower(trim(student_ua.email)) = ?
+            and student_ua.active = 1`,
+    args: [...scopedStudentIds, normalizedEmail],
+  });
+  const allowedIds = new Set(result.rows.map((row) => String(row.user_id ?? "").trim()).filter((id) => id.length > 0));
+  if (allowedIds.size !== scopedStudentIds.length) {
     throw new Error("Forbidden");
   }
 }

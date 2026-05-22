@@ -714,5 +714,12 @@ export const MIGRATIONS: Migration[] = [
          where enrollment_id = new.enrollment_id;
        end`
     ]
+  },
+  {
+    id: "0030_student_credit_details_summary_lookup_index",
+    description: "Add composite index to optimize student credit summary grouping reads",
+    statements: [
+      "create index if not exists idx_credit_details_student_category_status on student_credit_details(student_id, category_id, status)"
+    ]
   }
 ];

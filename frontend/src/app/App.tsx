@@ -87,6 +87,7 @@ const FacultyCreditDetailsTable = lazy(() => import("./FacultyCreditDetailsTable
 const FacultyAnalyticsReport = lazy(() => import("./FacultyAnalyticsReport"));
 const LOCAL_DENSE_CACHE_PREFIX = "fa_dense_cache_v1";
 const STATIC_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const STUDENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
 const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
   "dashboard",
   "logs:error:first",
@@ -225,6 +226,8 @@ function App() {
   const inactivityLogoutInFlightRef = useRef(false);
   const adminReadCacheRef = useRef<Partial<Record<AdminCacheKey, AdminCacheEntry>>>({});
   const adminCacheSessionKeyRef = useRef<string | null>(null);
+  const studentSummaryCacheRef = useRef<Record<string, AdminCacheEntry>>({});
+  const studentSummaryCacheKeysRef = useRef<Set<string>>(new Set());
 
   function toFacultyMentoredMinimalRows(rows: FacultyStudentRow[]): FacultyMentoredStudentMinimal[] {
     return rows
@@ -331,11 +334,22 @@ function App() {
 
   function invalidateAdminCache(keys?: AdminCacheKey[]) {
     const sessionKey = adminCacheSessionKeyRef.current;
+    const shouldInvalidateSummaries = !keys || keys.some((key) =>
+      key === "dashboard"
+      || key === "students-directory:first"
+      || key === "faculty-students:first"
+      || key === "moderator-students:first"
+      || key === "head-students:first"
+    );
     if (!keys) {
       adminReadCacheRef.current = {};
-      if (!sessionKey) return;
-      for (const key of ADMIN_CACHE_KEYS) {
-        removeLocalScopedCache(key, sessionKey);
+      if (sessionKey) {
+        for (const key of ADMIN_CACHE_KEYS) {
+          removeLocalScopedCache(key, sessionKey);
+        }
+      }
+      if (shouldInvalidateSummaries) {
+        invalidateStudentSummaryCache();
       }
       return;
     }
@@ -345,6 +359,47 @@ function App() {
         removeLocalScopedCache(key, sessionKey);
       }
     }
+    if (shouldInvalidateSummaries) {
+      invalidateStudentSummaryCache();
+    }
+  }
+
+  function getStudentSummaryCacheKey(roleContext: "all" | "faculty" | "moderator" | "head" | "self", studentIds: string[]): string {
+    const normalizedIds = Array.from(new Set(studentIds.map((id) => String(id ?? "").trim()).filter((id) => id.length > 0))).sort();
+    return `student-summaries:${roleContext}:${normalizedIds.join(",")}`;
+  }
+
+  function readStudentSummaryCache<T>(cacheKey: string): T | null {
+    const inMemory = studentSummaryCacheRef.current[cacheKey];
+    if (inMemory && Date.now() - inMemory.cachedAt <= STUDENT_SUMMARY_CACHE_TTL_MS) {
+      return inMemory.payload as T;
+    }
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) return null;
+    const cached = readLocalScopedCache<T>(cacheKey, sessionKey, STUDENT_SUMMARY_CACHE_TTL_MS);
+    if (cached == null) return null;
+    studentSummaryCacheRef.current[cacheKey] = { cachedAt: Date.now(), payload: cached };
+    studentSummaryCacheKeysRef.current.add(cacheKey);
+    return cached;
+  }
+
+  function writeStudentSummaryCache<T>(cacheKey: string, payload: T): void {
+    studentSummaryCacheRef.current[cacheKey] = { cachedAt: Date.now(), payload };
+    studentSummaryCacheKeysRef.current.add(cacheKey);
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) return;
+    writeLocalScopedCache(cacheKey, sessionKey, payload);
+  }
+
+  function invalidateStudentSummaryCache(): void {
+    const sessionKey = adminCacheSessionKeyRef.current;
+    for (const cacheKey of studentSummaryCacheKeysRef.current) {
+      delete studentSummaryCacheRef.current[cacheKey];
+      if (sessionKey) {
+        removeLocalScopedCache(cacheKey, sessionKey);
+      }
+    }
+    studentSummaryCacheKeysRef.current.clear();
   }
 
   function getPrincipalCacheSessionKey(nextPrincipal: Principal | null | undefined): string | null {
@@ -357,6 +412,7 @@ function App() {
     if (adminCacheSessionKeyRef.current !== nextKey) {
       clearSessionDataCaches(adminCacheSessionKeyRef.current);
       invalidateAdminCache();
+      invalidateStudentSummaryCache();
       adminCacheSessionKeyRef.current = nextKey;
     }
   }
@@ -1373,7 +1429,10 @@ function App() {
         return cached;
       }
     }
-    const res = await callApi(`/api/students?limit=100&roleContext=${roleContext}`, "GET");
+    const endpoint = force
+      ? `/api/students?limit=100&roleContext=${roleContext}&force=1`
+      : `/api/students?limit=100&roleContext=${roleContext}`;
+    const res = await callApi(endpoint, "GET");
     if (!res.ok) {
       const scopeLabel = roleContext === "faculty" ? "mentored students" : "active students";
       setStatus(`Unable to load ${scopeLabel}: ${res.error ?? "Unknown error"}`);
@@ -1489,11 +1548,7 @@ function App() {
     if (!loadedDashboardSections.has(section)) {
       setLoadedDashboardSections((prev) => new Set([...prev, section]));
       const loadFn = section === "head" ? loadHeadStudents : section === "moderator" ? loadModeratorStudents : loadFacultyStudents;
-      void (async () => {
-        const rows = await loadFn();
-        const ids = rows.map((r) => r.userId).filter(Boolean);
-        if (ids.length > 0) void loadStudentCreditSummaries(ids);
-      })();
+      void loadFn();
     }
   }
 
@@ -1537,7 +1592,20 @@ function App() {
   }
   async function loadStudentCreditSummaries(userIds: string[]) {
     if (userIds.length === 0) return;
-    const result = await callApi("/api/student-credits/summaries", "POST", undefined, { studentIds: userIds });
+    const summaryRoleContext: "all" | "faculty" | "moderator" | "head" | "self" =
+      isStudentOnlySession
+        ? "self"
+        : (isScopedStudentDashboardOnly
+            ? (scopedDashboardRoleContext === "moderator" ? "moderator" : "faculty")
+            : (hasHeadRole ? "head" : "all"));
+    const cacheKey = getStudentSummaryCacheKey(summaryRoleContext, userIds);
+    const cached = readStudentSummaryCache<Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>>(cacheKey);
+    const result = cached
+      ? { ok: true, summaries: cached }
+      : await callApi("/api/student-credits/summaries", "POST", undefined, { studentIds: userIds });
+    if (!cached && result.ok && Array.isArray(result.summaries)) {
+      writeStudentSummaryCache(cacheKey, result.summaries as Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>);
+    }
     if (result.ok && Array.isArray(result.summaries)) {
       const planByCode = new Map(plansOfStudy.map((plan) => [plan.planCode, plan]));
       const regulationByCode = new Map(regulations.map((regulation) => [regulation.code, regulation]));
@@ -2411,11 +2479,7 @@ function App() {
     setExpandedDashboardSections(new Set([first]));
     setLoadedDashboardSections(new Set([first]));
     const loadFn = first === "head" ? loadHeadStudents : first === "moderator" ? loadModeratorStudents : loadFacultyStudents;
-    void (async () => {
-      const rows = await loadFn();
-      const ids = rows.map((r) => r.userId).filter(Boolean);
-      if (ids.length > 0) void loadStudentCreditSummaries(ids);
-    })();
+    void loadFn();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
