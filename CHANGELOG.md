@@ -4708,3 +4708,15 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Updated dashboard service to use this single result for `system.turso` and `system.tursoDebug`.
   - Eliminates inconsistent states where debug showed `HTTP 200` while usage remained unavailable due to separate call outcomes.
 - Revert: none
+
+## 2026-05-22 17:14 IST | codex-gpt-5 | fix
+- Summary: Fixed API/shared alias resolution and frontend type/lint regressions so repository validation passes end-to-end.
+- Files: api/vitest.config.mts, frontend/src/app/App.tsx, frontend/src/app/ExportToolbar.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/ManageUsersTable.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/dateTimeContext.tsx, CHANGELOG.md
+- Details:
+  - Added Vitest `resolve.alias` mapping for `#shared` in `api/vitest.config.mts` so API tests resolve `shared/src` imports consistently.
+  - Resolved strict TypeScript issues in frontend export/chart code by tightening CSV row types and chart formatter parameter typing.
+  - Fixed null-safety and error-cause handling in `App.tsx` (`Error` cause, safe optional access for dashboard system usage).
+  - Eliminated failing lint patterns by removing problematic memoization wrappers and simplifying derived-row/summary computations in `App.tsx`.
+  - Removed/cleaned unused identifiers in table modules and addressed React refresh lint rule in `dateTimeContext.tsx`.
+  - Re-ran validation until clean: API tests pass, frontend build passes, frontend lint passes, workspace build passes.
+- Revert: none

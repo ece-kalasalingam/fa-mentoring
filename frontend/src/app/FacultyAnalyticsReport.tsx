@@ -21,7 +21,7 @@ import {
   Typography,
   useMediaQuery,
 } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
+import { alpha, useTheme, type Theme } from "@mui/material/styles";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import DownloadIcon from "@mui/icons-material/Download";
 import PrintIcon from "@mui/icons-material/Print";
@@ -92,7 +92,7 @@ type Props = {
 };
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
-function overallStatusColor(status: OverallStatus, theme: ReturnType<typeof useTheme>): string {
+function overallStatusColor(status: OverallStatus, theme: Theme): string {
   switch (status) {
     case "complete":  return theme.palette.success.main;
     case "on-track":  return theme.palette.success.light;
@@ -245,7 +245,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
       label: {
         show: !isMobile,
         position: "inside" as const,
-        formatter: ({ value }: { value: number }) => makeLabel(value),
+        formatter: (params: { value?: unknown }) => makeLabel(Number(params?.value ?? 0)),
         fontSize: labelFontSize, fontWeight: "bold" as const, color: labelColor,
       },
     }));
@@ -923,7 +923,10 @@ export default function FacultyAnalyticsReport({
       label: {
         show: !isMobile,
         position: "inside" as const,
-        formatter: ({ value }: { value: number }) => (Number(value) >= 8 ? `${Math.round(Number(value))}%` : ""),
+        formatter: (params: { value?: unknown }) => {
+          const value = Number(params?.value ?? 0);
+          return value >= 8 ? `${Math.round(value)}%` : "";
+        },
         color: "#fff",
         fontSize: 10,
         fontWeight: 600,
@@ -934,7 +937,8 @@ export default function FacultyAnalyticsReport({
       tooltip: {
         trigger: "axis",
         axisPointer: { type: "shadow" },
-        formatter: (items: Array<{ seriesName: string; value: number; dataIndex?: number }>) => {
+        formatter: (rawItems: unknown) => {
+          const items = (Array.isArray(rawItems) ? rawItems : [rawItems]) as Array<{ dataIndex?: number }>;
           const rowIndex = Math.max(0, Math.min(labels.length - 1, Number(items?.[0]?.dataIndex ?? 0)));
           const counts = statusCountsByBatch[rowIndex] ?? [0, 0, 0, 0];
           const total = totalsByBatch[rowIndex] ?? 0;

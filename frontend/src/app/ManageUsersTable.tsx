@@ -177,7 +177,8 @@ export default function ManageUsersTable(props: Props) {
 
     setPendingBySubject((prev) => {
       if (patchesEqual(mergedPatch, originalPatch)) {
-        const { [subject]: _removed, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[subject];
         return rest;
       }
       return { ...prev, [subject]: mergedPatch };

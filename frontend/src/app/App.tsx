@@ -1900,7 +1900,7 @@ function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Inline student update failed";
       setStatus(message);
-      throw new Error(message);
+      throw new Error(message, { cause: err });
     } finally {
       setBusy(false);
     }
@@ -2554,7 +2554,6 @@ function App() {
         await loadHeadModeratorBatchSummary();
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [principalStableKey, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   useEffect(() => {
@@ -2647,19 +2646,12 @@ function App() {
     () => [facultyNotGraduatedCount, facultyGraduatedCount].filter((value) => value !== 0).length,
     [facultyNotGraduatedCount, facultyGraduatedCount],
   );
-  const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
-    if (hasFacultyRole) return "faculty";
-    if (hasModeratorRole) return "moderator";
-    return null;
-  }, [hasFacultyRole, hasModeratorRole]);
-  const scopedDashboardStudentRows = useMemo(
-    () => (scopedDashboardRoleContext === "moderator" ? moderatorStudentRows : facultyStudentRows),
-    [scopedDashboardRoleContext, moderatorStudentRows, facultyStudentRows],
-  );
-  const scopedDashboardCreditRows = useMemo(
-    () => (scopedDashboardRoleContext === "moderator" ? moderatorCreditTableRows : facultyCreditTableRows),
-    [scopedDashboardRoleContext, moderatorCreditTableRows, facultyCreditTableRows],
-  );
+  const scopedDashboardRoleContext: "faculty" | "moderator" | null =
+    hasFacultyRole ? "faculty" : hasModeratorRole ? "moderator" : null;
+  const scopedDashboardStudentRows =
+    scopedDashboardRoleContext === "moderator" ? moderatorStudentRows : facultyStudentRows;
+  const scopedDashboardCreditRows =
+    scopedDashboardRoleContext === "moderator" ? moderatorCreditTableRows : facultyCreditTableRows;
   const combinedHmRows = useMemo(
     () => (hasHeadRole ? headStudentRows : moderatorStudentRows),
     [hasHeadRole, headStudentRows, moderatorStudentRows],
@@ -2784,33 +2776,25 @@ function App() {
     }
     return [];
   }, [hasHeadRole, hasModeratorRole, hasFacultyRole, headStudentRows, moderatorStudentRows, facultyStudentRows, analysisBatchFilter]);
-  const facultyStudentsDirectoryRows = useMemo<StudentDirectoryRow[]>(
-    () => {
-      return scopedDashboardStudentRows
-        .filter((student) => student.studentActive)
-        .map((student) => ({
-          userId: student.userId,
-          fullName: student.fullName?.trim() || "Unnamed Student",
-          email: student.email?.trim() || "",
-          registrationNumber: student.registrationNumber?.trim() || "Not Allotted",
-          planOfStudyCode: student.planOfStudyCode,
-          currentSemester: student.currentSemester ?? 1,
-          batch: student.batch,
-          programme: student.programme,
-          graduated: student.graduated,
-          mentorName: scopedDashboardRoleContext === "moderator" ? "Assigned Mentor" : (principal?.fullName?.trim() || "Assigned Faculty"),
-          modifiedByName: "",
-          modifiedAt: null,
-        }));
-    },
-    [scopedDashboardStudentRows, scopedDashboardRoleContext, principal?.fullName]
-  );
-  const studentsDirectorySourceRows = useMemo<StudentDirectoryRow[]>(
-    () => (isStudentOnlySession
-      ? studentSelfDirectoryRows
-      : (isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows)),
-    [isStudentOnlySession, studentSelfDirectoryRows, isScopedStudentDashboardOnly, facultyStudentsDirectoryRows, studentDirectoryRows],
-  );
+  const facultyStudentsDirectoryRows: StudentDirectoryRow[] = scopedDashboardStudentRows
+    .filter((student) => student.studentActive)
+    .map((student) => ({
+      userId: student.userId,
+      fullName: student.fullName?.trim() || "Unnamed Student",
+      email: student.email?.trim() || "",
+      registrationNumber: student.registrationNumber?.trim() || "Not Allotted",
+      planOfStudyCode: student.planOfStudyCode,
+      currentSemester: student.currentSemester ?? 1,
+      batch: student.batch,
+      programme: student.programme,
+      graduated: student.graduated,
+      mentorName: scopedDashboardRoleContext === "moderator" ? "Assigned Mentor" : (principal?.fullName?.trim() || "Assigned Faculty"),
+      modifiedByName: "",
+      modifiedAt: null,
+    }));
+  const studentsDirectorySourceRows: StudentDirectoryRow[] = isStudentOnlySession
+    ? studentSelfDirectoryRows
+    : (isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows);
   useEffect(() => {
     if (!selectedStudentForCredits?.userId) return;
     const sourceRows = studentsDirectorySourceRows;
@@ -2820,11 +2804,11 @@ function App() {
 
   // Updated by StudentsDirectoryTable whenever the user sorts/filters — persists after the table unmounts
   const [creditNavRows, setCreditNavRows] = useState<StudentDirectoryRow[]>([]);
-  const creditNavFallback = useMemo(() => studentsDirectorySourceRows, [studentsDirectorySourceRows]);
+  const creditNavFallback = studentsDirectorySourceRows;
   // Use the table's sorted+filtered list when available; fall back to raw source on first load
   const effectiveCreditNavRows = creditNavRows.length > 0 ? creditNavRows : creditNavFallback;
 
-  const creditSummaries = useMemo(() => {
+  const creditSummaries = (() => {
     const result: Record<string, import("./types").StudentCreditSummary> = {};
     const seenIds = new Set<string>();
     const planByCode = new Map(plansOfStudy.map((plan) => [plan.planCode, plan]));
@@ -2957,7 +2941,7 @@ function App() {
       };
     }
     return result;
-  }, [studentSavedCreditsByUser, studentSavedUnitsByUser, studentCreditTotals, studentUnitTotals, studentSummaryCatEarned, creditTotalsLoaded, studentsDirectorySourceRows, plansOfStudy, regulations]);
+  })();
   const selectedStudentIndex = selectedStudentForCredits
     ? effectiveCreditNavRows.findIndex((r) => r.userId === selectedStudentForCredits.userId)
     : -1;
@@ -2978,7 +2962,6 @@ function App() {
     const sourceRows = studentsDirectorySourceRows;
     const userIds = sourceRows.map((r) => r.userId).filter((id) => id.length > 0);
     if (userIds.length > 0) void loadStudentCreditSummaries(userIds);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [principal, studentsDirectorySourceRows.map((row) => row.userId).join("|")]);
 
   async function runStep(path: string, label: string, body?: unknown) {
@@ -4446,7 +4429,7 @@ function App() {
                         </Tooltip>
                       </Stack>
 
-                      {hasHeadRole && showTursoUsageCard ? <TursoUsageCard system={dashboard.system} /> : null}
+                      {hasHeadRole && showTursoUsageCard ? <TursoUsageCard system={dashboard?.system} /> : null}
 
                       <Box
                         sx={{

@@ -16,7 +16,7 @@ type Props<T> = {
   table: TableLike<T>;
   busy: boolean;
   csvConfig: ConfigOptions;
-  getCsvRows: (originals: T[]) => Record<string, unknown>[];
+  getCsvRows: (originals: T[]) => Array<Record<string, string | number | boolean | null | undefined>>;
   pdfFilename: string;
   pdfHeaders: string[];
   getPdfBody: (originals: T[]) => string[][];

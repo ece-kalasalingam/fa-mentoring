@@ -3,7 +3,6 @@ import {
   Alert, Avatar, Badge, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle,
   MenuItem, Snackbar, TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LaunchIcon from "@mui/icons-material/Launch";
 import GroupsIcon from "@mui/icons-material/Groups";
 import SaveIcon from "@mui/icons-material/Save";
@@ -280,7 +279,8 @@ export default function StudentsDirectoryTable(props: Props) {
 
     setPendingByRowKey((prev) => {
       if (patchesEqual(mergedPatch, originalPatch)) {
-        const { [sourceKey]: _removed, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[sourceKey];
         return rest;
       }
       return { ...prev, [sourceKey]: mergedPatch };
