@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert, Avatar, Badge, Box, Button, Chip, CircularProgress, Dialog, DialogContent, DialogTitle,
+  Alert, Avatar, Badge, Box, Button, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle,
   MenuItem, Snackbar, TextField, Tooltip, Typography, useMediaQuery, useTheme,
 } from "@mui/material";
 import LaunchIcon from "@mui/icons-material/Launch";
@@ -82,6 +82,7 @@ export default function StudentsDirectoryTable(props: Props) {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [creditImportResult, setCreditImportResult] = useState<{ imported: number; failed: number; errors: string[] } | null>(null);
   const [creditImportBusy, setCreditImportBusy] = useState(false);
+  const [creditImportConfirmOpen, setCreditImportConfirmOpen] = useState(false);
   const creditFileInputRef = useRef<HTMLInputElement>(null);
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(
     isDesktop ? {} : MOBILE_HIDDEN_COLUMNS,
@@ -179,6 +180,16 @@ export default function StudentsDirectoryTable(props: Props) {
     a.download = "credits-import-template.csv";
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function handleOpenCreditImportDialog() {
+    if (props.busy || creditImportBusy) return;
+    setCreditImportConfirmOpen(true);
+  }
+
+  function handleConfirmCreditImport() {
+    setCreditImportConfirmOpen(false);
+    creditFileInputRef.current?.click();
   }
 
   async function handleCreditFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -939,7 +950,7 @@ export default function StudentsDirectoryTable(props: Props) {
               <Tooltip title="Upload a filled credits CSV to bulk-import earned credits" arrow>
                 <span>
                   <Button
-                    component="label"
+                    type="button"
                     size="small"
                     variant="outlined"
                     startIcon={creditImportBusy
@@ -947,18 +958,19 @@ export default function StudentsDirectoryTable(props: Props) {
                       : <UploadIcon fontSize="small" />
                     }
                     disabled={props.busy || creditImportBusy}
+                    onClick={handleOpenCreditImportDialog}
                   >
                     {creditImportBusy ? "Importing…" : "Import Credits"}
-                    <input
-                      hidden
-                      ref={creditFileInputRef}
-                      accept=".csv,text/csv"
-                      type="file"
-                      onChange={handleCreditFileChange}
-                    />
                   </Button>
                 </span>
               </Tooltip>
+              <input
+                hidden
+                ref={creditFileInputRef}
+                accept=".csv,text/csv"
+                type="file"
+                onChange={handleCreditFileChange}
+              />
             </>
           ) : null}
         </ExportToolbar>
@@ -1093,6 +1105,29 @@ export default function StudentsDirectoryTable(props: Props) {
           Students updated successfully.
         </Alert>
       </Snackbar>
+
+      <Dialog
+        open={creditImportConfirmOpen}
+        onClose={() => setCreditImportConfirmOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        aria-labelledby="credit-import-confirm-title"
+      >
+        <DialogTitle id="credit-import-confirm-title">Warning</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mt: 0.5 }}>
+            Importing may not be accurate. It may delete the records already existing.
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setCreditImportConfirmOpen(false)} disabled={creditImportBusy}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirmCreditImport} variant="contained" disabled={creditImportBusy}>
+            Continue
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={creditImportResult !== null}

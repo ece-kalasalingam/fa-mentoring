@@ -4936,3 +4936,20 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Updated `loadDashboard(...)` to honor this flag and issue a forced API read (`force=1`) on next dashboard load, then clear the flag.
   - Prevents stale cached dashboard stats when navigating from import/edit workflows to dashboard.
 - Revert: none
+## 2026-05-23 09:15 IST | codex-gpt-5 | fix
+- Summary: Added pre-import warning confirmation for student credits and hardened busy overlay interaction blocking on Student Directory table.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Changed `Import Credits` flow to show a warning dialog first: `Importing may not be accurate. It may delete the records already existing.`
+  - File picker now opens only after user explicitly confirms in the warning dialog.
+  - Added a blocking overlay layer while table is busy/importing to prevent interacting with underlying rows/controls.
+  - Disabled table container scrolling during busy states to avoid scrolling/selecting non-overlay elements.
+- Revert: none
+## 2026-05-23 09:22 IST | codex-gpt-5 | change
+- Summary: Switched Student Directory table back to MRT native busy/loading behavior for debugging.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Removed the custom absolute busy overlay wrapper around `MaterialReactTable`.
+  - Restored `muiTableContainerProps` to shared default (`MUI_TABLE_CONTAINER_PROPS`) without busy-state overflow override.
+  - Keeps `state.isLoading`/`showSkeletons` intact so MRT handles the busy UI natively.
+- Revert: none
