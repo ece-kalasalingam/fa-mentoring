@@ -1,3 +1,12 @@
+## 2026-05-23 04:55 IST | codex | change
+- Summary: Removed KARE-ECE branding from UI/UX by replacing organization label metadata and shared org display text.
+- Files: frontend/src/shared/branding.ts, frontend/index.html, CHANGELOG.md
+- Details:
+  - Updated shared `ORG_NAME` constant to `FA-Mentoring` so all UI references no longer show `KARE, ECE`.
+  - Updated frontend HTML `author` meta tag content to `FA-Mentoring`.
+  - Verified there are no remaining frontend matches for `KARE, ECE` or `KARE-ECE`.
+- Revert: none
+
 ## 2026-05-23 04:48 IST | codex | change
 - Summary: Replaced SPRIS branding and expanded app name in UI/UX metadata and shared frontend branding constants.
 - Files: frontend/src/shared/branding.ts, frontend/index.html, frontend/public/favicons/site.webmanifest, CHANGELOG.md
