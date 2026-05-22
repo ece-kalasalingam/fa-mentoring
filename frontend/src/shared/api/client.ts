@@ -233,6 +233,40 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL
     : "https://spris-api.eceklu.in");
 let csrfTokenMemory = "";
 const inFlightGetRequests = new Map<string, Promise<ApiResult>>();
+const DB_READ_ESTIMATE_SESSION_KEY = "fa_db_read_estimate_total_v1";
+
+function estimateDbReads(path: string, method: "GET" | "POST", body: unknown): number {
+  if (method === "GET") {
+    if (path.startsWith("/api/students/batch-summary")) return 1;
+    if (path.startsWith("/api/student-credit-table")) return 1;
+    if (path.startsWith("/api/students?")) return 1;
+    if (path.startsWith("/api/admin/dashboard")) return 3;
+    if (path.startsWith("/api/admin/users")) return 2;
+    if (path.startsWith("/api/admin/active-users")) return 2;
+    if (path.startsWith("/api/admin/login-attempts")) return 2;
+    if (path.startsWith("/api/logs")) return 2;
+    if (path.startsWith("/api/students-directory")) return 2;
+    if (path.startsWith("/api/auth/me")) return 1;
+    return 1;
+  }
+  if (path === "/api/student-credits/summaries" && Array.isArray((body as { studentIds?: unknown[] } | undefined)?.studentIds)) {
+    return 1;
+  }
+  // Writes still read some lookup rows; keep an intentionally conservative estimate.
+  if (path.includes("/set-active")) return 3;
+  if (path.includes("/update")) return 3;
+  return 1;
+}
+
+function incrementAndLogEstimatedDbReads(path: string, method: "GET" | "POST", body: unknown): void {
+  if (typeof window === "undefined") return;
+  const delta = Math.max(0, Math.round(estimateDbReads(path, method, body)));
+  const previous = Number.parseInt(window.sessionStorage.getItem(DB_READ_ESTIMATE_SESSION_KEY) ?? "0", 10);
+  const safePrev = Number.isFinite(previous) ? previous : 0;
+  const total = safePrev + delta;
+  window.sessionStorage.setItem(DB_READ_ESTIMATE_SESSION_KEY, String(total));
+  console.info(`[DB READ ESTIMATE] +${delta} | total=${total} | ${method} ${path}`);
+}
 
 export function setCsrfToken(token: string) {
   csrfTokenMemory = token;
@@ -270,7 +304,9 @@ export async function callApi(path: string, method: "GET" | "POST", token?: stri
     const text = await res.text();
     throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
   }
-  return (await res.json()) as ApiResult;
+  const jsonBody = (await res.json()) as ApiResult;
+  incrementAndLogEstimatedDbReads(path, method, body);
+  return jsonBody;
   };
 
   if (!dedupeKey) {

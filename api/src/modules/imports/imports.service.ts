@@ -47,6 +47,7 @@ export async function importStudents(
   let succeeded = 0;
   let failed = 0;
   const errors: string[] = [];
+  const updatedStudentUserIds = new Set<string>();
   const uniqueRowEmails = Array.from(
     new Set(
       rows
@@ -319,6 +320,7 @@ export async function importStudents(
           args: [...updateArgs, userId]
         });
       }
+      updatedStudentUserIds.add(userId);
       succeeded += 1;
       continue;
     }
@@ -355,6 +357,7 @@ export async function importStudents(
             values(${placeholders})`,
       args: insertArgs
     });
+    updatedStudentUserIds.add(userId);
     succeeded += 1;
     } catch (error) {
       failed += 1;
@@ -368,5 +371,6 @@ export async function importStudents(
     failed,
     errors,
     total: rows.length,
+    updatedStudentUserIds: Array.from(updatedStudentUserIds),
   };
 }

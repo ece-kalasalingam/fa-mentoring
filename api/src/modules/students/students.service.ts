@@ -1,6 +1,9 @@
 import { getDb } from "../../core/db";
 import type { Env } from "../../core/types";
 import type { StudentScope } from "../auth/authorization.service";
+import { computeCreditStatus } from "#shared/creditStatus";
+import { fetchPlansOfStudyFromJson } from "../plan-of-study/plan-of-study.service";
+import { fetchRegulationsFromJson } from "../regulations/regulations.service";
 
 function toTwoDecimalNumber(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -142,42 +145,42 @@ export async function getStudentCreditSummaries(
   const db = getDb(env);
   const placeholders = studentIds.map(() => "?").join(", ");
   const result = await db.execute({
-    sql: `with per_category as (
-            select
-              student_id,
-              category_id,
-              coalesce(sum(credits), 0) as total_value,
-              coalesce(sum(case when coalesce(status, 0) = 5 then credits else 0 end), 0) as total_units_category,
-              coalesce(sum(case when coalesce(status, 0) = 5 then 0 else credits end), 0) as total_credits_category
-            from student_credit_details
-            where student_id in (${placeholders})
-            group by student_id, category_id
-          )
-          select
+    sql: `select
             student_id,
-            category_id,
-            total_value,
-            coalesce(sum(total_credits_category) over (partition by student_id), 0) as total_credits,
-            coalesce(sum(total_units_category) over (partition by student_id), 0) as total_units
-          from per_category
-          order by student_id asc, category_id asc`,
+            coalesce(earned_credits, 0) as total_credits,
+            coalesce(earned_units, 0) as total_units,
+            coalesce(category_totals_json, '{}') as category_totals_json
+          from student_credit_status_summary
+          where student_id in (${placeholders})`,
     args: studentIds as Array<string | number | null>,
   });
+
   const byStudentCategory = new Map<string, Record<string, number>>();
   const totalCreditsByStudent = new Map<string, number>();
   const totalUnitsByStudent = new Map<string, number>();
   for (const row of result.rows) {
     const studentId = String(row.student_id ?? "");
-    const categoryId = String(row.category_id ?? "");
-    if (!studentId || !categoryId) continue;
-    const bucket = byStudentCategory.get(studentId) ?? {};
-    bucket[categoryId] = toTwoDecimalNumber(Number(row.total_value ?? 0));
-    byStudentCategory.set(studentId, bucket);
+    if (!studentId) continue;
+    const rawCategoryTotals = String(row.category_totals_json ?? "{}");
+    let parsedCategoryTotals: Record<string, unknown> = {};
+    try {
+      parsedCategoryTotals = JSON.parse(rawCategoryTotals) as Record<string, unknown>;
+    } catch {
+      parsedCategoryTotals = {};
+    }
+    const normalizedCategoryTotals: Record<string, number> = {};
+    for (const [categoryId, rawValue] of Object.entries(parsedCategoryTotals)) {
+      const numericValue = Number(rawValue ?? 0);
+      if (!Number.isFinite(numericValue)) continue;
+      normalizedCategoryTotals[String(categoryId)] = toTwoDecimalNumber(numericValue);
+    }
+    byStudentCategory.set(studentId, normalizedCategoryTotals);
     totalCreditsByStudent.set(studentId, toTwoDecimalNumber(Number(row.total_credits ?? 0)));
     totalUnitsByStudent.set(studentId, toTwoDecimalNumber(Number(row.total_units ?? 0)));
   }
 
-  return Array.from(byStudentCategory.keys()).map((studentId) => {
+  return studentIds.map((id) => {
+    const studentId = String(id ?? "");
     return {
       studentId,
       totalCredits: totalCreditsByStudent.get(studentId) ?? 0,
@@ -185,6 +188,65 @@ export async function getStudentCreditSummaries(
       byCategory: byStudentCategory.get(studentId) ?? {},
     };
   });
+}
+
+type PlanMapEntry = {
+  regulationCode: string;
+  semesters: Array<{ semester: number; categories: Record<string, number> }>;
+  totalCredits?: number;
+  totalUnits?: number;
+};
+
+let planMapCache: Map<number, PlanMapEntry> | null = null;
+let measureMapCache: Map<string, Map<string, "credits" | "units">> | null = null;
+
+async function ensureSummaryReferenceCaches(): Promise<{
+  plansByCode: Map<number, PlanMapEntry>;
+  measureByRegulation: Map<string, Map<string, "credits" | "units">>;
+}> {
+  if (planMapCache && measureMapCache) {
+    return { plansByCode: planMapCache, measureByRegulation: measureMapCache };
+  }
+  const [plansRes, regsRes] = await Promise.all([
+    fetchPlansOfStudyFromJson().catch(() => ({ plansOfStudy: [] as Array<Record<string, unknown>> })),
+    fetchRegulationsFromJson().catch(() => ({ regulations: [] as Array<Record<string, unknown>> })),
+  ]);
+  const plansByCode = new Map<number, PlanMapEntry>();
+  for (const rawPlan of (plansRes.plansOfStudy ?? []) as Array<Record<string, unknown>>) {
+    const planCode = Number(rawPlan.planCode ?? 0);
+    const regulationCode = String(rawPlan.regulationCode ?? "");
+    if (!Number.isInteger(planCode) || !regulationCode) continue;
+    const semesters = Array.isArray(rawPlan.semesters)
+      ? (rawPlan.semesters as Array<Record<string, unknown>>)
+          .map((semester) => ({
+            semester: Number(semester.semester ?? 0),
+            categories: (semester.categories as Record<string, number>) ?? {},
+          }))
+          .filter((semester) => Number.isInteger(semester.semester) && semester.semester > 0)
+      : [];
+    plansByCode.set(planCode, {
+      regulationCode,
+      semesters,
+      totalCredits: rawPlan.totalCredits == null ? undefined : Number(rawPlan.totalCredits),
+      totalUnits: rawPlan.totalUnits == null ? undefined : Number(rawPlan.totalUnits),
+    });
+  }
+  const measureByRegulation = new Map<string, Map<string, "credits" | "units">>();
+  for (const rawReg of (regsRes.regulations ?? []) as Array<Record<string, unknown>>) {
+    const regCode = String(rawReg.code ?? "");
+    if (!regCode) continue;
+    const categories = (((rawReg.curriculumStructure as Record<string, unknown> | undefined)?.categories ?? []) as Array<Record<string, unknown>>);
+    const measureByCategory = new Map<string, "credits" | "units">();
+    for (const category of categories) {
+      const code = String(category.code ?? "");
+      const measure = String(category.measure ?? "credits").toLowerCase() === "units" ? "units" : "credits";
+      if (code) measureByCategory.set(code, measure);
+    }
+    measureByRegulation.set(regCode, measureByCategory);
+  }
+  planMapCache = plansByCode;
+  measureMapCache = measureByRegulation;
+  return { plansByCode, measureByRegulation };
 }
 
 export async function getStudentCredits(env: Env, studentId: string) {
@@ -262,6 +324,366 @@ export async function assertStudentCanAccessOwnUserIds(env: Env, studentEmail: s
   if (allowedIds.size !== scopedStudentIds.length) {
     throw new Error("Forbidden");
   }
+}
+
+async function recomputeStudentCreditSummaryWithDb(
+  db: ReturnType<typeof getDb>,
+  studentIdRaw: string
+): Promise<void> {
+  const studentId = String(studentIdRaw ?? "").trim();
+  if (!studentId) return;
+  const summaryRes = await db.execute({
+    sql: `with per_category as (
+            select
+              student_id,
+              category_id,
+              coalesce(sum(credits), 0) as total_value,
+              coalesce(sum(case when coalesce(status, 0) = 5 then credits else 0 end), 0) as unit_value,
+              coalesce(sum(case when coalesce(status, 0) = 5 then 0 else credits end), 0) as credit_value
+            from student_credit_details
+            where student_id = ?
+            group by student_id, category_id
+          ),
+          totals as (
+            select
+              coalesce(sum(credit_value), 0) as earned_credits,
+              coalesce(sum(unit_value), 0) as earned_units,
+              coalesce(sum(total_value), 0) as earned_total
+            from per_category
+          ),
+          cats as (
+            select coalesce(json_group_object(category_id, total_value), '{}') as category_totals_json
+            from per_category
+          )
+          select
+            s.user_id as student_id,
+            coalesce(s.batch, 2010) as batch,
+            s.plan_of_study_code as plan_of_study_code,
+            coalesce(s.current_semester, 1) as current_semester,
+            coalesce(t.earned_credits, 0) as earned_credits,
+            coalesce(t.earned_units, 0) as earned_units,
+            coalesce(t.earned_total, 0) as earned_total,
+            coalesce(c.category_totals_json, '{}') as category_totals_json
+          from students s
+          left join totals t on 1 = 1
+          left join cats c on 1 = 1
+          where s.user_id = ?
+          limit 1`,
+    args: [studentId, studentId],
+  });
+  const row = summaryRes.rows[0];
+  if (!row) return;
+  const { plansByCode, measureByRegulation } = await ensureSummaryReferenceCaches();
+  const planCode = row.plan_of_study_code == null ? null : Number(row.plan_of_study_code);
+  const currentSemester = Number(row.current_semester ?? 1);
+  const categoryTotalsJson = String(row.category_totals_json ?? "{}");
+  let categoryTotals: Record<string, number> = {};
+  try {
+    categoryTotals = JSON.parse(categoryTotalsJson) as Record<string, number>;
+  } catch {
+    categoryTotals = {};
+  }
+  const plan = planCode == null ? null : plansByCode.get(planCode) ?? null;
+  const measureByCategory = plan ? (measureByRegulation.get(plan.regulationCode) ?? new Map<string, "credits" | "units">()) : new Map<string, "credits" | "units">();
+  const categoryRequired: Record<string, number> = {};
+  const categoryExpected: Record<string, number> = {};
+  let requiredCredits = 0;
+  let requiredUnits = 0;
+  let expectedCredits = 0;
+  let expectedUnits = 0;
+  if (plan) {
+    for (const semester of plan.semesters) {
+      for (const [categoryCode, rawValue] of Object.entries(semester.categories ?? {})) {
+        const numeric = Number(rawValue ?? 0);
+        if (!Number.isFinite(numeric) || numeric <= 0) continue;
+        categoryRequired[categoryCode] = (categoryRequired[categoryCode] ?? 0) + numeric;
+        if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
+          requiredUnits += numeric;
+        } else {
+          requiredCredits += numeric;
+        }
+        if (semester.semester >= currentSemester) continue;
+        categoryExpected[categoryCode] = (categoryExpected[categoryCode] ?? 0) + numeric;
+        if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
+          expectedUnits += numeric;
+        } else {
+          expectedCredits += numeric;
+        }
+      }
+    }
+  }
+  const earnedCredits = toTwoDecimalNumber(Number(row.earned_credits ?? 0));
+  const earnedUnits = toTwoDecimalNumber(Number(row.earned_units ?? 0));
+  const earnedTotal = toTwoDecimalNumber(Number(row.earned_total ?? 0));
+  const requiredTotal = toTwoDecimalNumber(requiredCredits + requiredUnits);
+  const expectedTotal = toTwoDecimalNumber(expectedCredits + expectedUnits);
+  let deficitCredits = 0;
+  let deficitUnits = 0;
+  const categoryStatusBase = Object.entries(categoryRequired)
+    .filter(([, req]) => req > 0)
+    .map(([code, req]) => {
+      const earned = Number(categoryTotals[code] ?? 0);
+      const expected = Number(categoryExpected[code] ?? 0);
+      const shortage = Math.max(0, expected - earned);
+      if ((measureByCategory.get(code) ?? "credits") === "units") {
+        deficitUnits += shortage;
+      } else {
+        deficitCredits += shortage;
+      }
+      return { earned, required: req, expected };
+    });
+  const overallStatus = computeCreditStatus(requiredTotal, earnedTotal, expectedTotal, categoryStatusBase);
+  const statusLabel =
+    overallStatus === "complete" ? "Complete"
+    : overallStatus === "on-track" ? "On Track"
+    : overallStatus === "marginal" ? "Marginal"
+    : overallStatus === "alarming" ? "Alarming"
+    : "Off Track";
+  await db.execute({
+    sql: `insert into student_credit_status_summary(
+            student_id,
+            batch,
+            plan_of_study_code,
+            current_semester,
+            earned_credits,
+            earned_units,
+            earned_total,
+            required_credits,
+            required_units,
+            required_total,
+            expected_credits,
+            expected_units,
+            expected_total,
+            deficit_credits,
+            deficit_units,
+            deficit_total,
+            status,
+            category_totals_json,
+            category_required_json,
+            category_expected_json,
+            computed_at,
+            updated_at
+          )
+          values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)
+          on conflict(student_id) do update set
+            batch = excluded.batch,
+            plan_of_study_code = excluded.plan_of_study_code,
+            current_semester = excluded.current_semester,
+            earned_credits = excluded.earned_credits,
+            earned_units = excluded.earned_units,
+            earned_total = excluded.earned_total,
+            required_credits = excluded.required_credits,
+            required_units = excluded.required_units,
+            required_total = excluded.required_total,
+            expected_credits = excluded.expected_credits,
+            expected_units = excluded.expected_units,
+            expected_total = excluded.expected_total,
+            deficit_credits = excluded.deficit_credits,
+            deficit_units = excluded.deficit_units,
+            deficit_total = excluded.deficit_total,
+            status = excluded.status,
+            category_totals_json = excluded.category_totals_json,
+            category_required_json = excluded.category_required_json,
+            category_expected_json = excluded.category_expected_json,
+            computed_at = current_timestamp,
+            updated_at = current_timestamp`,
+    args: [
+      String(row.student_id ?? ""),
+      Number(row.batch ?? 2010),
+      planCode,
+      currentSemester,
+      earnedCredits,
+      earnedUnits,
+      earnedTotal,
+      toTwoDecimalNumber(requiredCredits),
+      toTwoDecimalNumber(requiredUnits),
+      requiredTotal,
+      toTwoDecimalNumber(expectedCredits),
+      toTwoDecimalNumber(expectedUnits),
+      expectedTotal,
+      toTwoDecimalNumber(deficitCredits),
+      toTwoDecimalNumber(deficitUnits),
+      toTwoDecimalNumber(deficitCredits + deficitUnits),
+      statusLabel,
+      categoryTotalsJson,
+      JSON.stringify(categoryRequired),
+      JSON.stringify(categoryExpected),
+    ],
+  });
+  await recomputeBatchStatusSummaryByBatchWithDb(db, Number(row.batch ?? 2010));
+}
+
+export async function recomputeStudentCreditSummary(env: Env, studentId: string): Promise<void> {
+  const db = getDb(env);
+  await recomputeStudentCreditSummaryWithDb(db, studentId);
+}
+
+export async function recomputeStudentCreditSummaries(env: Env, studentIds: string[]): Promise<void> {
+  const db = getDb(env);
+  const uniqueIds = Array.from(new Set(studentIds.map((id) => String(id ?? "").trim()).filter((id) => id.length > 0)));
+  if (uniqueIds.length === 0) return;
+  for (const studentId of uniqueIds) {
+    await recomputeStudentCreditSummaryWithDb(db, studentId);
+  }
+}
+
+async function recomputeBatchStatusSummaryByBatchWithDb(db: ReturnType<typeof getDb>, batch: number): Promise<void> {
+  if (!Number.isFinite(batch)) return;
+  await db.execute({
+    sql: `delete from batch_credit_status_summary
+          where batch = ?`,
+    args: [batch],
+  });
+  const rowsRes = await db.execute({
+    sql: `with scoped as (
+            select
+              s.batch,
+              'head' as scope_type,
+              'all' as scope_key,
+              s.graduated,
+              coalesce(ss.status, 'On Track') as status
+            from students s
+            inner join user_accounts ua on ua.id = s.user_id and ua.active = 1
+            left join student_credit_status_summary ss on ss.student_id = s.user_id
+            where s.batch = ?
+            union all
+            select
+              s.batch,
+              'moderator' as scope_type,
+              'all' as scope_key,
+              s.graduated,
+              coalesce(ss.status, 'On Track') as status
+            from students s
+            inner join user_accounts ua on ua.id = s.user_id and ua.active = 1
+            left join student_credit_status_summary ss on ss.student_id = s.user_id
+            where s.batch = ?
+            union all
+            select
+              s.batch,
+              'faculty' as scope_type,
+              s.mentor_id as scope_key,
+              s.graduated,
+              coalesce(ss.status, 'On Track') as status
+            from students s
+            inner join user_accounts ua on ua.id = s.user_id and ua.active = 1
+            left join student_credit_status_summary ss on ss.student_id = s.user_id
+            where s.batch = ?
+              and s.mentor_id is not null
+          )
+          select
+            batch,
+            scope_type,
+            scope_key,
+            count(*) as total_active,
+            coalesce(sum(case when coalesce(graduated, 0) = 0 then 1 else 0 end), 0) as in_progress_count,
+            coalesce(sum(case when coalesce(graduated, 0) = 1 then 1 else 0 end), 0) as passed_out_count,
+            coalesce(sum(case when status = 'Complete' then 1 else 0 end), 0) as complete_count,
+            coalesce(sum(case when status = 'On Track' then 1 else 0 end), 0) as on_track_count,
+            coalesce(sum(case when status = 'Marginal' then 1 else 0 end), 0) as marginal_count,
+            coalesce(sum(case when status = 'Alarming' then 1 else 0 end), 0) as alarming_count,
+            coalesce(sum(case when status = 'Off Track' then 1 else 0 end), 0) as off_track_count
+          from scoped
+          group by batch, scope_type, scope_key`,
+    args: [batch, batch, batch],
+  });
+  for (const row of rowsRes.rows) {
+    const totalActive = Number(row.total_active ?? 0);
+    const completeCount = Number(row.complete_count ?? 0);
+    const onTrackCount = Number(row.on_track_count ?? 0);
+    const marginalCount = Number(row.marginal_count ?? 0);
+    const alarmingCount = Number(row.alarming_count ?? 0);
+    const offTrackCount = Number(row.off_track_count ?? 0);
+    const pct = (value: number) => (totalActive > 0 ? toTwoDecimalNumber((value / totalActive) * 100) : 0);
+    await db.execute({
+      sql: `insert into batch_credit_status_summary(
+              batch, scope_type, scope_key,
+              total_active, in_progress_count, passed_out_count,
+              complete_count, on_track_count, marginal_count, alarming_count, off_track_count,
+              complete_pct, on_track_pct, marginal_pct, alarming_pct, off_track_pct,
+              computed_at, updated_at
+            )
+            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)`,
+      args: [
+        Number(row.batch ?? 0),
+        String(row.scope_type ?? ""),
+        String(row.scope_key ?? ""),
+        totalActive,
+        Number(row.in_progress_count ?? 0),
+        Number(row.passed_out_count ?? 0),
+        completeCount,
+        onTrackCount,
+        marginalCount,
+        alarmingCount,
+        offTrackCount,
+        pct(completeCount),
+        pct(onTrackCount),
+        pct(marginalCount),
+        pct(alarmingCount),
+        pct(offTrackCount),
+      ],
+    });
+  }
+}
+
+export async function readBatchStatusSummaryByScope(
+  env: Env,
+  scope: StudentScope,
+  options?: { preferredScopeType?: "head" | "moderator" | "faculty" }
+): Promise<Array<{
+  batch: number;
+  totalActive: number;
+  inProgressCount: number;
+  passedOutCount: number;
+  completeCount: number;
+  onTrackCount: number;
+  marginalCount: number;
+  alarmingCount: number;
+  offTrackCount: number;
+}>> {
+  const db = getDb(env);
+  let scopeType: "head" | "moderator" | "faculty" | null = null;
+  let scopeKey = "all";
+  if (scope.type === "mentor") {
+    scopeType = "faculty";
+    const mentorRes = await db.execute({
+      sql: `select id from user_accounts where lower(trim(email)) = ? and active = 1 limit 1`,
+      args: [scope.mentorEmail],
+    });
+    scopeKey = String(mentorRes.rows[0]?.id ?? "").trim();
+    if (!scopeKey) return [];
+  } else if (scope.type === "all") {
+    scopeType = options?.preferredScopeType === "moderator" ? "moderator" : "head";
+  } else {
+    return [];
+  }
+  const res = await db.execute({
+    sql: `select
+            batch,
+            total_active,
+            in_progress_count,
+            passed_out_count,
+            complete_count,
+            on_track_count,
+            marginal_count,
+            alarming_count,
+            off_track_count
+          from batch_credit_status_summary
+          where scope_type = ?
+            and scope_key = ?
+          order by batch asc`,
+    args: [scopeType, scopeKey],
+  });
+  return res.rows.map((row) => ({
+    batch: Number(row.batch ?? 0),
+    totalActive: Number(row.total_active ?? 0),
+    inProgressCount: Number(row.in_progress_count ?? 0),
+    passedOutCount: Number(row.passed_out_count ?? 0),
+    completeCount: Number(row.complete_count ?? 0),
+    onTrackCount: Number(row.on_track_count ?? 0),
+    marginalCount: Number(row.marginal_count ?? 0),
+    alarmingCount: Number(row.alarming_count ?? 0),
+    offTrackCount: Number(row.off_track_count ?? 0),
+  }));
 }
 
 export type StudentCreditTableRow = {
@@ -438,6 +860,7 @@ export async function upsertStudentCredits(
     await safeRollback(db);
     throw error;
   }
+  await recomputeStudentCreditSummaryWithDb(db, studentId);
 }
 
 export async function upsertStudentUnits(
@@ -495,4 +918,5 @@ export async function upsertStudentUnits(
     await safeRollback(db);
     throw error;
   }
+  await recomputeStudentCreditSummaryWithDb(db, studentId);
 }

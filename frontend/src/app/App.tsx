@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { Fragment, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { Alert, AppBar, Avatar, Box, Button, Card, CardContent, Chip, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, Drawer, FormControl, IconButton, InputLabel, LinearProgress, Link, List, ListItemButton, ListItemIcon, ListItemText, Menu, MenuItem, Paper, Select, Stack, Tab, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tabs, TextField, Toolbar, ToggleButton, ToggleButtonGroup, Tooltip, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
@@ -140,7 +140,7 @@ function App() {
   const [menuAnchors, setMenuAnchors] = useState<Record<string, HTMLElement | null>>({});
   const [accountView, setAccountView] = useState<"profile" | "password" | "sessions">("profile");
   const [mySessions, setMySessions] = useState<MySession[]>([]);
-  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "student-credits" | "faculty-credit-table" | "account" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
+  const [superView, setSuperView] = useState<"dashboard" | "regulations" | "students-directory" | "student-credits" | "faculty-credit-table" | "analysis" | "account" | "logs" | "activity-logs" | "active-users" | "all-users" | "login-activity">("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [logRows, setLogRows] = useState<LogRow[]>([]);
@@ -181,6 +181,38 @@ function App() {
   const [moderatorStudentRows, setModeratorStudentRows] = useState<FacultyStudentRow[]>([]);
   const [moderatorCreditTableRows, setModeratorCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [headStudentRows, setHeadStudentRows] = useState<FacultyStudentRow[]>([]);
+  const [headModeratorBatchSummaryRows, setHeadModeratorBatchSummaryRows] = useState<Array<{
+    batch: number;
+    totalActive: number;
+    inProgressCount: number;
+    passedOutCount: number;
+    completeCount: number;
+    onTrackCount: number;
+    marginalCount: number;
+    alarmingCount: number;
+    offTrackCount: number;
+  }>>([]);
+  const [combinedHmBatchLiveRows, setCombinedHmBatchLiveRows] = useState<Array<{
+    batch: number | null;
+    label: string;
+    total: number;
+    complete: number;
+    onTrack: number;
+    marginal: number;
+    alarming: number;
+    offTrack: number;
+  }>>([]);
+  const [facultyBatchLiveRows, setFacultyBatchLiveRows] = useState<Array<{
+    batch: number | null;
+    label: string;
+    total: number;
+    complete: number;
+    onTrack: number;
+    marginal: number;
+    alarming: number;
+    offTrack: number;
+  }>>([]);
+  const [analysisBatchFilter, setAnalysisBatchFilter] = useState<number | null>(null);
   const [expandedDashboardSections, setExpandedDashboardSections] = useState<Set<"head" | "moderator" | "faculty">>(new Set());
   const [loadedDashboardSections, setLoadedDashboardSections] = useState<Set<"head" | "moderator" | "faculty">>(new Set());
   const [, setFacultyMentoredMinimalRows] = useState<FacultyMentoredStudentMinimal[]>([]);
@@ -362,6 +394,11 @@ function App() {
     if (shouldInvalidateSummaries) {
       invalidateStudentSummaryCache();
     }
+  }
+
+  function openBatchAnalysis(batch: number | null) {
+    setAnalysisBatchFilter(batch);
+    navigateTo("analysis");
   }
 
   function getStudentSummaryCacheKey(roleContext: "all" | "faculty" | "moderator" | "head" | "self", studentIds: string[]): string {
@@ -760,6 +797,50 @@ function App() {
     }),
     []
   );
+  const tursoUsageModule = dashboard?.system?.isTurso && dashboard?.system?.turso ? (
+    <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
+      <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 2 }}>
+        <StorageIcon sx={{ fontSize: "0.9rem", color: "text.secondary" }} />
+        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.65rem", letterSpacing: 1.2 }}>
+          Turso DB · Billing Cycle Usage
+        </Typography>
+      </Stack>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 2 }}>
+        {[
+          { label: "Reads", value: dashboard.system.turso.rowsRead ?? 0, max: 500_000_000, isBytes: false },
+          { label: "Writes", value: dashboard.system.turso.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
+          { label: "Syncs", value: dashboard.system.turso.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
+          { label: "Storage", value: dashboard.system.turso.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
+        ].map(({ label, value, max, isBytes }) => {
+          const pct = Math.min(100, (value / max) * 100);
+          const fmt = (n: number) => isBytes
+            ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
+            : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
+          const barColor: "error" | "warning" | "success" = pct > 80 ? "error" : pct > 50 ? "warning" : "success";
+          return (
+            <Box key={label} sx={{ textAlign: "center" }}>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: `${barColor}.main`, lineHeight: 1.2 }}>
+                {pct.toFixed(1)}%
+              </Typography>
+              <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mt: 0.25 }}>
+                {label}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 0.75 }}>
+                {fmt(value)} / {fmt(max)}
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={pct}
+                color={barColor}
+                sx={{ height: 5, borderRadius: 1 }}
+                aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
+              />
+            </Box>
+          );
+        })}
+      </Box>
+    </Paper>
+  ) : null;
   const displayName = useMemo(() => {
     if (!principal) return "";
     const raw = principal.fullName?.trim() || principal.email?.trim() || principal.subject.trim();
@@ -1539,6 +1620,32 @@ function App() {
     return loadScopedStudents("head", options);
   }
 
+  async function loadHeadModeratorBatchSummary(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    const roleContext: "head" | "moderator" = hasHeadRole ? "head" : "moderator";
+    const endpoint = force
+      ? `/api/students/batch-summary?roleContext=${roleContext}&force=1`
+      : `/api/students/batch-summary?roleContext=${roleContext}`;
+    const res = await callApi(endpoint, "GET");
+    if (!res.ok) return;
+    const rows = Array.isArray(res.rows) ? res.rows : [];
+    const normalized = rows.map((row) => {
+      const data = row as Record<string, unknown>;
+      return {
+        batch: Number(data.batch ?? 0),
+        totalActive: Number(data.totalActive ?? 0),
+        inProgressCount: Number(data.inProgressCount ?? 0),
+        passedOutCount: Number(data.passedOutCount ?? 0),
+        completeCount: Number(data.completeCount ?? 0),
+        onTrackCount: Number(data.onTrackCount ?? 0),
+        marginalCount: Number(data.marginalCount ?? 0),
+        alarmingCount: Number(data.alarmingCount ?? 0),
+        offTrackCount: Number(data.offTrackCount ?? 0),
+      };
+    }).filter((row) => Number.isFinite(row.batch) && row.batch > 0);
+    setHeadModeratorBatchSummaryRows(normalized);
+  }
+
   function handleDashboardSectionToggle(section: "head" | "moderator" | "faculty") {
     setExpandedDashboardSections((prev) => {
       const next = new Set(prev);
@@ -1548,7 +1655,10 @@ function App() {
     if (!loadedDashboardSections.has(section)) {
       setLoadedDashboardSections((prev) => new Set([...prev, section]));
       const loadFn = section === "head" ? loadHeadStudents : section === "moderator" ? loadModeratorStudents : loadFacultyStudents;
-      void loadFn();
+      void (async () => {
+        const rows = await loadFn();
+        prefetchStudentSummariesForRows(rows);
+      })();
     }
   }
 
@@ -1575,6 +1685,13 @@ function App() {
       return;
     }
     await loadFacultyCreditTable();
+  }
+
+  function prefetchStudentSummariesForRows(rows: Array<{ userId: string }>) {
+    const ids = rows.map((row) => String(row.userId ?? "").trim()).filter((id) => id.length > 0);
+    if (ids.length > 0) {
+      void loadStudentCreditSummaries(ids);
+    }
   }
 
   function blurActiveElement() {
@@ -2479,7 +2596,15 @@ function App() {
     setExpandedDashboardSections(new Set([first]));
     setLoadedDashboardSections(new Set([first]));
     const loadFn = first === "head" ? loadHeadStudents : first === "moderator" ? loadModeratorStudents : loadFacultyStudents;
-    void loadFn();
+    void (async () => {
+      await loadRegulations();
+      await loadPlansOfStudy();
+      const rows = await loadFn();
+      prefetchStudentSummariesForRows(rows);
+      if (hasHeadRole || hasModeratorRole) {
+        await loadHeadModeratorBatchSummary();
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
@@ -2556,6 +2681,9 @@ function App() {
     if (hasHeadRole) {
       void loadHeadStudents();
     }
+    if (hasHeadRole || hasModeratorRole) {
+      void loadHeadModeratorBatchSummary();
+    }
   }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   const facultyGraduatedCount = useMemo(
@@ -2570,39 +2698,6 @@ function App() {
     () => [facultyNotGraduatedCount, facultyGraduatedCount].filter((value) => value !== 0).length,
     [facultyNotGraduatedCount, facultyGraduatedCount],
   );
-  const moderatorGraduatedCount = useMemo(
-    () => moderatorStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
-    [moderatorStudentRows]
-  );
-  const moderatorNotGraduatedCount = useMemo(
-    () => moderatorStudentRows.filter((student) => student.studentActive && student.graduated !== "Yes").length,
-    [moderatorStudentRows]
-  );
-  const moderatorMetricCardCount = useMemo(
-    () => [moderatorNotGraduatedCount, moderatorGraduatedCount].filter((value) => value !== 0).length,
-    [moderatorNotGraduatedCount, moderatorGraduatedCount],
-  );
-  const headGraduatedCount = useMemo(
-    () => headStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
-    [headStudentRows]
-  );
-  const headNotGraduatedCount = useMemo(
-    () => headStudentRows.filter((student) => student.studentActive && student.graduated !== "Yes").length,
-    [headStudentRows]
-  );
-  const headMetricCardCount = useMemo(
-    () => [headNotGraduatedCount, headGraduatedCount].filter((value) => value !== 0).length,
-    [headNotGraduatedCount, headGraduatedCount],
-  );
-  const headBatchCount = useMemo(
-    () => new Set(headStudentRows.map((s) => s.batch).filter(Boolean)).size,
-    [headStudentRows],
-  );
-  const moderatorBatchCount = useMemo(
-    () => new Set(moderatorStudentRows.map((s) => s.batch).filter(Boolean)).size,
-    [moderatorStudentRows],
-  );
-
   const scopedDashboardRoleContext = useMemo<"faculty" | "moderator" | null>(() => {
     if (hasFacultyRole) return "faculty";
     if (hasModeratorRole) return "moderator";
@@ -2616,6 +2711,130 @@ function App() {
     () => (scopedDashboardRoleContext === "moderator" ? moderatorCreditTableRows : facultyCreditTableRows),
     [scopedDashboardRoleContext, moderatorCreditTableRows, facultyCreditTableRows],
   );
+  const combinedHmRows = useMemo(
+    () => (hasHeadRole ? headStudentRows : moderatorStudentRows),
+    [hasHeadRole, headStudentRows, moderatorStudentRows],
+  );
+  const combinedHmScope: "head" | "moderator" = hasHeadRole ? "head" : "moderator";
+  const combinedHmRoleTitle = hasHeadRole && hasModeratorRole
+    ? "Head, Moderator Dashboard"
+    : (hasHeadRole ? "Head Dashboard" : "Moderator Dashboard");
+  const combinedHmRoleChip = hasHeadRole && hasModeratorRole
+    ? "Head, Moderator"
+    : (hasHeadRole ? "Head" : "Moderator");
+  const combinedHmSummaryTotals = useMemo(() => {
+    return headModeratorBatchSummaryRows.reduce(
+      (acc, row) => {
+        acc.totalActive += Number(row.totalActive ?? 0);
+        acc.inProgress += Number(row.inProgressCount ?? 0);
+        acc.passedOut += Number(row.passedOutCount ?? 0);
+        return acc;
+      },
+      { totalActive: 0, inProgress: 0, passedOut: 0 },
+    );
+  }, [headModeratorBatchSummaryRows]);
+  const combinedHmGraduatedCount = useMemo(
+    () => combinedHmSummaryTotals.passedOut,
+    [combinedHmSummaryTotals]
+  );
+  const combinedHmNotGraduatedCount = useMemo(
+    () => combinedHmSummaryTotals.inProgress,
+    [combinedHmSummaryTotals]
+  );
+  const combinedHmMetricCardCount = useMemo(
+    () => [combinedHmNotGraduatedCount, combinedHmGraduatedCount].filter((value) => value !== 0).length,
+    [combinedHmNotGraduatedCount, combinedHmGraduatedCount],
+  );
+  const combinedHmBatchSummaries = useMemo(
+    () => [...combinedHmBatchLiveRows].sort((a, b) => (Number(b.batch ?? 0) - Number(a.batch ?? 0))),
+    [combinedHmBatchLiveRows],
+  );
+  const facultyBatchSummaries = useMemo(
+    () => [...facultyBatchLiveRows].sort((a, b) => (Number(b.batch ?? 0) - Number(a.batch ?? 0))),
+    [facultyBatchLiveRows],
+  );
+  const handleCombinedHmBatchSummaryComputed = useCallback((rows: Array<{
+    batch: number | null;
+    label: string;
+    total: number;
+    complete: number;
+    onTrack: number;
+    marginal: number;
+    alarming: number;
+    offTrack: number;
+  }>) => {
+    setCombinedHmBatchLiveRows((prev) => {
+      if (prev.length === rows.length) {
+        let same = true;
+        for (let i = 0; i < prev.length; i += 1) {
+          const a = prev[i];
+          const b = rows[i];
+          if (
+            a.batch !== b.batch
+            || a.label !== b.label
+            || a.total !== b.total
+            || a.complete !== b.complete
+            || a.onTrack !== b.onTrack
+            || a.marginal !== b.marginal
+            || a.alarming !== b.alarming
+            || a.offTrack !== b.offTrack
+          ) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return rows;
+    });
+  }, []);
+  const handleFacultyBatchSummaryComputed = useCallback((rows: Array<{
+    batch: number | null;
+    label: string;
+    total: number;
+    complete: number;
+    onTrack: number;
+    marginal: number;
+    alarming: number;
+    offTrack: number;
+  }>) => {
+    setFacultyBatchLiveRows((prev) => {
+      if (prev.length === rows.length) {
+        let same = true;
+        for (let i = 0; i < prev.length; i += 1) {
+          const a = prev[i];
+          const b = rows[i];
+          if (
+            a.batch !== b.batch
+            || a.label !== b.label
+            || a.total !== b.total
+            || a.complete !== b.complete
+            || a.onTrack !== b.onTrack
+            || a.marginal !== b.marginal
+            || a.alarming !== b.alarming
+            || a.offTrack !== b.offTrack
+          ) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return rows;
+    });
+  }, []);
+  const analysisStudents = useMemo<FacultyStudentRow[]>(() => {
+    if (hasHeadRole || hasModeratorRole) {
+      const source = hasHeadRole ? headStudentRows : moderatorStudentRows;
+      if (analysisBatchFilter == null) return source;
+      return source.filter((row) => Number(row.batch ?? 0) === analysisBatchFilter);
+    }
+    if (hasFacultyRole) {
+      if (analysisBatchFilter == null) return facultyStudentRows;
+      return facultyStudentRows.filter((row) => Number(row.batch ?? 0) === analysisBatchFilter);
+    }
+    return [];
+  }, [hasHeadRole, hasModeratorRole, hasFacultyRole, headStudentRows, moderatorStudentRows, facultyStudentRows, analysisBatchFilter]);
   const facultyStudentsDirectoryRows = useMemo<StudentDirectoryRow[]>(
     () => {
       return scopedDashboardStudentRows
@@ -3173,6 +3392,19 @@ function App() {
                   if (await ensureActiveServerSession()) {
                     navigateTo("faculty-credit-table");
                     await loadPrimaryScopedCreditTable();
+                  }
+                })();
+              },
+            }] : []),
+            ...((hasHeadRole || hasModeratorRole || hasFacultyRole) ? [{
+              id: "analysis",
+              label: "Analysis",
+              icon: <DashboardIcon fontSize="small" />,
+              active: superView === "analysis",
+              onClick: () => {
+                void (async () => {
+                  if (await ensureActiveServerSession()) {
+                    navigateTo("analysis");
                   }
                 })();
               },
@@ -4113,47 +4345,7 @@ function App() {
                     ) : null}
                   </Box>
 
-                  {dashboard.system?.isTurso && dashboard.system?.turso ? (
-                    <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, mt: 2 }}>
-                      <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1, display: "block" }}>
-                        Turso DB · Billing Cycle Usage
-                      </Typography>
-                      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)" }, gap: 2.5, mt: 1.5 }}>
-                        {[
-                          { label: "Reads", value: dashboard.system!.turso!.rowsRead ?? 0, max: 500_000_000, isBytes: false },
-                          { label: "Writes", value: dashboard.system!.turso!.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
-                          { label: "Syncs", value: dashboard.system!.turso!.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
-                          { label: "Storage", value: dashboard.system!.turso!.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
-                        ].map(({ label, value, max, isBytes }) => {
-                          const pct = Math.min(100, (value / max) * 100);
-                          const fmt = (n: number) => isBytes
-                            ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
-                            : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
-                          return (
-                            <Box key={label}>
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", mb: 0.5 }}>
-                                <Typography variant="caption" sx={{ fontWeight: 600 }}>{label}</Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {fmt(value)}{" "}
-                                  <Typography component="span" variant="caption" color="text.disabled">/ {fmt(max)}</Typography>
-                                </Typography>
-                              </Box>
-                              <LinearProgress
-                                variant="determinate"
-                                value={pct}
-                                color={pct > 80 ? "error" : pct > 50 ? "warning" : "primary"}
-                                sx={{ height: 6, borderRadius: 1 }}
-                                aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
-                              />
-                              <Typography variant="caption" color="text.disabled" sx={{ display: "block", mt: 0.25, textAlign: "right" }}>
-                                {pct.toFixed(1)}%
-                              </Typography>
-                            </Box>
-                          );
-                        })}
-                      </Box>
-                    </Paper>
-                  ) : null}
+                  {tursoUsageModule}
 
                   {/* Section separator — 48-hour window */}
                   <Divider textAlign="left" sx={{ mb: 2.5 }}>
@@ -4275,377 +4467,182 @@ function App() {
 
             {(hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || hasGuestRole) ? (
               <Box sx={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, mt: isAdmin ? 2.5 : 0 }}>
-                {hasHeadRole ? (
+                {(hasHeadRole || hasModeratorRole) ? (
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                      {/* Dashboard header */}
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: (!multipleScopedRoles || expandedDashboardSections.has("head")) ? 3 : 0 }}>
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
                         <Box>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
                             <DashboardIcon fontSize="small" color="primary" />
                             <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                              Head Dashboard
+                              {combinedHmRoleTitle}
                             </Typography>
-                            <Chip label="Head" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
+                            <Chip label={combinedHmRoleChip} size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
                           </Stack>
                           <Typography variant="body2" color="text.secondary">
                             System-wide overview of all active student accounts
                           </Typography>
                         </Box>
-                        <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
-                          <Tooltip title="Refresh all data">
-                            <span>
-                              <IconButton size="small" aria-label="Refresh head dashboard" onClick={() => { void loadHeadStudents({ force: true }); }} disabled={busy}>
-                                <RefreshIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          {multipleScopedRoles && (
-                            <IconButton size="small" aria-label={expandedDashboardSections.has("head") ? "Collapse head dashboard" : "Expand head dashboard"} onClick={() => handleDashboardSectionToggle("head")}>
-                              <ExpandMoreIcon fontSize="small" sx={{ transform: expandedDashboardSections.has("head") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} />
+                        <Tooltip title="Refresh all data">
+                          <span>
+                            <IconButton
+                              size="small"
+                              aria-label="Refresh combined head moderator dashboard"
+                              onClick={() => { void (hasHeadRole ? loadHeadStudents({ force: true }) : loadModeratorStudents({ force: true })); void loadHeadModeratorBatchSummary({ force: true }); }}
+                              disabled={busy}
+                            >
+                              <RefreshIcon fontSize="small" />
                             </IconButton>
-                          )}
-                        </Stack>
+                          </span>
+                        </Tooltip>
                       </Stack>
 
-                      <Collapse in={!multipleScopedRoles || expandedDashboardSections.has("head")}>
-                      {/* Turso billing usage */}
-                      {dashboard?.system?.isTurso && dashboard?.system?.turso ? (
-                        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 2 }}>
-                            <StorageIcon sx={{ fontSize: "0.9rem", color: "text.secondary" }} />
-                            <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.65rem", letterSpacing: 1.2 }}>
-                              Turso DB · Billing Cycle Usage
+                      {hasHeadRole ? tursoUsageModule : null}
+
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: {
+                            xs: "1fr",
+                            sm: combinedHmMetricCardCount === 0 ? "1fr" : `repeat(${combinedHmMetricCardCount + 1}, minmax(0, 1fr))`,
+                          },
+                          gap: 2,
+                          mb: 3,
+                        }}
+                      >
+                        {combinedHmMetricCardCount > 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, borderColor: "primary.main", bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04) }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <GroupIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Total Active
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "primary.main" }}>
+                              {(combinedHmNotGraduatedCount + combinedHmGraduatedCount).toLocaleString()}
                             </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                              Students enrolled
+                            </Typography>
+                          </Paper>
+                        ) : null}
+                        {combinedHmNotGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, borderColor: "warning.main", bgcolor: (theme) => alpha(theme.palette.warning.main, 0.04) }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                In Progress
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "warning.dark" }}>
+                              {combinedHmNotGraduatedCount.toLocaleString()}
+                            </Typography>
+                            <Button type="button" size="small" color="warning" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory(combinedHmScope, "No"); }}>
+                              View students
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {combinedHmGraduatedCount !== 0 ? (
+                          <Paper variant="outlined" sx={{ borderRadius: 2, px: 3, py: 2.5, borderColor: "success.main", bgcolor: (theme) => alpha(theme.palette.success.main, 0.04) }}>
+                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
+                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
+                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
+                                Passed Out
+                              </Typography>
+                            </Stack>
+                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "success.dark" }}>
+                              {combinedHmGraduatedCount.toLocaleString()}
+                            </Typography>
+                            <Button type="button" size="small" color="success" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory(combinedHmScope, "Yes"); }}>
+                              View passed out
+                            </Button>
+                          </Paper>
+                        ) : null}
+                        {combinedHmMetricCardCount === 0 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            No student status metrics to show yet.
+                          </Typography>
+                        ) : null}
+                      </Box>
+
+                      <Divider sx={{ mb: 2 }}>
+                        <Chip label="Batch Analytics" size="small" variant="outlined" />
+                      </Divider>
+                      <Box
+                        sx={{
+                          display: "grid",
+                          gridTemplateColumns: { xs: "1fr", lg: "1fr 1fr" },
+                          gap: 2,
+                        }}
+                      >
+                        <Box>
+                          {combinedHmRows.length > 0 ? (
+                            <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
+                              <FacultyAnalyticsReport
+                                students={combinedHmRows}
+                                summaryCatEarned={studentSummaryCatEarned}
+                                plansOfStudy={plansOfStudy}
+                                regulations={regulations}
+                                showBatchStatusByLabelCard
+                                chartOnly
+                                onBatchSummaryComputed={handleCombinedHmBatchSummaryComputed}
+                              />
+                            </Suspense>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">No batch analytics to show yet.</Typography>
+                          )}
+                        </Box>
+
+                        <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
+                          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                            Batch Details
+                          </Typography>
+                          <Stack sx={{ gap: 1 }}>
+                            {combinedHmBatchSummaries.map((row) => (
+                              <Box
+                                key={row.batch}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openBatchAnalysis(row.batch)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openBatchAnalysis(row.batch);
+                                  }
+                                }}
+                                sx={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 1,
+                                  flexWrap: "nowrap",
+                                  overflowX: "auto",
+                                  border: "1px solid",
+                                  borderColor: "divider",
+                                  borderRadius: 1.5,
+                                  px: 1.25,
+                                  py: 0.75,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                                  {row.label}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                                  {`${row.total} student${row.total === 1 ? "" : "s"}`}
+                                </Typography>
+                                {row.complete > 0 ? <Chip size="small" label={`Complete: ${row.complete}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                                {row.onTrack > 0 ? <Chip size="small" label={`On Track: ${row.onTrack}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                                {row.marginal > 0 ? <Chip size="small" label={`Marginal: ${row.marginal}`} color="primary" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                                {row.alarming > 0 ? <Chip size="small" label={`Alarming: ${row.alarming}`} color="warning" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                                {row.offTrack > 0 ? <Chip size="small" label={`Off Track: ${row.offTrack}`} color="error" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                              </Box>
+                            ))}
+                            {combinedHmBatchSummaries.length === 0 ? (
+                              <Typography variant="body2" color="text.secondary">No batch details to show yet.</Typography>
+                            ) : null}
                           </Stack>
-                          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 2 }}>
-                            {[
-                              { label: "Reads", value: dashboard.system.turso.rowsRead ?? 0, max: 500_000_000, isBytes: false },
-                              { label: "Writes", value: dashboard.system.turso.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
-                              { label: "Syncs", value: dashboard.system.turso.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
-                              { label: "Storage", value: dashboard.system.turso.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
-                            ].map(({ label, value, max, isBytes }) => {
-                              const pct = Math.min(100, (value / max) * 100);
-                              const fmt = (n: number) => isBytes
-                                ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
-                                : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
-                              const barColor: "error" | "warning" | "success" = pct > 80 ? "error" : pct > 50 ? "warning" : "success";
-                              return (
-                                <Box key={label} sx={{ textAlign: "center" }}>
-                                  <Typography variant="h5" sx={{ fontWeight: 700, color: `${barColor}.main`, lineHeight: 1.2 }}>
-                                    {pct.toFixed(1)}%
-                                  </Typography>
-                                  <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mt: 0.25 }}>
-                                    {label}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 0.75 }}>
-                                    {fmt(value)} / {fmt(max)}
-                                  </Typography>
-                                  <LinearProgress
-                                    variant="determinate"
-                                    value={pct}
-                                    color={barColor}
-                                    sx={{ height: 5, borderRadius: 1 }}
-                                    aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
-                                  />
-                                </Box>
-                              );
-                            })}
-                          </Box>
                         </Paper>
-                      ) : null}
-
-                      {/* Student stat cards */}
-                      <Box
-                        sx={{
-                          display: "grid",
-                          gridTemplateColumns: {
-                            xs: "1fr",
-                            sm: headMetricCardCount === 0 ? "1fr" : `repeat(${headMetricCardCount + 1}, minmax(0, 1fr))`,
-                          },
-                          gap: 2,
-                          mb: 3,
-                        }}
-                      >
-                        {headMetricCardCount > 0 ? (
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              borderRadius: 2,
-                              px: 3,
-                              py: 2.5,
-                              borderColor: "primary.main",
-                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
-                            }}
-                          >
-                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                              <GroupIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
-                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Total Active
-                              </Typography>
-                            </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "primary.main" }}>
-                              {(headNotGraduatedCount + headGraduatedCount).toLocaleString()}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
-                              Students enrolled
-                            </Typography>
-                          </Paper>
-                        ) : null}
-                        {headNotGraduatedCount !== 0 ? (
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              borderRadius: 2,
-                              px: 3,
-                              py: 2.5,
-                              borderColor: "warning.main",
-                              bgcolor: (theme) => alpha(theme.palette.warning.main, 0.04),
-                            }}
-                          >
-                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
-                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                In Progress
-                              </Typography>
-                            </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "warning.dark" }}>
-                              {headNotGraduatedCount.toLocaleString()}
-                            </Typography>
-                            <Button type="button" size="small" color="warning" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { setStudentsDirectoryGraduatedFilter("No"); setStudentsDirectoryCreditStatusFilter(null); setStudentsDirectoryBatchFilter(null); navigateTo("students-directory"); }}>
-                              View students
-                            </Button>
-                          </Paper>
-                        ) : null}
-                        {headGraduatedCount !== 0 ? (
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              borderRadius: 2,
-                              px: 3,
-                              py: 2.5,
-                              borderColor: "success.main",
-                              bgcolor: (theme) => alpha(theme.palette.success.main, 0.04),
-                            }}
-                          >
-                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
-                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Passed Out
-                              </Typography>
-                            </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "success.dark" }}>
-                              {headGraduatedCount.toLocaleString()}
-                            </Typography>
-                            <Button type="button" size="small" color="success" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { setStudentsDirectoryGraduatedFilter("Yes"); setStudentsDirectoryCreditStatusFilter(null); setStudentsDirectoryBatchFilter(null); navigateTo("students-directory"); }}>
-                              View passed out
-                            </Button>
-                          </Paper>
-                        ) : null}
-                        {headMetricCardCount === 0 ? (
-                          <Typography variant="body2" color="text.secondary">
-                            No student status metrics to show yet.
-                          </Typography>
-                        ) : null}
                       </Box>
-
-                      {/* Batch status chart — width scales with batch count */}
-                      {headStudentRows.length > 0 ? (
-                        <Box sx={{ mb: 3, maxWidth: headBatchCount > 0 ? Math.min(headBatchCount * 320, 9999) : "100%" }}>
-                          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
-                            <FacultyAnalyticsReport
-                              students={headStudentRows}
-                              summaryCatEarned={studentSummaryCatEarned}
-                              plansOfStudy={plansOfStudy}
-                              regulations={regulations}
-                              showBatchStatusByLabelCard
-                              chartOnly
-                            />
-                          </Suspense>
-                        </Box>
-                      ) : null}
-
-                      {/* Detailed batch analytics */}
-                      <Divider sx={{ mb: 2.5 }}>
-                        <Chip label="Batch Analytics" size="small" variant="outlined" />
-                      </Divider>
-                      <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
-                        <FacultyAnalyticsReport
-                          students={headStudentRows}
-                          summaryCatEarned={studentSummaryCatEarned}
-                          plansOfStudy={plansOfStudy}
-                          regulations={regulations}
-                          defaultExpandFirstBatch={false}
-                          onViewStudents={(creditStatusFilter, batchFilter) => {
-                            void openScopedStudentsDirectory("head", null, creditStatusFilter ?? undefined, batchFilter);
-                          }}
-                        />
-                      </Suspense>
-                      </Collapse>
-                    </CardContent>
-                  </Card>
-                ) : null}
-                {hasModeratorRole ? (
-                  <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
-                    <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
-                      {/* Dashboard header */}
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: (!multipleScopedRoles || expandedDashboardSections.has("moderator")) ? 3 : 0 }}>
-                        <Box>
-                          <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
-                            <DashboardIcon fontSize="small" color="primary" />
-                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                              Moderator Dashboard
-                            </Typography>
-                            <Chip label="Moderator" size="small" color="primary" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }} />
-                          </Stack>
-                          <Typography variant="body2" color="text.secondary">
-                            System-wide overview of all active student accounts
-                          </Typography>
-                        </Box>
-                        <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
-                          <Tooltip title="Refresh all data">
-                            <span>
-                              <IconButton size="small" aria-label="Refresh moderator dashboard" onClick={() => { void loadModeratorStudents({ force: true }); }} disabled={busy}>
-                                <RefreshIcon fontSize="small" />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          {multipleScopedRoles && (
-                            <IconButton size="small" aria-label={expandedDashboardSections.has("moderator") ? "Collapse moderator dashboard" : "Expand moderator dashboard"} onClick={() => handleDashboardSectionToggle("moderator")}>
-                              <ExpandMoreIcon fontSize="small" sx={{ transform: expandedDashboardSections.has("moderator") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} />
-                            </IconButton>
-                          )}
-                        </Stack>
-                      </Stack>
-
-                      <Collapse in={!multipleScopedRoles || expandedDashboardSections.has("moderator")}>
-                      {/* Student stat cards */}
-                      <Box
-                        sx={{
-                          display: "grid",
-                          gridTemplateColumns: {
-                            xs: "1fr",
-                            sm: moderatorMetricCardCount === 0 ? "1fr" : `repeat(${moderatorMetricCardCount + 1}, minmax(0, 1fr))`,
-                          },
-                          gap: 2,
-                          mb: 3,
-                        }}
-                      >
-                        {moderatorMetricCardCount > 0 ? (
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              borderRadius: 2,
-                              px: 3,
-                              py: 2.5,
-                              borderColor: "primary.main",
-                              bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
-                            }}
-                          >
-                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                              <GroupIcon sx={{ fontSize: "0.85rem", color: "primary.main" }} />
-                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Total Active
-                              </Typography>
-                            </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "primary.main" }}>
-                              {(moderatorNotGraduatedCount + moderatorGraduatedCount).toLocaleString()}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
-                              Students enrolled
-                            </Typography>
-                          </Paper>
-                        ) : null}
-                        {moderatorNotGraduatedCount !== 0 ? (
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              borderRadius: 2,
-                              px: 3,
-                              py: 2.5,
-                              borderColor: "warning.main",
-                              bgcolor: (theme) => alpha(theme.palette.warning.main, 0.04),
-                            }}
-                          >
-                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "warning.main" }} />
-                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                In Progress
-                              </Typography>
-                            </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "warning.dark" }}>
-                              {moderatorNotGraduatedCount.toLocaleString()}
-                            </Typography>
-                            <Button type="button" size="small" color="warning" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory("moderator", "No"); }}>
-                              View students
-                            </Button>
-                          </Paper>
-                        ) : null}
-                        {moderatorGraduatedCount !== 0 ? (
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              borderRadius: 2,
-                              px: 3,
-                              py: 2.5,
-                              borderColor: "success.main",
-                              bgcolor: (theme) => alpha(theme.palette.success.main, 0.04),
-                            }}
-                          >
-                            <Stack direction="row" sx={{ alignItems: "center", gap: 0.75, mb: 0.25 }}>
-                              <SchoolIcon sx={{ fontSize: "0.85rem", color: "success.main" }} />
-                              <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.6rem", letterSpacing: 1 }}>
-                                Passed Out
-                              </Typography>
-                            </Stack>
-                            <Typography variant="h3" sx={{ fontWeight: 700, lineHeight: 1.15, mt: 0.5, color: "success.dark" }}>
-                              {moderatorGraduatedCount.toLocaleString()}
-                            </Typography>
-                            <Button type="button" size="small" color="success" endIcon={<ArrowForwardIcon />} sx={{ p: 0, mt: 1 }} onClick={() => { void openScopedStudentsDirectory("moderator", "Yes"); }}>
-                              View passed out
-                            </Button>
-                          </Paper>
-                        ) : null}
-                        {moderatorMetricCardCount === 0 ? (
-                          <Typography variant="body2" color="text.secondary">
-                            No student status metrics to show yet.
-                          </Typography>
-                        ) : null}
-                      </Box>
-
-                      {/* Batch status chart — width scales with batch count */}
-                      {moderatorStudentRows.length > 0 ? (
-                        <Box sx={{ mb: 3, maxWidth: moderatorBatchCount > 0 ? Math.min(moderatorBatchCount * 320, 9999) : "100%" }}>
-                          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
-                            <FacultyAnalyticsReport
-                              students={moderatorStudentRows}
-                              summaryCatEarned={studentSummaryCatEarned}
-                              plansOfStudy={plansOfStudy}
-                              regulations={regulations}
-                              showBatchStatusByLabelCard
-                              chartOnly
-                            />
-                          </Suspense>
-                        </Box>
-                      ) : null}
-
-                      {/* Detailed batch analytics */}
-                      <Divider sx={{ mb: 2.5 }}>
-                        <Chip label="Batch Analytics" size="small" variant="outlined" />
-                      </Divider>
-                      <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
-                        <FacultyAnalyticsReport
-                          students={moderatorStudentRows}
-                          summaryCatEarned={studentSummaryCatEarned}
-                          plansOfStudy={plansOfStudy}
-                          regulations={regulations}
-                          defaultExpandFirstBatch={false}
-                          onViewStudents={(creditStatusFilter, batchFilter) => {
-                            void openScopedStudentsDirectory("moderator", null, creditStatusFilter ?? undefined, batchFilter);
-                          }}
-                        />
-                      </Suspense>
-                      </Collapse>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -4781,17 +4778,65 @@ function App() {
                       <Divider sx={{ mb: 2.5 }}>
                         <Chip label="Batch Analytics" size="small" variant="outlined" />
                       </Divider>
-                      <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
-                        <FacultyAnalyticsReport
-                          students={facultyStudentRows}
-                          summaryCatEarned={studentSummaryCatEarned}
-                          plansOfStudy={plansOfStudy}
-                          regulations={regulations}
-                          onViewStudents={(creditStatusFilter, batchFilter) => {
-                            void openScopedStudentsDirectory("faculty", null, creditStatusFilter ?? undefined, batchFilter);
-                          }}
-                        />
-                      </Suspense>
+                      <Box sx={{ display: "none" }}>
+                        <Suspense fallback={null}>
+                          <FacultyAnalyticsReport
+                            students={facultyStudentRows}
+                            summaryCatEarned={studentSummaryCatEarned}
+                            plansOfStudy={plansOfStudy}
+                            regulations={regulations}
+                            chartOnly
+                            onBatchSummaryComputed={handleFacultyBatchSummaryComputed}
+                          />
+                        </Suspense>
+                      </Box>
+                      <Stack sx={{ gap: 1 }}>
+                        {facultyBatchSummaries.map((row) => (
+                          <Box
+                            key={row.batch}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openBatchAnalysis(row.batch)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openBatchAnalysis(row.batch);
+                              }
+                            }}
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 1,
+                              flexWrap: "nowrap",
+                              overflowX: "auto",
+                              border: "1px solid",
+                              borderColor: "divider",
+                              borderRadius: 1.5,
+                              px: 1.25,
+                              py: 0.75,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+                              {row.label}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
+                              {`${row.total} student${row.total === 1 ? "" : "s"}`}
+                            </Typography>
+                            {row.complete > 0 ? <Chip size="small" label={`Complete: ${row.complete}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                            {row.onTrack > 0 ? <Chip size="small" label={`On Track: ${row.onTrack}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                            {row.marginal > 0 ? <Chip size="small" label={`Marginal: ${row.marginal}`} color="primary" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                            {row.alarming > 0 ? <Chip size="small" label={`Alarming: ${row.alarming}`} color="warning" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                            {row.offTrack > 0 ? <Chip size="small" label={`Off Track: ${row.offTrack}`} color="error" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                            <Button type="button" size="small" sx={{ ml: "auto", whiteSpace: "nowrap" }} onClick={(event) => { event.stopPropagation(); openBatchAnalysis(row.batch); }}>
+                              Analysis
+                            </Button>
+                          </Box>
+                        ))}
+                        {facultyBatchSummaries.length === 0 ? (
+                          <Typography variant="body2" color="text.secondary">No batch mentoring analytics to show yet.</Typography>
+                        ) : null}
+                      </Stack>
                       </Collapse>
                     </CardContent>
                   </Card>
@@ -6443,6 +6488,47 @@ function App() {
                 </Box>
                 <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading student credit table...</Typography>}>
                   <FacultyCreditDetailsTable rows={scopedDashboardCreditRows} busy={busy} />
+                </Suspense>
+              </Stack>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {principal && superView === "analysis" ? (
+          <Card>
+            <CardContent>
+              <Stack spacing={adminPageSx.pageStack.spacing}>
+                <Box sx={adminPageSx.headerPanel}>
+                  <Stack direction="row" sx={{ alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                    <Box>
+                      <Typography variant="h6">Batch Analysis</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Detailed batch-wise analytics view
+                      </Typography>
+                    </Box>
+                    {analysisBatchFilter != null ? (
+                      <Button type="button" size="small" variant="outlined" onClick={() => setAnalysisBatchFilter(null)}>
+                        Show all batches
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </Box>
+                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analysis...</Typography>}>
+                  <FacultyAnalyticsReport
+                    students={analysisStudents}
+                    summaryCatEarned={studentSummaryCatEarned}
+                    plansOfStudy={plansOfStudy}
+                    regulations={regulations}
+                    expandAllBatches
+                    onViewStudents={(creditStatusFilter, batchFilter) => {
+                      const analysisScope: "head" | "moderator" | "faculty" = hasHeadRole
+                        ? "head"
+                        : hasModeratorRole
+                          ? "moderator"
+                          : "faculty";
+                      void openScopedStudentsDirectory(analysisScope, null, creditStatusFilter ?? undefined, batchFilter);
+                    }}
+                  />
                 </Suspense>
               </Stack>
             </CardContent>

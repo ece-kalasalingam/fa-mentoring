@@ -721,5 +721,172 @@ export const MIGRATIONS: Migration[] = [
     statements: [
       "create index if not exists idx_credit_details_student_category_status on student_credit_details(student_id, category_id, status)"
     ]
+  },
+  {
+    id: "0031_student_credit_status_summary_table",
+    description: "Create per-student credit status summary table and backfill existing rows",
+    statements: [
+      `create table if not exists student_credit_status_summary (
+        student_id text primary key
+          references students(user_id) on delete cascade,
+        batch integer not null,
+        plan_of_study_code integer,
+        current_semester integer not null default 1,
+        earned_credits real not null default 0,
+        earned_units real not null default 0,
+        earned_total real not null default 0,
+        required_credits real not null default 0,
+        required_units real not null default 0,
+        required_total real not null default 0,
+        expected_credits real not null default 0,
+        expected_units real not null default 0,
+        expected_total real not null default 0,
+        deficit_credits real not null default 0,
+        deficit_units real not null default 0,
+        deficit_total real not null default 0,
+        status text not null check (status in ('Complete','On Track','Marginal','Alarming','Off Track')),
+        category_totals_json text not null default '{}',
+        category_required_json text not null default '{}',
+        category_expected_json text not null default '{}',
+        computed_at text not null default current_timestamp,
+        updated_at text not null default current_timestamp
+      )`,
+      "create index if not exists idx_scss_batch_status on student_credit_status_summary(batch, status)",
+      "create index if not exists idx_scss_status on student_credit_status_summary(status)",
+      "create index if not exists idx_scss_plan_sem on student_credit_status_summary(plan_of_study_code, current_semester)",
+      `insert into student_credit_status_summary(
+         student_id, batch, plan_of_study_code, current_semester,
+         earned_credits, earned_units, earned_total,
+         required_credits, required_units, required_total,
+         expected_credits, expected_units, expected_total,
+         deficit_credits, deficit_units, deficit_total,
+         status, category_totals_json, category_required_json, category_expected_json, computed_at, updated_at
+       )
+       with per_category as (
+         select
+           scd.student_id,
+           scd.category_id,
+           coalesce(sum(scd.credits), 0) as total_value,
+           coalesce(sum(case when coalesce(scd.status, 0) = 5 then scd.credits else 0 end), 0) as unit_value,
+           coalesce(sum(case when coalesce(scd.status, 0) = 5 then 0 else scd.credits end), 0) as credit_value
+         from student_credit_details scd
+         group by scd.student_id, scd.category_id
+       ),
+       per_student as (
+         select
+           student_id,
+           coalesce(sum(credit_value), 0) as earned_credits,
+           coalesce(sum(unit_value), 0) as earned_units,
+           coalesce(sum(total_value), 0) as earned_total,
+           coalesce(json_group_object(category_id, total_value), '{}') as category_totals_json
+         from per_category
+         group by student_id
+       )
+       select
+         s.user_id as student_id,
+         coalesce(s.batch, 2010) as batch,
+         s.plan_of_study_code as plan_of_study_code,
+         coalesce(s.current_semester, 1) as current_semester,
+         coalesce(ps.earned_credits, 0) as earned_credits,
+         coalesce(ps.earned_units, 0) as earned_units,
+         coalesce(ps.earned_total, 0) as earned_total,
+         0, 0, 0, 0, 0, 0, 0, 0, 0,
+         'On Track' as status,
+         coalesce(ps.category_totals_json, '{}') as category_totals_json,
+         '{}' as category_required_json,
+         '{}' as category_expected_json,
+         current_timestamp,
+         current_timestamp
+       from students s
+       left join per_student ps on ps.student_id = s.user_id
+       on conflict(student_id) do update set
+         batch = excluded.batch,
+         plan_of_study_code = excluded.plan_of_study_code,
+         current_semester = excluded.current_semester,
+         earned_credits = excluded.earned_credits,
+         earned_units = excluded.earned_units,
+         earned_total = excluded.earned_total,
+         category_totals_json = excluded.category_totals_json,
+         updated_at = current_timestamp`
+    ]
+  },
+  {
+    id: "0032_batch_credit_status_summary_table",
+    description: "Create per-batch scoped credit status summary table and backfill existing rows",
+    statements: [
+      `create table if not exists batch_credit_status_summary (
+        batch integer not null,
+        scope_type text not null check (scope_type in ('head','moderator','faculty')),
+        scope_key text not null,
+        total_active integer not null default 0,
+        in_progress_count integer not null default 0,
+        passed_out_count integer not null default 0,
+        complete_count integer not null default 0,
+        on_track_count integer not null default 0,
+        marginal_count integer not null default 0,
+        alarming_count integer not null default 0,
+        off_track_count integer not null default 0,
+        complete_pct real not null default 0,
+        on_track_pct real not null default 0,
+        marginal_pct real not null default 0,
+        alarming_pct real not null default 0,
+        off_track_pct real not null default 0,
+        computed_at text not null default current_timestamp,
+        updated_at text not null default current_timestamp,
+        primary key (batch, scope_type, scope_key)
+      )`,
+      "create index if not exists idx_bcss_scope on batch_credit_status_summary(scope_type, scope_key, batch)",
+      "create index if not exists idx_bcss_batch on batch_credit_status_summary(batch)",
+      "delete from batch_credit_status_summary",
+      `insert into batch_credit_status_summary(
+         batch, scope_type, scope_key,
+         total_active, in_progress_count, passed_out_count,
+         complete_count, on_track_count, marginal_count, alarming_count, off_track_count,
+         complete_pct, on_track_pct, marginal_pct, alarming_pct, off_track_pct,
+         computed_at, updated_at
+       )
+       with scoped as (
+         select s.batch, 'head' as scope_type, 'all' as scope_key, s.graduated, coalesce(ss.status, 'On Track') as status
+         from students s
+         inner join user_accounts ua on ua.id = s.user_id and ua.active = 1
+         left join student_credit_status_summary ss on ss.student_id = s.user_id
+         union all
+         select s.batch, 'moderator' as scope_type, 'all' as scope_key, s.graduated, coalesce(ss.status, 'On Track') as status
+         from students s
+         inner join user_accounts ua on ua.id = s.user_id and ua.active = 1
+         left join student_credit_status_summary ss on ss.student_id = s.user_id
+         union all
+         select s.batch, 'faculty' as scope_type, s.mentor_id as scope_key, s.graduated, coalesce(ss.status, 'On Track') as status
+         from students s
+         inner join user_accounts ua on ua.id = s.user_id and ua.active = 1
+         left join student_credit_status_summary ss on ss.student_id = s.user_id
+         where s.mentor_id is not null
+       ),
+       grouped as (
+         select
+           batch, scope_type, scope_key,
+           count(*) as total_active,
+           coalesce(sum(case when coalesce(graduated, 0) = 0 then 1 else 0 end), 0) as in_progress_count,
+           coalesce(sum(case when coalesce(graduated, 0) = 1 then 1 else 0 end), 0) as passed_out_count,
+           coalesce(sum(case when status = 'Complete' then 1 else 0 end), 0) as complete_count,
+           coalesce(sum(case when status = 'On Track' then 1 else 0 end), 0) as on_track_count,
+           coalesce(sum(case when status = 'Marginal' then 1 else 0 end), 0) as marginal_count,
+           coalesce(sum(case when status = 'Alarming' then 1 else 0 end), 0) as alarming_count,
+           coalesce(sum(case when status = 'Off Track' then 1 else 0 end), 0) as off_track_count
+         from scoped
+         group by batch, scope_type, scope_key
+       )
+       select
+         batch, scope_type, scope_key,
+         total_active, in_progress_count, passed_out_count,
+         complete_count, on_track_count, marginal_count, alarming_count, off_track_count,
+         case when total_active > 0 then round((complete_count * 100.0) / total_active, 2) else 0 end,
+         case when total_active > 0 then round((on_track_count * 100.0) / total_active, 2) else 0 end,
+         case when total_active > 0 then round((marginal_count * 100.0) / total_active, 2) else 0 end,
+         case when total_active > 0 then round((alarming_count * 100.0) / total_active, 2) else 0 end,
+         case when total_active > 0 then round((off_track_count * 100.0) / total_active, 2) else 0 end,
+         current_timestamp, current_timestamp
+       from grouped`
+    ]
   }
 ];

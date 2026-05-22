@@ -4317,3 +4317,192 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Step 6: Replaced per-student self-scope authorization loop in `/api/student-credits/summaries` with a batched `IN (...)` validator (`assertStudentCanAccessOwnUserIds`).
   - Preserved existing response shapes, role access rules, and UI behavior.
 - Revert: none
+## 2026-05-22 10:20 IST | codex-gpt-5 | fix
+- Summary: Fixed scoped dashboard regression where earned credits rendered as zero by restoring targeted summary prefetch on section loads.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `prefetchStudentSummariesForRows` helper to request student credit summaries for loaded scoped dashboard rows.
+  - Restored summary prefetch when initially loading the first scoped dashboard section (head/moderator/faculty).
+  - Restored summary prefetch when expanding a scoped dashboard section for the first time.
+  - Kept the new summary caching layer intact, so restored prefetch does not reintroduce high duplicate read load.
+- Revert: none
+## 2026-05-22 10:23 IST | codex-gpt-5 | fix
+- Summary: Fixed dashboard-first load issue where scoped dashboard metrics appeared only after visiting Students by preloading required regulation/plan datasets on dashboard entry.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated scoped dashboard initialization effect to load regulations and plans-of-study before loading first scoped student section.
+  - Ensures analytics components have required plan/regulation context on direct dashboard entry.
+  - Preserves existing cache behavior and avoids requiring a prior navigation to Students page.
+- Revert: none
+## 2026-05-22 10:34 IST | codex-gpt-5 | perf
+- Summary: Implemented materialized per-student credit summary table with mitigation/backfill and write-path recomputation hooks to reduce dashboard read amplification.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/students/students.service.ts, api/src/modules/imports/imports.service.ts, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Added migration `0031_student_credit_status_summary_table` to create `student_credit_status_summary` (one row per student) with status/aggregate fields and indexes.
+  - Included mitigation backfill SQL in migration to populate summary rows from existing `students` + `student_credit_details` data.
+  - Switched `getStudentCreditSummaries` read path to `student_credit_status_summary` (including parsed `category_totals_json`) instead of scanning detail rows directly.
+  - Added summary recomputation helpers (`recomputeStudentCreditSummary`, `recomputeStudentCreditSummaries`) and wired them into credit write paths (`upsertStudentCredits`, `upsertStudentUnits`).
+  - Wired recomputation into student profile update flows (`/api/students-directory/update`, `/api/students-directory/update-batch`) so batch/plan/current-semester summary columns stay synchronized.
+  - Extended student CSV import service to return updated student IDs and recompute summaries for touched students in `/api/import/students`.
+  - Preserved existing API response shapes for student summary consumers.
+- Revert: none
+## 2026-05-22 10:46 IST | codex-gpt-5 | change
+- Summary: Unified Head/Moderator dashboard into a single shared UI module and reused Turso usage module across admin/head to reduce duplicate read-trigger paths.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced separate Head and Moderator dashboard blocks with one combined section rendered once when either role is present.
+  - Dynamic combined title now follows role presence: `Head Dashboard`, `Moderator Dashboard`, or `Head, Moderator Dashboard`.
+  - Shared cards (`Total Active`, `In Progress`, `Passed Out`) now compute and render once from a single combined dataset source.
+  - Shared batch completion chart and batch analytics now render once for head/moderator instead of duplicated blocks.
+  - Added `tursoUsageModule` reusable UI block and reused it in admin dashboard and head-capable combined dashboard section.
+  - Refresh action for combined section triggers only one scoped student load call path (head scope when available, otherwise moderator scope).
+- Revert: none
+## 2026-05-22 11:18 IST | codex-gpt-5 | perf
+- Summary: Added scoped per-batch summary table read path and wired combined Head/Moderator dashboard cards to consume it, with migration backfill for existing data.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/students/students.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added migration `0032_batch_credit_status_summary_table` to create `batch_credit_status_summary` with scope-aware rows (`head`, `moderator`, `faculty`) and full backfill SQL from existing student + student-summary data.
+  - Extended `readBatchStatusSummaryByScope` with role preference support so `all` scope can explicitly serve `head` or `moderator` summary slices.
+  - Added `GET /api/students/batch-summary` endpoint with role-context selection and existing role-based access checks.
+  - Updated combined Head/Moderator dashboard cards (`Total Active`, `In Progress`, `Passed Out`) to read from the new batch-summary endpoint instead of recomputing from full student arrays.
+  - Removed duplicate chart-only render in combined Head/Moderator dashboard so status composition analytics is displayed once.
+- Revert: none
+## 2026-05-22 11:34 IST | codex-gpt-5 | fix
+- Summary: Ensured admin active-status toggles immediately refresh student and batch summary tables so dashboards stay correct after activation/deactivation.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Added batched worker helper to resolve updated `subject` values to affected student `user_id` rows.
+  - Wired `POST /api/admin/users/set-active` to trigger summary recomputation for affected students after active flag updates.
+  - Wired `POST /api/admin/users/set-active-batch` to accumulate all touched subjects and trigger one batched summary recomputation pass.
+  - Added dashboard cache invalidation after active-status updates so UI reads fresh summary values immediately.
+- Revert: none
+## 2026-05-22 11:49 IST | codex-gpt-5 | observability
+- Summary: Added browser-console per-session approximate DB-read counter for API usage visibility.
+- Files: frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Added endpoint-aware DB read estimation in the shared `callApi` client for both GET and POST requests.
+  - Added per-tab session cumulative counter using `sessionStorage` (`fa_db_read_estimate_total_v1`).
+  - Added console log output on each API response in the format: `[DB READ ESTIMATE] +delta | total=n | METHOD /path`.
+  - Kept the estimator intentionally conservative and approximate to avoid backend/runtime risk.
+- Revert: none
+## 2026-05-22 12:02 IST | codex-gpt-5 | fix
+- Summary: Fixed Head/Moderator dashboard batch-wise summary cards/graph initialization by loading batch summary data on first dashboard entry.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated scoped dashboard initialization effect (`superView === "dashboard"`) to load `loadHeadModeratorBatchSummary()` when the principal has Head or Moderator roles.
+  - This aligns dashboard-first load behavior with the existing students-directory scoped effect and prevents empty metric cards/graph on initial dashboard render.
+- Revert: none
+## 2026-05-22 12:11 IST | codex-gpt-5 | fix
+- Summary: Fixed runtime crash in Head/Moderator batch summary loader by removing undefined cache helper usage.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced `getAdminCacheKey`/`readCachedAdminPayload` references in `loadHeadModeratorBatchSummary` with direct API fetch logic.
+  - Preserved force-refresh behavior by appending `force=1` query param when requested.
+  - Removed stale `setCachedAdminPayload` write for this path to avoid invalid cache-key coupling.
+- Revert: none
+## 2026-05-22 12:27 IST | codex-gpt-5 | change
+- Summary: Restored default batch-wise comparison chart display in the combined Head/Moderator dashboard.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Re-added the `FacultyAnalyticsReport` chart-only render (`showBatchStatusByLabelCard` + `chartOnly`) in the Head/Moderator dashboard.
+  - The chart now appears by default above the Batch Analytics accordion while preserving single-render behavior for each chart section.
+- Revert: none
+## 2026-05-22 12:48 IST | codex-gpt-5 | change
+- Summary: Restructured dashboard batch analytics UX into chart card + batch-row card and added Academics -> Analysis page for expanded batch details.
+- Files: frontend/src/app/App.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Added dedicated chart card with `Batch Analytics` heading at the top and kept the batch comparison echart visible by default.
+  - Added separate `Batch Details` card that renders each batch summary as a single-row clickable item.
+  - Clicking a batch item now routes to new `Academics -> Analysis` view and pre-filters that batch.
+  - Added new `analysis` view to `superView` and wired it into the Academics navigation.
+  - Added expanded analytics page rendering with `FacultyAnalyticsReport` and `expandAllBatches` behavior to show detailed batch sections expanded.
+  - Extended `FacultyAnalyticsReport` with `expandAllBatches` prop to support expanded-detail analysis view.
+- Revert: none
+## 2026-05-22 13:02 IST | codex-gpt-5 | change
+- Summary: Restored `Batch Analytics` as divider-style header in Head/Moderator dashboard.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced inline section title above batch chart card with divider + outlined chip (`Batch Analytics`), matching previous visual style.
+  - Kept the chart card and batch details card structure unchanged.
+- Revert: none
+## 2026-05-22 13:13 IST | codex-gpt-5 | fix
+- Summary: Removed double-border effect around Head/Moderator batch comparison chart card.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed outer `Paper` wrapper around `FacultyAnalyticsReport` chart-only render in Head/Moderator dashboard.
+  - Kept existing inner chart card from `FacultyAnalyticsReport`, resulting in a single visible border.
+- Revert: none
+## 2026-05-22 13:25 IST | codex-gpt-5 | change
+- Summary: Updated Head/Moderator batch analytics card layout to responsive two-column desktop and single-column mobile arrangement.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Wrapped batch comparison chart and batch details card inside a responsive CSS grid container.
+  - Layout now uses one column on mobile (`xs`) and two cards in a single row on desktop (`lg`).
+  - Preserved existing content and interactions in both cards.
+- Revert: none
+## 2026-05-22 13:41 IST | codex-gpt-5 | change
+- Summary: Updated batch detail rows to use bold batch titles with colored status chips/counts in single-line rows.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced plain text batch-detail button labels with row layout matching earlier style: bold `Batch <year>` title + colored outlined chips (`Complete`, `On Track`, `Marginal`, `Alarming`, `Off Track`).
+  - Kept each batch in one clickable row and preserved navigation to `Academics -> Analysis`.
+  - Added keyboard accessibility (`Enter`/`Space`) for row activation.
+- Revert: none
+## 2026-05-22 14:05 IST | codex-gpt-5 | fix
+- Summary: Fixed incorrect batch chip counts by sourcing row counts from the same live analytics computation used by the batch comparison chart.
+- Files: frontend/src/app/App.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Added `onBatchSummaryComputed` callback in `FacultyAnalyticsReport` to emit computed per-batch status counts.
+  - Wired Head/Moderator dashboard chart render to capture those computed counts and reuse them for batch detail rows.
+  - Batch detail chips now always match chart/analysis logic (`Complete`, `On Track`, `Marginal`, `Alarming`, `Off Track`) and avoid divergence from stale precomputed summary rows.
+- Revert: none
+## 2026-05-22 14:22 IST | codex-gpt-5 | fix
+- Summary: Fixed maximum update depth loop caused by repeated batch-summary callback state updates.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced inline `onBatchSummaryComputed` callback with stable `useCallback` handler.
+  - Added structural equality guard in `setCombinedHmBatchLiveRows` updater to skip state updates when computed rows are unchanged.
+  - Prevents render-effect-update loop while keeping live batch chip counts synchronized with chart analytics.
+- Revert: none
+## 2026-05-22 14:47 IST | codex-gpt-5 | change
+- Summary: Simplified Faculty dashboard batch section to chip-only batch rows with direct Analysis-page navigation.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced inline expanded analytics in Faculty dashboard with compact batch-wise chip rows.
+  - Added per-batch navigation to `Academics -> Analysis` by clicking the row or the `Analysis` action button.
+  - Added dedicated faculty batch summary state and stabilized callback updater so chip rows use live computed analytics counts.
+  - Kept detailed mentored-student batch analytics in the Analysis page (filtered by selected batch when opened from dashboard).
+- Revert: none
+## 2026-05-22 15:02 IST | codex-gpt-5 | fix
+- Summary: Replaced custom in-page print CSS hack with native print-window flow for batch analytics printing.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Updated print icon handler to open a native browser print window containing only the selected batch analytics content.
+  - Copied active stylesheets/style blocks into the print window and invoked `window.print()` there.
+  - Removed fixed-position visibility print hack that caused clipped/inconsistent render output.
+  - Kept color print fidelity settings and non-print element exclusion support (`[data-noprint]`).
+- Revert: none
+## 2026-05-22 15:18 IST | codex-gpt-5 | fix
+- Summary: Fixed blank `about:blank` print popup by hardening batch print window flow and adding fallback.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Removed popup `noopener,noreferrer` window features that could break writable print-window behavior.
+  - Switched to writing a minimal print document first, then appending a cloned batch content node.
+  - Added short render delay before calling native `print()` and automatic close after print.
+  - Added fallback to `window.print()` if popup content rendering fails.
+- Revert: none
+## 2026-05-22 15:33 IST | codex-gpt-5 | fix
+- Summary: Fixed missing ECharts in print output by converting chart canvases to static images in print clone.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Updated batch print handler to map source canvases to cloned canvases and replace each cloned canvas with an image generated via `canvas.toDataURL()`.
+  - Ensures ECharts visuals are preserved in print popup even when live canvas state is not carried to cloned DOM.
+- Revert: none
+## 2026-05-22 15:49 IST | codex-gpt-5 | fix
+- Summary: Fixed clipped chart rendering in print output by switching canvas-image replacement to responsive sizing.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Changed print chart image sizing from fixed pixel width/height to fluid (`width: 100%`, `max-width: 100%`, `height: auto`).
+  - Ensured chart parent containers in print clone are set to `width: 100%`, `height: auto`, and `overflow: visible`.
+  - Prevents right-edge legend/content clipping in printed ECharts snapshots.
+- Revert: none

@@ -36,7 +36,7 @@ import { fetchProgrammesFromJson } from "../modules/programmes/programmes.servic
 import { fetchRegulationsFromJson } from "../modules/regulations/regulations.service";
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
-import { assertStudentCanAccessOwnUserId, assertStudentCanAccessOwnUserIds, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, getStudentUnits, listStudentCreditTableByScope, listStudentsByScope, upsertStudentCredits, upsertStudentUnits } from "../modules/students/students.service";
+import { assertStudentCanAccessOwnUserId, assertStudentCanAccessOwnUserIds, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, getStudentUnits, listStudentCreditTableByScope, listStudentsByScope, readBatchStatusSummaryByScope, recomputeStudentCreditSummary, recomputeStudentCreditSummaries, upsertStudentCredits, upsertStudentUnits } from "../modules/students/students.service";
 import { assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
@@ -81,6 +81,7 @@ const ROOT_ENDPOINTS = [
   "/api/students-directory/update",
   "/api/students-directory/update-batch",
   "/api/students/stats",
+  "/api/students/batch-summary",
   "/api/student-credit-table",
   "/api/import/students"
 ];
@@ -159,6 +160,31 @@ function writeScopedStudentsCache(cacheKey: string, payload: ScopedStudentsPaylo
 function toTwoDecimalNumber(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.round(value * 100) / 100;
+}
+
+async function recomputeStudentSummaryTablesForSubjects(env: Env, subjects: string[]): Promise<void> {
+  const uniqueSubjects = Array.from(
+    new Set(
+      subjects
+        .map((subject) => String(subject ?? "").trim())
+        .filter((subject) => subject.length > 0)
+    )
+  );
+  if (uniqueSubjects.length === 0) return;
+  const db = getDb(env);
+  const placeholders = uniqueSubjects.map(() => "?").join(", ");
+  const studentRes = await db.execute({
+    sql: `select s.user_id
+          from students s
+          inner join user_accounts ua on ua.id = s.user_id
+          where ua.subject in (${placeholders})`,
+    args: uniqueSubjects,
+  });
+  const studentIds = studentRes.rows
+    .map((row) => String(row.user_id ?? "").trim())
+    .filter((id) => id.length > 0);
+  if (studentIds.length === 0) return;
+  await recomputeStudentCreditSummaries(env, studentIds);
 }
 
 function parseCookieToken(request: Request, name: string): string {
@@ -528,6 +554,8 @@ export const worker = {
         const subject = isObject(body) ? String(body.subject ?? "") : "";
         const active = isObject(body) ? Boolean(body.active) : false;
         await setUserActiveByAdmin(env, principal, subject, active);
+        await recomputeStudentSummaryTablesForSubjects(env, [subject]);
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = active ? "admin.user.activated" : "admin.user.deactivated";
         return respond({ ok: true, message: active ? "User activated." : "User deactivated." });
@@ -558,6 +586,7 @@ export const worker = {
         }
         const db = getDb(env);
         let updated = 0;
+        const touchedSubjects: string[] = [];
         for (const item of updates) {
           const username = isObject(item) ? String(item.username ?? "").trim().toLowerCase() : "";
           const active = isObject(item) ? Boolean(item.active) : false;
@@ -573,8 +602,11 @@ export const worker = {
           }
           const subject = String(userLookup.rows[0]?.subject ?? "").trim();
           await setUserActiveByAdmin(env, principal, subject, active);
+          touchedSubjects.push(subject);
           updated += 1;
         }
+        await recomputeStudentSummaryTablesForSubjects(env, touchedSubjects);
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "admin.users_active_bulk_updated";
         return respond({ ok: true, updated, message: `Updated ${updated} user status row(s).` });
@@ -1096,6 +1128,7 @@ export const worker = {
           mentorName,
           modifiedByUserId: modifierUserId,
         });
+        await recomputeStudentCreditSummary(env, userId);
         invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "students.directory.updated";
@@ -1165,6 +1198,10 @@ export const worker = {
             modifiedByUserId: modifierUserId,
           });
         }
+        const touchedUserIds = updates
+          .map((item) => (isObject(item) ? String(item.userId ?? "").trim() : ""))
+          .filter((id) => id.length > 0);
+        await recomputeStudentCreditSummaries(env, touchedUserIds);
         invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "students.directory.batch_updated";
@@ -1181,6 +1218,31 @@ export const worker = {
         const data = await getStudentStatsByScope(env, scope);
         statusCode = 200;
         return respond({ ok: true, ...data });
+      }
+
+      if (pathname === "/api/students/batch-summary" && request.method === "GET") {
+        if (!principal) {
+          statusCode = 401;
+          event = "request.unauthorized";
+          return respond({ ok: false, error: "Unauthorized" }, 401);
+        }
+        const scope = resolveScopedStudentAccess(principal);
+        if (scope.type === "none" || scope.type === "self") {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Forbidden" }, 403);
+        }
+        const roleContextRaw = new URL(request.url).searchParams.get("roleContext");
+        const roleContext = roleContextRaw === "moderator" ? "moderator"
+          : roleContextRaw === "faculty" ? "faculty"
+          : "head";
+        const rows = await readBatchStatusSummaryByScope(
+          env,
+          scope,
+          { preferredScopeType: roleContext }
+        );
+        statusCode = 200;
+        return respond({ ok: true, rows });
       }
 
       if (pathname === "/api/student-credits" && request.method === "GET") {
@@ -1365,6 +1427,7 @@ export const worker = {
           restrictToActiveMentorEmail: facultyRestrictedEmail,
           modifiedByUserId: modifierUserId,
         });
+        await recomputeStudentCreditSummaries(env, (result.updatedStudentUserIds ?? []) as string[]);
         invalidateAllAdminDashboardCaches();
         statusCode = 200;
         return respond({

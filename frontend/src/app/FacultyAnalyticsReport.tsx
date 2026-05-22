@@ -76,6 +76,17 @@ type Props = {
   defaultExpandFirstBatch?: boolean;
   showBatchStatusByLabelCard?: boolean;
   chartOnly?: boolean;
+  expandAllBatches?: boolean;
+  onBatchSummaryComputed?: (rows: Array<{
+    batch: number | null;
+    label: string;
+    total: number;
+    complete: number;
+    onTrack: number;
+    marginal: number;
+    alarming: number;
+    offTrack: number;
+  }>) => void;
 };
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
@@ -737,6 +748,8 @@ export default function FacultyAnalyticsReport({
   defaultExpandFirstBatch = true,
   showBatchStatusByLabelCard = false,
   chartOnly = false,
+  expandAllBatches = false,
+  onBatchSummaryComputed,
 }: Props) {
   const theme = useTheme();
   const isDark = theme.palette.mode === "dark";
@@ -857,6 +870,24 @@ export default function FacultyAnalyticsReport({
   }, [students, summaryCatEarned, plansOfStudy, regulations]);
 
   const { totalActive, batchGroups, catNameMap, catMeasureMap } = analytics;
+  useEffect(() => {
+    if (!onBatchSummaryComputed) return;
+    const rows = batchGroups.map(({ batch, label, students }) => {
+      const counts: Record<CreditStatus, number> = { complete: 0, "on-track": 0, marginal: 0, alarming: 0, "off-track": 0 };
+      for (const student of students) counts[student.overallStatus] += 1;
+      return {
+        batch,
+        label,
+        total: students.length,
+        complete: counts.complete,
+        onTrack: counts["on-track"],
+        marginal: counts.marginal,
+        alarming: counts.alarming,
+        offTrack: counts["off-track"],
+      };
+    });
+    onBatchSummaryComputed(rows);
+  }, [batchGroups, onBatchSummaryComputed]);
   const batchStatusCardOption = useMemo<EChartsOption>(() => {
     const trendGroups = [...batchGroups].sort((a, b) => {
       const av = a.batch ?? Number.MAX_SAFE_INTEGER;
@@ -939,26 +970,80 @@ export default function FacultyAnalyticsReport({
   }, [batchGroups, isDark, isMobile, theme]);
 
   const handlePrintBatch = useCallback((contentId: string) => {
-    const styleEl = document.createElement("style");
-    styleEl.textContent = `
-      @media print {
-        @page { margin: 12mm; }
-        body * { visibility: hidden !important; }
-        #${contentId} {
-          visibility: visible !important;
-          position: fixed !important;
-          inset: 0 !important;
-          overflow: visible !important;
-          background: #fff !important;
-          padding: 8px !important;
+    const content = document.getElementById(contentId);
+    if (!content) return;
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const styleBlocks = Array.from(document.querySelectorAll("style"))
+      .map((node) => node.outerHTML)
+      .join("\n");
+    const stylesheetLinks = Array.from(document.querySelectorAll("link[rel='stylesheet']"))
+      .map((node) => node.outerHTML)
+      .join("\n");
+
+    try {
+      printWindow.document.open();
+      printWindow.document.write(`
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Batch Analytics Print</title>
+            ${stylesheetLinks}
+            ${styleBlocks}
+            <style>
+              @page { margin: 12mm; }
+              body {
+                margin: 0;
+                background: #fff;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              [data-noprint] { display: none !important; }
+            </style>
+          </head>
+          <body></body>
+        </html>
+      `);
+      printWindow.document.close();
+
+      const cloned = content.cloneNode(true) as HTMLElement;
+      // Preserve chart rendering in print: clone loses live canvas paint state.
+      const sourceCanvases = Array.from(content.querySelectorAll("canvas"));
+      const clonedCanvases = Array.from(cloned.querySelectorAll("canvas"));
+      const pairs = Math.min(sourceCanvases.length, clonedCanvases.length);
+      for (let i = 0; i < pairs; i += 1) {
+        const sourceCanvas = sourceCanvases[i] as HTMLCanvasElement;
+        const targetCanvas = clonedCanvases[i] as HTMLCanvasElement;
+        const targetParent = targetCanvas.parentElement as HTMLElement | null;
+        const img = printWindow.document.createElement("img");
+        img.src = sourceCanvas.toDataURL("image/png");
+        img.style.width = "100%";
+        img.style.maxWidth = "100%";
+        img.style.height = "auto";
+        img.style.display = "block";
+        if (targetParent) {
+          targetParent.style.width = "100%";
+          targetParent.style.height = "auto";
+          targetParent.style.overflow = "visible";
         }
-        #${contentId} * { visibility: visible !important; }
-        #${contentId} [data-noprint] { display: none !important; }
+        targetCanvas.replaceWith(img);
       }
-    `;
-    document.head.appendChild(styleEl);
-    window.print();
-    window.addEventListener("afterprint", () => styleEl.remove(), { once: true });
+      printWindow.document.body.appendChild(cloned);
+      printWindow.focus();
+
+      window.setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    } catch {
+      // Fallback: if popup rendering fails, use native page print.
+      window.print();
+      printWindow.close();
+    }
   }, []);
 
   if (totalActive === 0) {
@@ -995,7 +1080,7 @@ export default function FacultyAnalyticsReport({
         return (
           <Accordion
             key={batch ?? "unknown"}
-            defaultExpanded={defaultExpandFirstBatch && idx === 0}
+            defaultExpanded={expandAllBatches || (defaultExpandFirstBatch && idx === 0)}
             disableGutters
             elevation={0}
             sx={{
