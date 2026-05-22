@@ -4621,3 +4621,90 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Updated the student name cell in the analysis student-detail table to render as a link-style button that invokes the callback.
   - Connected analysis view usage in `App.tsx` to existing `openStudentCredits(...)` by resolving the selected student from `studentsDirectorySourceRows`.
 - Revert: none
+
+## 2026-05-22 17:06 IST | codex-gpt-5 | fix
+- Summary: Restored Turso usage card visibility for Admin and Head dashboards by hardening Turso environment detection.
+- Files: api/src/modules/admin/dashboard.service.ts, CHANGELOG.md
+- Details:
+  - Replaced brittle `turso.io` URL-substring detection with deterministic env-based detection using configured Turso vars (`TURSO_DATABASE_URL`, `TURSO_ORG_NAME`, `TURSO_API_TOKEN`).
+  - Kept existing role access intact; dashboard payload still includes Turso usage only when Turso configuration is present.
+  - This enables Turso usage data to be fetched and rendered even when deployment URLs do not include the `turso.io` suffix.
+- Revert: none
+
+## 2026-05-22 17:12 IST | codex-gpt-5 | fix
+- Summary: Made Turso usage module visible for Admin and Head dashboards even when usage data fetch is unavailable.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Changed Turso module render gate from `isTurso && turso` to `isTurso || turso` so the card itself remains visible when Turso is configured.
+  - Added an inline info alert fallback when usage payload is missing, instead of hiding the entire module.
+  - Preserved existing usage bars and percentages when usage payload is present.
+- Revert: none
+
+## 2026-05-22 17:22 IST | codex-gpt-5 | fix
+- Summary: Added a fail-safe so Turso usage section remains visible whenever dashboard system payload is present.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated Turso module visibility gate to `Boolean(dashboard?.system)` instead of relying on backend `isTurso` flag.
+  - Preserved existing usage rendering when `system.turso` exists and kept the fallback info state when usage metrics are unavailable.
+  - Prevents hidden Turso module due to backend flag/cache drift while keeping Admin and Head dashboard behavior consistent.
+- Revert: none
+
+## 2026-05-22 17:31 IST | codex-gpt-5 | fix
+- Summary: Added Turso usage/status fallback directly inside the always-visible System DB metric card.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Extended the System DB card to render a `Turso Usage` block under schema details.
+  - Shows reads/writes when `dashboard.system.turso` is available.
+  - Shows `Usage currently unavailable` when Turso usage payload is missing, so visibility no longer depends on the separate Turso module block.
+- Revert: none
+
+## 2026-05-22 16:47 IST | codex-gpt-5 | change
+- Summary: Rebuilt Turso dashboard integration from scratch with dedicated backend/frontend helpers and a shared MUI card component for Admin and Head dashboards.
+- Files: api/src/modules/admin/turso-usage.helper.ts, api/src/modules/admin/dashboard.service.ts, frontend/src/app/tursoUsage.ts, frontend/src/app/TursoUsageCard.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed legacy inline Turso-fetching logic from `dashboard.service.ts` and replaced it with a dedicated helper module (`turso-usage.helper.ts`) that owns Turso config detection, DB-name derivation, API fetch, and response normalization.
+  - Implemented robust parsing in backend helper to accept usage from both `database.usage` and `total` payload shapes.
+  - Removed legacy inline Turso UI rendering from `App.tsx` and introduced a shared reusable component `TursoUsageCard`.
+  - Added frontend helper `tursoUsage.ts` for Turso metric shaping, formatting, and progress-color mapping.
+  - Wired shared Turso card into both appropriate dashboard contexts:
+    - Admin dashboard (main admin metrics section),
+    - Head dashboard (combined head/moderator section when user has head role).
+  - Removed temporary Turso fallback text from the System DB card so Turso display has a single shared render path.
+- Revert: none
+
+## 2026-05-22 16:55 IST | codex-gpt-5 | fix
+- Summary: Added explicit Turso response diagnostics to debug missing dashboard usage data.
+- Files: api/src/modules/admin/turso-usage.helper.ts, api/src/modules/admin/dashboard.service.ts, frontend/src/app/types.ts, frontend/src/app/TursoUsageCard.tsx, CHANGELOG.md
+- Details:
+  - Added backend `fetchTursoUsageDebug(...)` helper returning deterministic debug fields (`configured`, `databaseName`, `requestUrl`, `httpStatus`, `parseOk`, `reason`).
+  - Included `system.tursoDebug` in `/api/admin/dashboard` payload.
+  - Extended frontend `AdminDashboard` typing to include `system.tursoDebug`.
+  - Updated `TursoUsageCard` fallback alert to show debug reason and HTTP status when usage is unavailable.
+- Revert: none
+
+## 2026-05-22 17:03 IST | codex-gpt-5 | fix
+- Summary: Expanded Turso debug payload to diagnose 403 authorization mismatches between runtime and local env tokens.
+- Files: api/src/modules/admin/turso-usage.helper.ts, frontend/src/app/types.ts, frontend/src/app/TursoUsageCard.tsx, CHANGELOG.md
+- Details:
+  - Added `tokenFingerprint` (last 8 chars only) to identify which token the running API process is actually using without exposing secrets.
+  - Added `responseSnippet` capture for non-2xx Turso responses to surface provider error detail for 403 cases.
+  - Extended frontend types and Turso card fallback alert to display new diagnostics.
+- Revert: none
+
+## 2026-05-22 17:11 IST | codex-gpt-5 | fix
+- Summary: Added CloudFront trace diagnostics and explicit API request headers for Turso usage fetch troubleshooting.
+- Files: api/src/modules/admin/turso-usage.helper.ts, frontend/src/app/types.ts, frontend/src/app/TursoUsageCard.tsx, CHANGELOG.md
+- Details:
+  - Added explicit `Accept: application/json` and `User-Agent` headers to Turso usage fetch requests.
+  - Added `cloudfrontRequestId` (`x-amz-cf-id`) and `cloudfrontPop` (`x-amz-cf-pop`) to `tursoDebug` payload.
+  - Surfaced CloudFront POP and request ID in Turso fallback alert to support upstream diagnostics for HTML 403 edge blocks.
+- Revert: none
+
+## 2026-05-22 17:18 IST | codex-gpt-5 | fix
+- Summary: Removed Turso stats/debug fetch race by switching to a single shared backend fetch result.
+- Files: api/src/modules/admin/turso-usage.helper.ts, api/src/modules/admin/dashboard.service.ts, CHANGELOG.md
+- Details:
+  - Added `fetchTursoUsageWithDebug(...)` to return both `stats` and `debug` from one network call.
+  - Updated dashboard service to use this single result for `system.turso` and `system.tursoDebug`.
+  - Eliminates inconsistent states where debug showed `HTTP 200` while usage remained unavailable due to separate call outcomes.
+- Revert: none

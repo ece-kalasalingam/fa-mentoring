@@ -54,6 +54,7 @@ import { parseCsvRecords } from "./csv";
 import { computeStudentCreditBreakdown, computeCreditStatus, formatCredits, getInitials, normalizeCredits, ROLE_COLORS } from "./utils";
 import { CreditStatusChip } from "./CreditStatusChip";
 import { DateTimeProvider } from "./dateTimeContext";
+import { TursoUsageCard } from "./TursoUsageCard";
 import type {
   ActiveUserRow,
   AdminCacheEntry,
@@ -777,50 +778,7 @@ function App() {
     }),
     []
   );
-  const tursoUsageModule = dashboard?.system?.isTurso && dashboard?.system?.turso ? (
-    <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
-      <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 2 }}>
-        <StorageIcon sx={{ fontSize: "0.9rem", color: "text.secondary" }} />
-        <Typography variant="overline" color="text.secondary" sx={{ fontSize: "0.65rem", letterSpacing: 1.2 }}>
-          Turso DB · Billing Cycle Usage
-        </Typography>
-      </Stack>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" }, gap: 2 }}>
-        {[
-          { label: "Reads", value: dashboard.system.turso.rowsRead ?? 0, max: 500_000_000, isBytes: false },
-          { label: "Writes", value: dashboard.system.turso.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
-          { label: "Syncs", value: dashboard.system.turso.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
-          { label: "Storage", value: dashboard.system.turso.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
-        ].map(({ label, value, max, isBytes }, idx) => {
-          const pct = Math.min(100, (value / max) * 100);
-          const fmt = (n: number) => isBytes
-            ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
-            : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
-          const barColor: "error" | "warning" | "success" = pct > 80 ? "error" : pct > 50 ? "warning" : "success";
-          return (
-            <Box key={`${label}-${idx}`} sx={{ textAlign: "center" }}>
-              <Typography variant="h5" sx={{ fontWeight: 700, color: `${barColor}.main`, lineHeight: 1.2 }}>
-                {pct.toFixed(1)}%
-              </Typography>
-              <Typography variant="caption" sx={{ fontWeight: 600, display: "block", mt: 0.25 }}>
-                {label}
-              </Typography>
-              <Typography variant="caption" color="text.disabled" sx={{ display: "block", mb: 0.75 }}>
-                {fmt(value)} / {fmt(max)}
-              </Typography>
-              <LinearProgress
-                variant="determinate"
-                value={pct}
-                color={barColor}
-                sx={{ height: 5, borderRadius: 1 }}
-                aria-label={`${label}: ${pct.toFixed(1)}% of quota used`}
-              />
-            </Box>
-          );
-        })}
-      </Box>
-    </Paper>
-  ) : null;
+  const showTursoUsageCard = Boolean(dashboard?.system);
   const displayName = useMemo(() => {
     if (!principal) return "";
     const raw = principal.fullName?.trim() || principal.email?.trim() || principal.subject.trim();
@@ -4336,7 +4294,7 @@ function App() {
                     ) : null}
                   </Box>
 
-                  {tursoUsageModule}
+                  {showTursoUsageCard ? <TursoUsageCard system={dashboard.system} /> : null}
 
                   {/* Section separator — 48-hour window */}
                   <Divider textAlign="left" sx={{ mb: 2.5 }}>
@@ -4488,7 +4446,7 @@ function App() {
                         </Tooltip>
                       </Stack>
 
-                      {hasHeadRole ? tursoUsageModule : null}
+                      {hasHeadRole && showTursoUsageCard ? <TursoUsageCard system={dashboard.system} /> : null}
 
                       <Box
                         sx={{

@@ -45,6 +45,19 @@ export type AdminDashboard = {
       storageBytes: number | null;
       bytesSynced: number | null;
     } | null;
+    tursoDebug?: {
+      configured: boolean;
+      orgName: string | null;
+      databaseName: string | null;
+      requestUrl: string | null;
+      httpStatus: number | null;
+      parseOk: boolean;
+      reason: string | null;
+      tokenFingerprint: string | null;
+      responseSnippet: string | null;
+      cloudfrontRequestId: string | null;
+      cloudfrontPop: string | null;
+    } | null;
   };
   auth?: {
     totalUsers: number | null;
