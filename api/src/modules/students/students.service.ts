@@ -338,10 +338,12 @@ export async function assertStudentCanAccessOwnUserIds(env: Env, studentEmail: s
 
 async function recomputeStudentCreditSummaryWithDb(
   db: ReturnType<typeof getDb>,
-  studentIdRaw: string
-): Promise<void> {
+  studentIdRaw: string,
+  options?: { recomputeBatch?: boolean }
+): Promise<number | null> {
+  const recomputeBatch = options?.recomputeBatch ?? true;
   const studentId = String(studentIdRaw ?? "").trim();
-  if (!studentId) return;
+  if (!studentId) return null;
   const summaryRes = await db.execute({
     sql: `with per_category as (
             select
@@ -382,7 +384,7 @@ async function recomputeStudentCreditSummaryWithDb(
     args: [studentId, studentId],
   });
   const row = summaryRes.rows[0];
-  if (!row) return;
+  if (!row) return null;
   const { plansByCode, measureByRegulation } = await ensureSummaryReferenceCaches();
   const planCode = row.plan_of_study_code == null ? null : Number(row.plan_of_study_code);
   const currentSemester = Number(row.current_semester ?? 1);
@@ -520,32 +522,49 @@ async function recomputeStudentCreditSummaryWithDb(
       JSON.stringify(categoryExpected),
     ],
   });
-  await recomputeBatchStatusSummaryByBatchWithDb(db, Number(row.batch ?? 2010));
+  const touchedBatch = Number(row.batch ?? 2010);
+  if (recomputeBatch) {
+    await recomputeBatchStatusSummaryByBatchWithDb(db, touchedBatch);
+  }
+  return touchedBatch;
 }
 
 export async function recomputeStudentCreditSummary(env: Env, studentId: string): Promise<void> {
   const db = getDb(env);
-  await recomputeStudentCreditSummaryWithDb(db, studentId);
+  await recomputeStudentCreditSummaryWithDb(db, studentId, { recomputeBatch: true });
 }
 
 export async function recomputeStudentCreditSummaries(env: Env, studentIds: string[]): Promise<void> {
   const db = getDb(env);
   const uniqueIds = Array.from(new Set(studentIds.map((id) => String(id ?? "").trim()).filter((id) => id.length > 0)));
   if (uniqueIds.length === 0) return;
+  const touchedBatches = new Set<number>();
   for (const studentId of uniqueIds) {
-    await recomputeStudentCreditSummaryWithDb(db, studentId);
+    const touchedBatch = await recomputeStudentCreditSummaryWithDb(db, studentId, { recomputeBatch: false });
+    if (touchedBatch != null && Number.isFinite(touchedBatch)) {
+      touchedBatches.add(touchedBatch);
+    }
+  }
+  for (const batch of touchedBatches) {
+    await recomputeBatchStatusSummaryByBatchWithDb(db, batch);
   }
 }
 
 async function recomputeBatchStatusSummaryByBatchWithDb(db: ReturnType<typeof getDb>, batch: number): Promise<void> {
   if (!Number.isFinite(batch)) return;
   await db.execute({
-    sql: `delete from batch_credit_status_summary
-          where batch = ?`,
+    sql: `delete from batch_credit_status_summary where batch = ?`,
     args: [batch],
   });
-  const rowsRes = await db.execute({
-    sql: `with scoped as (
+  await db.execute({
+    sql: `insert into batch_credit_status_summary(
+            batch, scope_type, scope_key,
+            total_active, in_progress_count, passed_out_count,
+            complete_count, on_track_count, marginal_count, alarming_count, off_track_count,
+            complete_pct, on_track_pct, marginal_pct, alarming_pct, off_track_pct,
+            computed_at, updated_at
+          )
+          with scoped as (
             select
               s.batch,
               'head' as scope_type,
@@ -579,60 +598,45 @@ async function recomputeBatchStatusSummaryByBatchWithDb(db: ReturnType<typeof ge
             left join student_credit_status_summary ss on ss.student_id = s.user_id
             where s.batch = ?
               and s.mentor_id is not null
+          ),
+          grouped as (
+            select
+              batch,
+              scope_type,
+              scope_key,
+              count(*) as total_active,
+              coalesce(sum(case when coalesce(graduated, 0) = 0 then 1 else 0 end), 0) as in_progress_count,
+              coalesce(sum(case when coalesce(graduated, 0) = 1 then 1 else 0 end), 0) as passed_out_count,
+              coalesce(sum(case when status = 'Complete' then 1 else 0 end), 0) as complete_count,
+              coalesce(sum(case when status = 'On Track' then 1 else 0 end), 0) as on_track_count,
+              coalesce(sum(case when status = 'Marginal' then 1 else 0 end), 0) as marginal_count,
+              coalesce(sum(case when status = 'Alarming' then 1 else 0 end), 0) as alarming_count,
+              coalesce(sum(case when status = 'Off Track' then 1 else 0 end), 0) as off_track_count
+            from scoped
+            group by batch, scope_type, scope_key
           )
           select
             batch,
             scope_type,
             scope_key,
-            count(*) as total_active,
-            coalesce(sum(case when coalesce(graduated, 0) = 0 then 1 else 0 end), 0) as in_progress_count,
-            coalesce(sum(case when coalesce(graduated, 0) = 1 then 1 else 0 end), 0) as passed_out_count,
-            coalesce(sum(case when status = 'Complete' then 1 else 0 end), 0) as complete_count,
-            coalesce(sum(case when status = 'On Track' then 1 else 0 end), 0) as on_track_count,
-            coalesce(sum(case when status = 'Marginal' then 1 else 0 end), 0) as marginal_count,
-            coalesce(sum(case when status = 'Alarming' then 1 else 0 end), 0) as alarming_count,
-            coalesce(sum(case when status = 'Off Track' then 1 else 0 end), 0) as off_track_count
-          from scoped
-          group by batch, scope_type, scope_key`,
+            total_active,
+            in_progress_count,
+            passed_out_count,
+            complete_count,
+            on_track_count,
+            marginal_count,
+            alarming_count,
+            off_track_count,
+            case when total_active > 0 then round((complete_count * 100.0) / total_active, 2) else 0 end as complete_pct,
+            case when total_active > 0 then round((on_track_count * 100.0) / total_active, 2) else 0 end as on_track_pct,
+            case when total_active > 0 then round((marginal_count * 100.0) / total_active, 2) else 0 end as marginal_pct,
+            case when total_active > 0 then round((alarming_count * 100.0) / total_active, 2) else 0 end as alarming_pct,
+            case when total_active > 0 then round((off_track_count * 100.0) / total_active, 2) else 0 end as off_track_pct,
+            current_timestamp,
+            current_timestamp
+          from grouped`,
     args: [batch, batch, batch],
   });
-  for (const row of rowsRes.rows) {
-    const totalActive = Number(row.total_active ?? 0);
-    const completeCount = Number(row.complete_count ?? 0);
-    const onTrackCount = Number(row.on_track_count ?? 0);
-    const marginalCount = Number(row.marginal_count ?? 0);
-    const alarmingCount = Number(row.alarming_count ?? 0);
-    const offTrackCount = Number(row.off_track_count ?? 0);
-    const pct = (value: number) => (totalActive > 0 ? toTwoDecimalNumber((value / totalActive) * 100) : 0);
-    await db.execute({
-      sql: `insert into batch_credit_status_summary(
-              batch, scope_type, scope_key,
-              total_active, in_progress_count, passed_out_count,
-              complete_count, on_track_count, marginal_count, alarming_count, off_track_count,
-              complete_pct, on_track_pct, marginal_pct, alarming_pct, off_track_pct,
-              computed_at, updated_at
-            )
-            values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, current_timestamp, current_timestamp)`,
-      args: [
-        Number(row.batch ?? 0),
-        String(row.scope_type ?? ""),
-        String(row.scope_key ?? ""),
-        totalActive,
-        Number(row.in_progress_count ?? 0),
-        Number(row.passed_out_count ?? 0),
-        completeCount,
-        onTrackCount,
-        marginalCount,
-        alarmingCount,
-        offTrackCount,
-        pct(completeCount),
-        pct(onTrackCount),
-        pct(marginalCount),
-        pct(alarmingCount),
-        pct(offTrackCount),
-      ],
-    });
-  }
 }
 
 export async function readBatchStatusSummaryByScope(

@@ -886,7 +886,17 @@ export const MIGRATIONS: Migration[] = [
          case when total_active > 0 then round((alarming_count * 100.0) / total_active, 2) else 0 end,
          case when total_active > 0 then round((off_track_count * 100.0) / total_active, 2) else 0 end,
          current_timestamp, current_timestamp
-       from grouped`
+      from grouped`
+    ]
+  },
+  {
+    id: "0033_students_access_path_indexes",
+    description: "Add students access-path indexes for mentor, batch, and plan query efficiency",
+    statements: [
+      "create index if not exists idx_students_mentor_id on students(mentor_id)",
+      "create index if not exists idx_students_batch on students(batch)",
+      "create index if not exists idx_students_plan_of_study_code on students(plan_of_study_code)",
+      "create index if not exists idx_students_batch_mentor on students(batch, mentor_id)"
     ]
   }
 ];

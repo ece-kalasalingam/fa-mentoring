@@ -51,6 +51,11 @@ import {
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
+import {
+  readLocalScopedCache as readLocalScopedCacheFromModule,
+  removeLocalScopedCache as removeLocalScopedCacheFromModule,
+  writeLocalScopedCache as writeLocalScopedCacheToModule,
+} from "./localCache";
 import { computeStudentCreditBreakdown, computeCreditStatus, formatCredits, getInitials, normalizeCredits, ROLE_COLORS } from "./utils";
 import { CreditStatusChip } from "./CreditStatusChip";
 import { DateTimeProvider } from "./dateTimeContext";
@@ -104,12 +109,6 @@ const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
   "moderator-students:first",
   "head-students:first",
 ];
-type BrowserCacheEnvelope<T> = {
-  cachedAt: number;
-  payload: T;
-  sessionKey: string;
-};
-
 function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Loading...");
@@ -491,44 +490,16 @@ function App() {
     }
   }
 
-  function getLocalScopedCacheStorageKey(key: string, sessionKey: string): string {
-    return `${LOCAL_DENSE_CACHE_PREFIX}:${sessionKey}:${key}`;
-  }
-
   function readLocalScopedCache<T>(key: string, sessionKey: string, ttlMs: number): T | null {
-    try {
-      const storageKey = getLocalScopedCacheStorageKey(key, sessionKey);
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as BrowserCacheEnvelope<T>;
-      if (!parsed || typeof parsed.cachedAt !== "number" || parsed.sessionKey !== sessionKey) return null;
-      if (Date.now() - parsed.cachedAt > ttlMs) return null;
-      return parsed.payload;
-    } catch {
-      return null;
-    }
+    return readLocalScopedCacheFromModule<T>(LOCAL_DENSE_CACHE_PREFIX, key, sessionKey, ttlMs);
   }
 
   function writeLocalScopedCache<T>(key: string, sessionKey: string, payload: T) {
-    try {
-      const storageKey = getLocalScopedCacheStorageKey(key, sessionKey);
-      const envelope: BrowserCacheEnvelope<T> = {
-        cachedAt: Date.now(),
-        payload,
-        sessionKey,
-      };
-      localStorage.setItem(storageKey, JSON.stringify(envelope));
-    } catch {
-      // Best-effort cache write; ignore storage quota or availability errors.
-    }
+    writeLocalScopedCacheToModule(LOCAL_DENSE_CACHE_PREFIX, key, sessionKey, payload);
   }
 
   function removeLocalScopedCache(key: string, sessionKey: string) {
-    try {
-      localStorage.removeItem(getLocalScopedCacheStorageKey(key, sessionKey));
-    } catch {
-      // Ignore localStorage unavailability.
-    }
+    removeLocalScopedCacheFromModule(LOCAL_DENSE_CACHE_PREFIX, key, sessionKey);
   }
 
   function readSessionJson<T>(key: string): T | null {

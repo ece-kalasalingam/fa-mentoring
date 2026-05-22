@@ -8,7 +8,9 @@
     "build:frontend": "npm --prefix frontend run build",
     "deploy:worker": "npm --prefix api run deploy",
     "deploy:pages": "set XDG_CONFIG_HOME=.\\.wrangler&& set WRANGLER_CACHE_DIR=.\\.wrangler\\cache&& npm --prefix api exec -- wrangler pages deploy frontend/dist --project-name spris",
-    "deploy:all": "npm run build:frontend && npm run deploy:worker && npm run deploy:pages"
+    "deploy:all": "npm run build:frontend && npm run deploy:worker && npm run deploy:pages",
+    "security:audit": "npm audit --omit=dev && npm --prefix api audit --omit=dev && npm --prefix frontend audit --omit=dev",
+    "security:audit:full": "npm audit && npm --prefix api audit && npm --prefix frontend audit"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

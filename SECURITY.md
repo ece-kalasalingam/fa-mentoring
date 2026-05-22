@@ -14,7 +14,8 @@ Use this table to show which versions currently receive security updates.
 If you discover a security vulnerability, please report it privately.
 
 - Do not open a public GitHub issue for suspected vulnerabilities.
-- Email: `security@example.com`
+- Preferred channel: GitHub Private Vulnerability Reporting (Security tab)
+- Fallback email: `security@eceklu.in`
 - Include:
   - A clear description of the issue
   - Steps to reproduce
@@ -29,6 +30,13 @@ If you discover a security vulnerability, please report it privately.
 - Remediation timeline depends on severity and complexity
 
 We will keep you informed throughout triage and remediation, and coordinate a responsible disclosure timeline once a fix is available.
+
+## Automated Security Checks
+
+- CI enforces dependency vulnerability checks via `npm audit` on root, API, and frontend packages.
+- Local maintainers can run:
+  - `npm run security:audit` (production dependencies)
+  - `npm run security:audit:full` (production + development dependencies)
 
 ## Disclosure Policy
 

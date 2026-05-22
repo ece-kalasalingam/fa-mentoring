@@ -153,10 +153,9 @@ export async function writeLog(env: Env, log: LogEvent): Promise<void> {
       safeMetaJson(log.meta)
     ]
   });
-  await enforceHardLogRetentionAndCap(env);
-
   writeCounter += 1;
   if (writeCounter % config.pruneEveryNWrites === 0) {
+    await enforceHardLogRetentionAndCap(env);
     await pruneLogs(env);
   }
 }

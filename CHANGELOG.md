@@ -4729,3 +4729,16 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added explicit `ALLOW_DEBUG_ENDPOINTS` environment switch and super-admin enforcement for `/api/debug-env`; endpoint now returns `404` when debug mode is disabled.
   - Replaced raw exception message responses with a generic client-safe error string while preserving detailed server-side logging.
 - Revert: none
+## 2026-05-22 17:42 IST | codex-gpt-5 | change
+- Summary: Implemented full production-hardening pass across scalability, modularization, Turso/Cloudflare efficiency, and security automation.
+- Files: api/src/modules/students/students.service.ts, api/src/modules/imports/imports.service.ts, api/src/modules/logging/logger.service.ts, api/src/modules/setup/migrations.ts, frontend/src/app/localCache.ts, frontend/src/app/App.tsx, package.json, .github/workflows/security-audit.yml, SECURITY.md, CHANGELOG.md
+- Details:
+  - Refactored batch summary recomputation to set-based SQL inserts and removed per-row insert loops for per-batch status aggregation.
+  - Reduced summary write amplification by recomputing touched batches once after multi-student recompute operations.
+  - Optimized student import registration conflict checks by preloading existing registration mappings in bulk and eliminating per-row conflict queries.
+  - Reduced log write overhead by moving hard retention/cap enforcement from every write to configured interval-based pruning windows.
+  - Added migration `0033_students_access_path_indexes` to create explicit students-table access-path indexes (`mentor_id`, `batch`, `plan_of_study_code`, `(batch, mentor_id)`).
+  - Modularized frontend cache utilities by extracting scoped local cache helpers from `App.tsx` into `frontend/src/app/localCache.ts`.
+  - Added repeatable dependency security audit scripts in root `package.json` and CI workflow `.github/workflows/security-audit.yml`.
+  - Updated `SECURITY.md` with private vulnerability reporting channel guidance and audit command documentation.
+- Revert: none

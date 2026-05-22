@@ -1,0 +1,32 @@
+name: Security Audit
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Install API Dependencies
+        run: npm --prefix api ci
+
+      - name: Install Frontend Dependencies
+        run: npm --prefix frontend ci
+
+      - name: Run Production Security Audit
+        run: npm run security:audit

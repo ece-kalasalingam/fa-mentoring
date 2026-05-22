@@ -98,6 +98,30 @@ export async function importStudents(
       });
     }
   }
+  const requestedRegistrationNumbers = Array.from(
+    new Set(
+      rows
+        .map((row) => normalizeText(row.registration_number))
+        .filter((value) => value.length > 0)
+    )
+  );
+  const existingUserIdByRegistrationNumber = new Map<string, string>();
+  for (const registrationChunk of chunkValues(requestedRegistrationNumbers, SQLITE_MAX_IN_PARAMS)) {
+    const placeholders = registrationChunk.map(() => "?").join(", ");
+    const existingRegistrationRes = await db.execute({
+      sql: `select registration_number, user_id
+            from students
+            where registration_number in (${placeholders})`,
+      args: registrationChunk
+    });
+    for (const existingRegistrationRow of existingRegistrationRes.rows) {
+      const registrationNumber = normalizeText(existingRegistrationRow.registration_number);
+      const userId = String(existingRegistrationRow.user_id ?? "").trim();
+      if (registrationNumber && userId) {
+        existingUserIdByRegistrationNumber.set(registrationNumber, userId);
+      }
+    }
+  }
 
   const mentorFacultyByEmail = new Map<string, string>();
   const uniqueMentorEmails = Array.from(
@@ -226,15 +250,8 @@ export async function importStudents(
     }
     const shouldSetRegistrationNumber = hasRegistrationNumber && registrationNumberText.length > 0;
     if (shouldSetRegistrationNumber || !hasExistingStudent) {
-      const conflictingRegistration = await db.execute({
-        sql: `select user_id
-              from students
-              where registration_number = ?
-                and user_id <> ?
-              limit 1`,
-        args: [resolvedRegistrationNumber, userId]
-      });
-      if (conflictingRegistration.rows.length > 0) {
+      const conflictingUserId = existingUserIdByRegistrationNumber.get(resolvedRegistrationNumber);
+      if (conflictingUserId && conflictingUserId !== userId) {
         throw new Error(`registration_number already assigned to another student: ${resolvedRegistrationNumber}`);
       }
     }
@@ -319,6 +336,7 @@ export async function importStudents(
                 where user_id = ?`,
           args: [...updateArgs, userId]
         });
+        existingUserIdByRegistrationNumber.set(resolvedRegistrationNumber, userId);
       }
       updatedStudentUserIds.add(userId);
       succeeded += 1;
@@ -357,6 +375,7 @@ export async function importStudents(
             values(${placeholders})`,
       args: insertArgs
     });
+    existingUserIdByRegistrationNumber.set(resolvedRegistrationNumber, userId);
     updatedStudentUserIds.add(userId);
     succeeded += 1;
     } catch (error) {
