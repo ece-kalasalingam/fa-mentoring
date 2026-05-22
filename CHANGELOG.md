@@ -4262,3 +4262,35 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Removed the bullet requiring outer table borders to be removed for all Material React Table instances.
   - Kept all other MRT baseline requirements unchanged.
 - Revert: none
+## 2026-05-22 09:55 IST | codex-gpt-5 | perf
+- Summary: Consolidated admin dashboard count/aggregate reads into multi-stat SQL queries to reduce load-time database reads.
+- Files: api/src/modules/admin/dashboard.service.ts, CHANGELOG.md
+- Details:
+  - Added a `safeSingleRow` helper for fetching grouped metrics from one SQL statement.
+  - Replaced separate `totalUsers` and `totalGuests` queries with one `user_accounts` aggregate query using conditional sums.
+  - Replaced separate `activeUsers` and `activeSessions` queries with one joined `auth_sessions + user_accounts` aggregate query.
+  - Replaced two login-attempt counter queries with one 48-hour conditional aggregate query.
+  - Replaced four students counters/average queries with one aggregate query on `students`.
+  - Replaced separate error/warn log counter queries with one aggregate query on `app_logs`.
+  - Preserved existing response shape and null-safe behavior when tables are unavailable.
+- Revert: none
+## 2026-05-22 09:56 IST | codex-gpt-5 | perf
+- Summary: Replaced per-student faculty-authorization loop queries with a single batched `IN (...)` validation query.
+- Files: api/src/modules/students/students-directory.service.ts, CHANGELOG.md
+- Details:
+  - Updated `assertFacultyCanEditStudentUserIds` to de-duplicate incoming user IDs before validation.
+  - Replaced one-query-per-user loop with one query that checks all IDs at once using `where s.user_id in (...)`.
+  - Preserved the same access rule: all requested IDs must be active students mentored by the current faculty email.
+  - Preserved existing error behavior when any requested ID is out of scope.
+- Revert: none
+## 2026-05-22 09:58 IST | codex-gpt-5 | perf
+- Summary: Batched high-read per-row import lookups into chunked `IN (...)` prefetch queries while preserving import behavior.
+- Files: api/src/modules/imports/imports.service.ts, CHANGELOG.md
+- Details:
+  - Added chunked batching helpers to safely query large input sets within SQLite parameter limits.
+  - Replaced per-row student account lookup (`user_accounts by email`) with preloaded map via batched `IN (...)` queries.
+  - Replaced per-row faculty-scope validation lookup with precomputed allowed student-id set from batched `IN (...)` scoped query.
+  - Preloaded existing student rows (`students by user_id`) to avoid per-row existence/detail reads.
+  - Preloaded mentor faculty accounts (`user_accounts by mentor email`) to avoid per-row mentor resolution reads.
+  - Kept row-level validation messages and update/insert semantics intact.
+- Revert: none

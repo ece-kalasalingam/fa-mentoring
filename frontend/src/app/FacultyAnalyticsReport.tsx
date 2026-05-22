@@ -27,7 +27,7 @@ import DownloadIcon from "@mui/icons-material/Download";
 import PrintIcon from "@mui/icons-material/Print";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
-import type { CreditStatus, FacultyCreditTableRow, FacultyStudentRow, PlanOfStudy, Regulation } from "./types";
+import type { CreditStatus, FacultyStudentRow, PlanOfStudy, Regulation } from "./types";
 import { CREDIT_STATUSES, CREDIT_STATUS_LABELS } from "./constants";
 import { computeCreditStatus, formatCredits, normalizeCredits } from "./utils";
 
@@ -69,7 +69,7 @@ type StudentAnalytic = {
 
 type Props = {
   students: FacultyStudentRow[];
-  creditRows: FacultyCreditTableRow[];
+  summaryCatEarned: Record<string, Record<string, number>>;
   plansOfStudy: PlanOfStudy[];
   regulations: Regulation[];
   onViewStudents?: (creditStatusFilter: CreditStatus | null, batchFilter: number | null) => void;
@@ -730,7 +730,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
 // ── Main component ────────────────────────────────────────────────────────────
 export default function FacultyAnalyticsReport({
   students,
-  creditRows,
+  summaryCatEarned,
   plansOfStudy,
   regulations,
   onViewStudents,
@@ -747,25 +747,7 @@ export default function FacultyAnalyticsReport({
     const activeMentored = students.filter((s) => s.studentActive);
     const planMap = new Map(plansOfStudy.map((p) => [p.planCode, p]));
 
-    const regToStudent = new Map<string, FacultyStudentRow>();
-    for (const s of activeMentored) {
-      const reg = (s.registrationNumber ?? "").trim().toLowerCase();
-      if (reg) regToStudent.set(reg, s);
-    }
-
-    const studentEarnedByCategory = new Map<string, Record<string, number>>();
-    for (const row of creditRows) {
-      const reg = (row.registrationNumber ?? "").trim().toLowerCase();
-      const student = regToStudent.get(reg);
-      if (!student) continue;
-      const catId = (row.categoryId ?? "").trim();
-      if (!catId) continue;
-      const credits = Number(row.credits ?? 0);
-      if (!Number.isFinite(credits) || credits <= 0) continue;
-      const bycat = studentEarnedByCategory.get(student.userId) ?? {};
-      bycat[catId] = (bycat[catId] ?? 0) + credits;
-      studentEarnedByCategory.set(student.userId, bycat);
-    }
+    const studentEarnedByCategory = new Map(Object.entries(summaryCatEarned));
 
     const catNameMap = new Map<string, string>();
     const catMeasureMap = new Map<string, "credits" | "units">();
@@ -872,7 +854,7 @@ export default function FacultyAnalyticsReport({
       }));
 
     return { totalActive: activeMentored.length, batchGroups, catNameMap, catMeasureMap };
-  }, [students, creditRows, plansOfStudy, regulations]);
+  }, [students, summaryCatEarned, plansOfStudy, regulations]);
 
   const { totalActive, batchGroups, catNameMap, catMeasureMap } = analytics;
   const batchStatusCardOption = useMemo<EChartsOption>(() => {

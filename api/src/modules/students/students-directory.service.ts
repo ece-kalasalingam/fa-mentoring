@@ -135,24 +135,29 @@ export async function assertFacultyCanEditStudentUserIds(
 ) {
   const db = getDb(env);
   const mentorEmail = String(mentorEmailRaw ?? "").trim().toLowerCase();
-  const scopedUserIds = userIds.map((id) => String(id ?? "").trim()).filter((id) => id.length > 0);
+  const scopedUserIds = Array.from(
+    new Set(
+      userIds
+        .map((id) => String(id ?? "").trim())
+        .filter((id) => id.length > 0)
+    )
+  );
   if (!mentorEmail || scopedUserIds.length === 0) return;
 
-  for (const userId of scopedUserIds) {
-    const result = await db.execute({
-      sql: `select 1
-            from students s
-            inner join user_accounts student_ua on student_ua.id = s.user_id
-            inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
-            where s.user_id = ?
-              and student_ua.active = 1
-              and lower(trim(mentor_ua.email)) = ?
-            limit 1`,
-      args: [userId, mentorEmail],
-    });
-    if (result.rows.length === 0) {
-      throw new Error("Faculty can only update active students they are mentoring.");
-    }
+  const placeholders = scopedUserIds.map(() => "?").join(", ");
+  const result = await db.execute({
+    sql: `select distinct s.user_id
+          from students s
+          inner join user_accounts student_ua on student_ua.id = s.user_id
+          inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
+          where s.user_id in (${placeholders})
+            and student_ua.active = 1
+            and lower(trim(mentor_ua.email)) = ?`,
+    args: [...scopedUserIds, mentorEmail],
+  });
+  const allowedIds = new Set(result.rows.map((row) => String(row.user_id ?? "").trim()).filter((id) => id.length > 0));
+  if (allowedIds.size !== scopedUserIds.length) {
+    throw new Error("Faculty can only update active students they are mentoring.");
   }
 }
 

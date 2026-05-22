@@ -47,13 +47,15 @@ async function getTursoStats(env: Env): Promise<TursoStats | null> {
   }
 }
 
-async function safeSingleNumber(env: Env, sql: string, args: Array<string | number> = []): Promise<number | null> {
+async function safeSingleRow(
+  env: Env,
+  sql: string,
+  args: Array<string | number> = []
+): Promise<Record<string, unknown> | null> {
   try {
     const db = getDb(env);
     const res = await db.execute({ sql, args });
-    const firstRow = res.rows[0] ?? {};
-    const firstValue = Object.values(firstRow)[0];
-    return Number(firstValue ?? 0);
+    return (res.rows[0] ?? null) as Record<string, unknown> | null;
   } catch {
     return null;
   }
@@ -107,62 +109,91 @@ export async function getAdminDashboard(env: Env) {
   const hasStudents = tableNames.has("students");
   const hasLogs = tableNames.has("app_logs");
 
-  const totalUsers = hasUserAccounts ? await safeSingleNumber(env, "select count(*) from user_accounts where is_superuser = 0") : null;
-  const totalGuests = hasUserAccounts
-    ? await safeSingleNumber(
+  const authUsersRow = hasUserAccounts
+    ? await safeSingleRow(
         env,
-        `select count(*)
-         from user_accounts ua
-         where ua.is_superuser = 0
-           and exists (
-             select 1
-             from json_each(case when json_valid(ua.roles_json) then ua.roles_json else '[]' end) r
-             where lower(trim(cast(r.value as text))) = 'guest'
-           )`
+        `select
+           coalesce(sum(case when ua.is_superuser = 0 then 1 else 0 end), 0) as total_users,
+           coalesce(sum(
+             case
+               when ua.is_superuser = 0
+                 and exists (
+                   select 1
+                   from json_each(case when json_valid(ua.roles_json) then ua.roles_json else '[]' end) r
+                   where lower(trim(cast(r.value as text))) = 'guest'
+                 )
+               then 1
+               else 0
+             end
+           ), 0) as total_guests
+         from user_accounts ua`
       )
     : null;
-  const activeUsers =
+  const totalUsers = hasUserAccounts ? Number(authUsersRow?.total_users ?? 0) : null;
+  const totalGuests = hasUserAccounts ? Number(authUsersRow?.total_guests ?? 0) : null;
+
+  const authSessionsRow =
     hasUserAccounts && hasSessions
-      ? await safeSingleNumber(
+      ? await safeSingleRow(
           env,
-          `select count(distinct s.user_account_id)
+          `select
+             coalesce(sum(case when s.revoked_at is null and datetime(s.expires_at) > datetime('now') then 1 else 0 end), 0) as active_sessions,
+             coalesce(count(distinct case
+               when s.revoked_at is null
+                and datetime(s.expires_at) > datetime('now')
+                and ua.is_superuser = 0
+                and ua.active = 1
+               then s.user_account_id
+               else null
+             end), 0) as active_users
            from auth_sessions s
-           join user_accounts ua on ua.id = s.user_account_id
-           where s.revoked_at is null
-             and datetime(s.expires_at) > datetime('now')
-             and ua.is_superuser = 0
-             and ua.active = 1`
+           join user_accounts ua on ua.id = s.user_account_id`
         )
       : null;
-  const activeSessions = hasSessions
-    ? await safeSingleNumber(env, "select count(*) from auth_sessions where revoked_at is null and datetime(expires_at) > datetime('now')")
-    : null;
+  const activeSessions = hasSessions ? Number(authSessionsRow?.active_sessions ?? 0) : null;
+  const activeUsers = hasUserAccounts && hasSessions ? Number(authSessionsRow?.active_users ?? 0) : null;
 
-  const successfulLogins48h = hasAttempts
-    ? await safeSingleNumber(
+  const loginAttemptsRow = hasAttempts
+    ? await safeSingleRow(
         env,
-        "select count(*) from auth_login_attempts where success = 1 and attempted_at >= datetime('now', '-48 hours')"
+        `select
+           coalesce(sum(case when success = 1 then 1 else 0 end), 0) as successful_logins_48h,
+           coalesce(sum(case when success = 0 then 1 else 0 end), 0) as failed_logins_48h
+         from auth_login_attempts
+         where attempted_at >= datetime('now', '-48 hours')`
       )
     : null;
-  const failedLogins48h = hasAttempts
-    ? await safeSingleNumber(
-        env,
-        "select count(*) from auth_login_attempts where success = 0 and attempted_at >= datetime('now', '-48 hours')"
-      )
-    : null;
+  const successfulLogins48h = hasAttempts ? Number(loginAttemptsRow?.successful_logins_48h ?? 0) : null;
+  const failedLogins48h = hasAttempts ? Number(loginAttemptsRow?.failed_logins_48h ?? 0) : null;
   const loginTimeline48h = hasAttempts ? await readLoginTimeline48h(env) : null;
 
-  const totalStudents = hasStudents ? await safeSingleNumber(env, "select count(*) from students") : null;
-  const onTrackStudents = hasStudents ? await safeSingleNumber(env, "select count(*) from students where completion_status = 'On Track'") : null;
-  const atRiskStudents = hasStudents ? await safeSingleNumber(env, "select count(*) from students where risk_score >= 70") : null;
-  const avgRiskScore = hasStudents ? await safeSingleNumber(env, "select coalesce(round(avg(risk_score), 2), 0) from students") : null;
+  const studentsRow = hasStudents
+    ? await safeSingleRow(
+        env,
+        `select
+           count(*) as total_students,
+           coalesce(sum(case when completion_status = 'On Track' then 1 else 0 end), 0) as on_track_students,
+           coalesce(sum(case when risk_score >= 70 then 1 else 0 end), 0) as at_risk_students,
+           coalesce(round(avg(risk_score), 2), 0) as avg_risk_score
+         from students`
+      )
+    : null;
+  const totalStudents = hasStudents ? Number(studentsRow?.total_students ?? 0) : null;
+  const onTrackStudents = hasStudents ? Number(studentsRow?.on_track_students ?? 0) : null;
+  const atRiskStudents = hasStudents ? Number(studentsRow?.at_risk_students ?? 0) : null;
+  const avgRiskScore = hasStudents ? Number(studentsRow?.avg_risk_score ?? 0) : null;
 
-  const errorLogs48h = hasLogs
-    ? await safeSingleNumber(env, "select count(*) from app_logs where level = 'error' and ts >= datetime('now', '-48 hours')")
+  const logsRow = hasLogs
+    ? await safeSingleRow(
+        env,
+        `select
+           coalesce(sum(case when level = 'error' and ts >= datetime('now', '-48 hours') then 1 else 0 end), 0) as error_logs_48h,
+           coalesce(sum(case when level = 'warn' and ts >= datetime('now', '-48 hours') then 1 else 0 end), 0) as warn_logs_48h
+         from app_logs`
+      )
     : null;
-  const warnLogs48h = hasLogs
-    ? await safeSingleNumber(env, "select count(*) from app_logs where level = 'warn' and ts >= datetime('now', '-48 hours')")
-    : null;
+  const errorLogs48h = hasLogs ? Number(logsRow?.error_logs_48h ?? 0) : null;
+  const warnLogs48h = hasLogs ? Number(logsRow?.warn_logs_48h ?? 0) : null;
 
   const isTurso = Boolean(env.TURSO_DATABASE_URL?.includes("turso.io"));
   const tursoStats = isTurso ? await getTursoStats(env) : null;

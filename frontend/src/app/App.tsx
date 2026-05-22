@@ -25,6 +25,7 @@ import ComputerIcon from "@mui/icons-material/Computer";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SchoolIcon from "@mui/icons-material/School";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
 import ReactECharts from "echarts-for-react";
@@ -179,7 +180,8 @@ function App() {
   const [moderatorStudentRows, setModeratorStudentRows] = useState<FacultyStudentRow[]>([]);
   const [moderatorCreditTableRows, setModeratorCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [headStudentRows, setHeadStudentRows] = useState<FacultyStudentRow[]>([]);
-  const [headCreditTableRows, setHeadCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
+  const [expandedDashboardSections, setExpandedDashboardSections] = useState<Set<"head" | "moderator" | "faculty">>(new Set());
+  const [loadedDashboardSections, setLoadedDashboardSections] = useState<Set<"head" | "moderator" | "faculty">>(new Set());
   const [, setFacultyMentoredMinimalRows] = useState<FacultyMentoredStudentMinimal[]>([]);
   const [mentorNameOptions, setMentorNameOptions] = useState<string[]>([]);
   const [programmeOptions, setProgrammeOptions] = useState<Array<{ id: number; name: string }>>([]);
@@ -254,6 +256,10 @@ function App() {
   const isScopedStudentDashboardOnly = useMemo(
     () => hasScopedStudentDashboardRole && !(isAdmin || hasHeadRole),
     [hasScopedStudentDashboardRole, isAdmin, hasHeadRole],
+  );
+  const multipleScopedRoles = useMemo(
+    () => [hasHeadRole, hasModeratorRole, hasFacultyRole].filter(Boolean).length > 1,
+    [hasHeadRole, hasModeratorRole, hasFacultyRole],
   );
 
   function navigateTo(view: typeof superView) {
@@ -1343,7 +1349,7 @@ function App() {
   async function loadScopedStudents(
     roleContext: "faculty" | "moderator" | "head",
     options?: { force?: boolean },
-  ) {
+  ): Promise<FacultyStudentRow[]> {
     const force = Boolean(options?.force);
     const cacheKey: AdminCacheKey = roleContext === "faculty"
       ? "faculty-students:first"
@@ -1363,14 +1369,14 @@ function App() {
         } else {
           setHeadStudentRows(cached);
         }
-        return;
+        return cached;
       }
     }
     const res = await callApi(`/api/students?limit=100&roleContext=${roleContext}`, "GET");
     if (!res.ok) {
       const scopeLabel = roleContext === "faculty" ? "mentored students" : "active students";
       setStatus(`Unable to load ${scopeLabel}: ${res.error ?? "Unknown error"}`);
-      return;
+      return [];
     }
     const rows = Array.isArray(res.rows) ? res.rows : [];
     const normalizedRows: FacultyStudentRow[] = rows.map((row) => {
@@ -1400,6 +1406,7 @@ function App() {
       setHeadStudentRows(normalizedRows);
     }
     setCachedAdminPayload(cacheKey, normalizedRows);
+    return normalizedRows;
   }
 
   async function loadStudentSelfPlanOfStudy(options?: { force?: boolean }) {
@@ -1433,7 +1440,7 @@ function App() {
     }
   }
 
-  async function loadScopedCreditTable(roleContext: "faculty" | "moderator" | "head") {
+  async function loadScopedCreditTable(roleContext: "faculty" | "moderator") {
     const res = await callApi(`/api/student-credit-table?roleContext=${roleContext}`, "GET");
     if (!res.ok) {
       const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
@@ -1456,22 +1463,37 @@ function App() {
     });
     if (roleContext === "faculty") {
       setFacultyCreditTableRows(normalizedRows);
-    } else if (roleContext === "moderator") {
-      setModeratorCreditTableRows(normalizedRows);
     } else {
-      setHeadCreditTableRows(normalizedRows);
+      setModeratorCreditTableRows(normalizedRows);
     }
   }
 
   async function loadFacultyStudents(options?: { force?: boolean }) {
-    await loadScopedStudents("faculty", options);
+    return loadScopedStudents("faculty", options);
   }
 
   async function loadModeratorStudents(options?: { force?: boolean }) {
-    await loadScopedStudents("moderator", options);
+    return loadScopedStudents("moderator", options);
   }
   async function loadHeadStudents(options?: { force?: boolean }) {
-    await loadScopedStudents("head", options);
+    return loadScopedStudents("head", options);
+  }
+
+  function handleDashboardSectionToggle(section: "head" | "moderator" | "faculty") {
+    setExpandedDashboardSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(section)) { next.delete(section); } else { next.add(section); }
+      return next;
+    });
+    if (!loadedDashboardSections.has(section)) {
+      setLoadedDashboardSections((prev) => new Set([...prev, section]));
+      const loadFn = section === "head" ? loadHeadStudents : section === "moderator" ? loadModeratorStudents : loadFacultyStudents;
+      void (async () => {
+        const rows = await loadFn();
+        const ids = rows.map((r) => r.userId).filter(Boolean);
+        if (ids.length > 0) void loadStudentCreditSummaries(ids);
+      })();
+    }
   }
 
   async function loadFacultyCreditTable() {
@@ -1481,9 +1503,7 @@ function App() {
   async function loadModeratorCreditTable() {
     await loadScopedCreditTable("moderator");
   }
-  async function loadHeadCreditTable() {
-    await loadScopedCreditTable("head");
-  }
+
 
   async function loadPrimaryScopedStudents(options?: { force?: boolean }) {
     if (scopedDashboardRoleContext === "moderator") {
@@ -2384,21 +2404,17 @@ function App() {
   }, [principal, superView, isAdmin, hasHeadRole]);
 
   useEffect(() => {
-    if (!principal || superView !== "dashboard" || !hasScopedStudentDashboardRole) {
-      return;
-    }
-    if (hasFacultyRole) {
-      void loadFacultyStudents();
-      void loadFacultyCreditTable();
-    }
-    if (hasModeratorRole) {
-      void loadModeratorStudents();
-      void loadModeratorCreditTable();
-    }
-    if (hasHeadRole) {
-      void loadHeadStudents();
-      void loadHeadCreditTable();
-    }
+    if (!principal || superView !== "dashboard" || !hasScopedStudentDashboardRole) return;
+    const first = hasHeadRole ? "head" : hasModeratorRole ? "moderator" : "faculty";
+    setExpandedDashboardSections(new Set([first]));
+    setLoadedDashboardSections(new Set([first]));
+    const loadFn = first === "head" ? loadHeadStudents : first === "moderator" ? loadModeratorStudents : loadFacultyStudents;
+    void (async () => {
+      const rows = await loadFn();
+      const ids = rows.map((r) => r.userId).filter(Boolean);
+      if (ids.length > 0) void loadStudentCreditSummaries(ids);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   useEffect(() => {
@@ -4182,7 +4198,7 @@ function App() {
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                       {/* Dashboard header */}
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: (!multipleScopedRoles || expandedDashboardSections.has("head")) ? 3 : 0 }}>
                         <Box>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
                             <DashboardIcon fontSize="small" color="primary" />
@@ -4195,15 +4211,23 @@ function App() {
                             System-wide overview of all active student accounts
                           </Typography>
                         </Box>
-                        <Tooltip title="Refresh all data">
-                          <span>
-                            <IconButton size="small" aria-label="Refresh head dashboard" onClick={() => { void loadHeadStudents({ force: true }); }} disabled={busy}>
-                              <RefreshIcon fontSize="small" />
+                        <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+                          <Tooltip title="Refresh all data">
+                            <span>
+                              <IconButton size="small" aria-label="Refresh head dashboard" onClick={() => { void loadHeadStudents({ force: true }); }} disabled={busy}>
+                                <RefreshIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          {multipleScopedRoles && (
+                            <IconButton size="small" aria-label={expandedDashboardSections.has("head") ? "Collapse head dashboard" : "Expand head dashboard"} onClick={() => handleDashboardSectionToggle("head")}>
+                              <ExpandMoreIcon fontSize="small" sx={{ transform: expandedDashboardSections.has("head") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} />
                             </IconButton>
-                          </span>
-                        </Tooltip>
+                          )}
+                        </Stack>
                       </Stack>
 
+                      <Collapse in={!multipleScopedRoles || expandedDashboardSections.has("head")}>
                       {/* Turso billing usage */}
                       {dashboard?.system?.isTurso && dashboard?.system?.turso ? (
                         <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, mb: 3 }}>
@@ -4350,7 +4374,7 @@ function App() {
                           <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
                             <FacultyAnalyticsReport
                               students={headStudentRows}
-                              creditRows={headCreditTableRows}
+                              summaryCatEarned={studentSummaryCatEarned}
                               plansOfStudy={plansOfStudy}
                               regulations={regulations}
                               showBatchStatusByLabelCard
@@ -4367,7 +4391,7 @@ function App() {
                       <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
                         <FacultyAnalyticsReport
                           students={headStudentRows}
-                          creditRows={headCreditTableRows}
+                          summaryCatEarned={studentSummaryCatEarned}
                           plansOfStudy={plansOfStudy}
                           regulations={regulations}
                           defaultExpandFirstBatch={false}
@@ -4376,6 +4400,7 @@ function App() {
                           }}
                         />
                       </Suspense>
+                      </Collapse>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -4383,7 +4408,7 @@ function App() {
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                       {/* Dashboard header */}
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: (!multipleScopedRoles || expandedDashboardSections.has("moderator")) ? 3 : 0 }}>
                         <Box>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
                             <DashboardIcon fontSize="small" color="primary" />
@@ -4396,15 +4421,23 @@ function App() {
                             System-wide overview of all active student accounts
                           </Typography>
                         </Box>
-                        <Tooltip title="Refresh all data">
-                          <span>
-                            <IconButton size="small" aria-label="Refresh moderator dashboard" onClick={() => { void loadModeratorStudents({ force: true }); }} disabled={busy}>
-                              <RefreshIcon fontSize="small" />
+                        <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+                          <Tooltip title="Refresh all data">
+                            <span>
+                              <IconButton size="small" aria-label="Refresh moderator dashboard" onClick={() => { void loadModeratorStudents({ force: true }); }} disabled={busy}>
+                                <RefreshIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          {multipleScopedRoles && (
+                            <IconButton size="small" aria-label={expandedDashboardSections.has("moderator") ? "Collapse moderator dashboard" : "Expand moderator dashboard"} onClick={() => handleDashboardSectionToggle("moderator")}>
+                              <ExpandMoreIcon fontSize="small" sx={{ transform: expandedDashboardSections.has("moderator") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} />
                             </IconButton>
-                          </span>
-                        </Tooltip>
+                          )}
+                        </Stack>
                       </Stack>
 
+                      <Collapse in={!multipleScopedRoles || expandedDashboardSections.has("moderator")}>
                       {/* Student stat cards */}
                       <Box
                         sx={{
@@ -4505,7 +4538,7 @@ function App() {
                           <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading chart...</Typography>}>
                             <FacultyAnalyticsReport
                               students={moderatorStudentRows}
-                              creditRows={moderatorCreditTableRows}
+                              summaryCatEarned={studentSummaryCatEarned}
                               plansOfStudy={plansOfStudy}
                               regulations={regulations}
                               showBatchStatusByLabelCard
@@ -4522,7 +4555,7 @@ function App() {
                       <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
                         <FacultyAnalyticsReport
                           students={moderatorStudentRows}
-                          creditRows={moderatorCreditTableRows}
+                          summaryCatEarned={studentSummaryCatEarned}
                           plansOfStudy={plansOfStudy}
                           regulations={regulations}
                           defaultExpandFirstBatch={false}
@@ -4531,6 +4564,7 @@ function App() {
                           }}
                         />
                       </Suspense>
+                      </Collapse>
                     </CardContent>
                   </Card>
                 ) : null}
@@ -4538,7 +4572,7 @@ function App() {
                   <Card sx={!(hasStudentRole || hasHeadRole) ? { gridColumn: { md: "1 / -1" } } : {}}>
                     <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
                       {/* Dashboard header */}
-                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 3 }}>
+                      <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: (!multipleScopedRoles || expandedDashboardSections.has("faculty")) ? 3 : 0 }}>
                         <Box>
                           <Stack direction="row" sx={{ alignItems: "center", gap: 1, mb: 0.5 }}>
                             <DashboardIcon fontSize="small" color="primary" />
@@ -4551,15 +4585,23 @@ function App() {
                             Overview of students currently under your mentorship
                           </Typography>
                         </Box>
-                        <Tooltip title="Refresh all data">
-                          <span>
-                            <IconButton size="small" aria-label="Refresh faculty dashboard" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
-                              <RefreshIcon fontSize="small" />
+                        <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
+                          <Tooltip title="Refresh all data">
+                            <span>
+                              <IconButton size="small" aria-label="Refresh faculty dashboard" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
+                                <RefreshIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
+                          {multipleScopedRoles && (
+                            <IconButton size="small" aria-label={expandedDashboardSections.has("faculty") ? "Collapse faculty dashboard" : "Expand faculty dashboard"} onClick={() => handleDashboardSectionToggle("faculty")}>
+                              <ExpandMoreIcon fontSize="small" sx={{ transform: expandedDashboardSections.has("faculty") ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} />
                             </IconButton>
-                          </span>
-                        </Tooltip>
+                          )}
+                        </Stack>
                       </Stack>
 
+                      <Collapse in={!multipleScopedRoles || expandedDashboardSections.has("faculty")}>
                       {/* Student stat cards */}
                       <Box
                         sx={{
@@ -4661,7 +4703,7 @@ function App() {
                       <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading analytics...</Typography>}>
                         <FacultyAnalyticsReport
                           students={facultyStudentRows}
-                          creditRows={facultyCreditTableRows}
+                          summaryCatEarned={studentSummaryCatEarned}
                           plansOfStudy={plansOfStudy}
                           regulations={regulations}
                           onViewStudents={(creditStatusFilter, batchFilter) => {
@@ -4669,6 +4711,7 @@ function App() {
                           }}
                         />
                       </Suspense>
+                      </Collapse>
                     </CardContent>
                   </Card>
                 ) : null}

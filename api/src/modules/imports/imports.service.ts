@@ -3,6 +3,17 @@ import { normalizeEmail, normalizeText, toYear } from "../../core/csv";
 import type { CsvImportRow, Env } from "../../core/types";
 import { fetchPlansOfStudyFromJson } from "../plan-of-study/plan-of-study.service";
 
+const SQLITE_MAX_IN_PARAMS = 900;
+
+function chunkValues<T>(values: T[], chunkSize: number): T[][] {
+  if (values.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let i = 0; i < values.length; i += chunkSize) {
+    chunks.push(values.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
 export async function importStudents(
   env: Env,
   rows: CsvImportRow[],
@@ -36,6 +47,109 @@ export async function importStudents(
   let succeeded = 0;
   let failed = 0;
   const errors: string[] = [];
+  const uniqueRowEmails = Array.from(
+    new Set(
+      rows
+        .map((row) => normalizeEmail(row.email))
+        .filter((email) => email.length > 0)
+    )
+  );
+  const studentAccountByEmail = new Map<string, string>();
+  for (const emailChunk of chunkValues(uniqueRowEmails, SQLITE_MAX_IN_PARAMS)) {
+    const placeholders = emailChunk.map(() => "?").join(", ");
+    const studentAccountsRes = await db.execute({
+      sql: `select lower(trim(email)) as email_key, id
+            from user_accounts
+            where active = 1
+              and lower(trim(email)) in (${placeholders})`,
+      args: emailChunk
+    });
+    for (const accountRow of studentAccountsRes.rows) {
+      const emailKey = String(accountRow.email_key ?? "").trim().toLowerCase();
+      const userId = String(accountRow.id ?? "").trim();
+      if (emailKey && userId) {
+        studentAccountByEmail.set(emailKey, userId);
+      }
+    }
+  }
+
+  const knownUserIds = Array.from(new Set(Array.from(studentAccountByEmail.values())));
+  const existingStudentByUserId = new Map<
+    string,
+    { registrationNumber: string; planOfStudyCode: number | null; batch: number | null }
+  >();
+  for (const userIdChunk of chunkValues(knownUserIds, SQLITE_MAX_IN_PARAMS)) {
+    const placeholders = userIdChunk.map(() => "?").join(", ");
+    const existingStudentsRes = await db.execute({
+      sql: `select user_id, registration_number, plan_of_study_code, batch
+            from students
+            where user_id in (${placeholders})`,
+      args: userIdChunk,
+    });
+    for (const existingRow of existingStudentsRes.rows) {
+      const userId = String(existingRow.user_id ?? "").trim();
+      if (!userId) continue;
+      existingStudentByUserId.set(userId, {
+        registrationNumber: normalizeText(existingRow.registration_number),
+        planOfStudyCode:
+          existingRow.plan_of_study_code == null ? null : Number(existingRow.plan_of_study_code),
+        batch: existingRow.batch == null ? null : Number(existingRow.batch),
+      });
+    }
+  }
+
+  const mentorFacultyByEmail = new Map<string, string>();
+  const uniqueMentorEmails = Array.from(
+    new Set(
+      rows
+        .map((row) => normalizeEmail(row.mentorEmail ?? row.mentor_email))
+        .filter((email) => email.length > 0)
+    )
+  );
+  for (const mentorEmailChunk of chunkValues(uniqueMentorEmails, SQLITE_MAX_IN_PARAMS)) {
+    const placeholders = mentorEmailChunk.map(() => "?").join(", ");
+    const mentorRes = await db.execute({
+      sql: `select lower(trim(ua.email)) as email_key, ua.id
+            from user_accounts ua
+            where ua.active = 1
+              and lower(trim(ua.email)) in (${placeholders})
+              and exists (
+                select 1
+                from json_each(case when json_valid(ua.roles_json) then ua.roles_json else '[]' end) r
+                where lower(trim(cast(r.value as text))) = 'faculty'
+              )`,
+      args: mentorEmailChunk,
+    });
+    for (const mentorRow of mentorRes.rows) {
+      const emailKey = String(mentorRow.email_key ?? "").trim().toLowerCase();
+      const mentorId = String(mentorRow.id ?? "").trim();
+      if (emailKey && mentorId) {
+        mentorFacultyByEmail.set(emailKey, mentorId);
+      }
+    }
+  }
+
+  let restrictedAllowedStudentIds: Set<string> | null = null;
+  if (restrictedMentorEmail && knownUserIds.length > 0) {
+    restrictedAllowedStudentIds = new Set<string>();
+    for (const userIdChunk of chunkValues(knownUserIds, SQLITE_MAX_IN_PARAMS)) {
+      const placeholders = userIdChunk.map(() => "?").join(", ");
+      const scopedStudentsRes = await db.execute({
+        sql: `select distinct s.user_id
+              from students s
+              inner join user_accounts student_ua on student_ua.id = s.user_id
+              inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
+              where s.user_id in (${placeholders})
+                and student_ua.active = 1
+                and lower(trim(mentor_ua.email)) = ?`,
+        args: [...userIdChunk, restrictedMentorEmail],
+      });
+      for (const scopedRow of scopedStudentsRes.rows) {
+        const scopedUserId = String(scopedRow.user_id ?? "").trim();
+        if (scopedUserId) restrictedAllowedStudentIds.add(scopedUserId);
+      }
+    }
+  }
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
@@ -89,43 +203,16 @@ export async function importStudents(
       throw new Error("Faculty cannot update programme via CSV.");
     }
 
-    const studentAccount = await db.execute({
-      sql: `select id
-            from user_accounts
-            where lower(trim(email)) = ?
-              and active = 1
-            limit 1`,
-      args: [email]
-    });
-    const userId = String(studentAccount.rows[0]?.id ?? "").trim();
+    const userId = String(studentAccountByEmail.get(email) ?? "").trim();
     if (!userId) {
       throw new Error(`Student account not found in user_accounts: ${email}`);
     }
-    if (restrictedMentorEmail) {
-      const scopedStudent = await db.execute({
-        sql: `select 1
-              from students s
-              inner join user_accounts student_ua on student_ua.id = s.user_id
-              inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
-              where s.user_id = ?
-                and student_ua.active = 1
-                and lower(trim(mentor_ua.email)) = ?
-              limit 1`,
-        args: [userId, restrictedMentorEmail],
-      });
-      if (scopedStudent.rows.length === 0) {
+    if (restrictedMentorEmail && restrictedAllowedStudentIds && !restrictedAllowedStudentIds.has(userId)) {
         throw new Error(`Faculty can only update active students they are mentoring: ${email}`);
-      }
     }
-    const existingStudent = await db.execute({
-      sql: `select user_id, registration_number, plan_of_study_code, batch
-              from students
-              where user_id = ?
-              limit 1`,
-      args: [userId]
-    });
-    const hasExistingStudent = existingStudent.rows.length > 0;
-    const existingRegistrationNumber = normalizeText(existingStudent.rows[0]?.registration_number);
+    const existingStudent = existingStudentByUserId.get(userId) ?? null;
+    const hasExistingStudent = existingStudent != null;
+    const existingRegistrationNumber = existingStudent?.registrationNumber ?? "";
     const derivedRegistrationNumber = normalizeText(email.split("@")[0] ?? "");
     const resolvedRegistrationNumber = registrationNumberText
       || existingRegistrationNumber
@@ -153,17 +240,14 @@ export async function importStudents(
 
     let batchValue = parsedBatch;
     if (batchValue == null) {
-      const existingBatch = existingStudent.rows[0]?.batch;
-      const numericExistingBatch = existingBatch == null ? null : Number(existingBatch);
+      const numericExistingBatch = existingStudent?.batch ?? null;
       batchValue = Number.isInteger(numericExistingBatch) ? numericExistingBatch : 2010;
     }
     if (batchValue != null && (batchValue < 2010 || batchValue > 2040)) {
       throw new Error(`Batch must be between 2010 and 2040 for email ${email}`);
     }
 
-    const existingPlanOfStudyCode = existingStudent.rows[0]?.plan_of_study_code == null
-      ? null
-      : Number(existingStudent.rows[0]?.plan_of_study_code);
+    const existingPlanOfStudyCode = existingStudent?.planOfStudyCode ?? null;
     const effectivePlanOfStudyCode = hasPlanOfStudyCode
       ? planOfStudyCode
       : (Number.isInteger(existingPlanOfStudyCode) ? existingPlanOfStudyCode : null);
@@ -183,20 +267,7 @@ export async function importStudents(
 
     let mentorId: string | null = null;
     if (hasMentorEmail) {
-      const mentor = await db.execute({
-        sql: `select id
-              from user_accounts ua
-              where lower(trim(ua.email)) = ?
-                and ua.active = 1
-                and exists (
-                  select 1
-                  from json_each(case when json_valid(ua.roles_json) then ua.roles_json else '[]' end) r
-                  where lower(trim(cast(r.value as text))) = 'faculty'
-                )
-              limit 1`,
-        args: [mentorEmail]
-      });
-      mentorId = mentor.rows.length > 0 ? String(mentor.rows[0]?.id ?? "").trim() : null;
+      mentorId = String(mentorFacultyByEmail.get(mentorEmail) ?? "").trim() || null;
       if (!mentorId) {
         throw new Error(`Mentor account not found as active faculty in user_accounts: ${mentorEmail}`);
       }
