@@ -14,6 +14,7 @@ import {
   useMaterialReactTable,
   type MRT_ColumnDef,
   type MRT_ColumnFiltersState,
+  type MRT_PaginationState,
   type MRT_SortingState,
 } from "material-react-table";
 import { mkConfig } from "export-to-csv";
@@ -88,6 +89,7 @@ export default function StudentsDirectoryTable(props: Props) {
   const [tableSorting, setTableSorting] = useState<MRT_SortingState>([{ id: "registrationNumber", desc: false }]);
   const [tableColumnFilters, setTableColumnFilters] = useState<MRT_ColumnFiltersState>([]);
   const [tableGlobalFilter, setTableGlobalFilter] = useState<string>("");
+  const [tablePagination, setTablePagination] = useState<MRT_PaginationState>({ pageIndex: 0, pageSize: 10 });
   const lastAppliedInitialGraduatedFilterRef = useRef<"Yes" | "No" | null | undefined>(undefined);
   const lastAppliedCreditStatusFilterRef = useRef<string | null | undefined>(undefined);
   const lastAppliedInitialBatchFilterRef = useRef<number | null | undefined>(undefined);
@@ -151,6 +153,13 @@ export default function StudentsDirectoryTable(props: Props) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [pendingCount]);
+
+  useEffect(() => {
+    const maxPageIndex = Math.max(0, Math.ceil(draftRows.length / tablePagination.pageSize) - 1);
+    if (tablePagination.pageIndex > maxPageIndex) {
+      setTablePagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
+    }
+  }, [draftRows.length, tablePagination.pageIndex, tablePagination.pageSize]);
 
   const CREDIT_TEMPLATE_HEADERS = "Registration Number,Semester,Course Code,Course Name,Credits,Att.Code,Grade,Category Code,Year of Passing\r\n";
   const PASSING_GRADES = new Set(["S", "A", "B", "C", "D", "E", "P"]);
@@ -860,14 +869,16 @@ export default function StudentsDirectoryTable(props: Props) {
       sorting: tableSorting,
       columnFilters: tableColumnFilters,
       globalFilter: tableGlobalFilter,
+      pagination: tablePagination,
     },
+    onPaginationChange: setTablePagination,
     onSortingChange: setTableSorting,
     onColumnFiltersChange: setTableColumnFilters,
     onGlobalFilterChange: (val) => setTableGlobalFilter(String(val ?? "")),
+    autoResetPageIndex: false,
     onColumnVisibilityChange: (updater) =>
       setColumnVisibility((prev) => (typeof updater === "function" ? updater(prev) : updater)),
     initialState: {
-      pagination: { pageIndex: 0, pageSize: 10 },
       showColumnFilters: false,
       showGlobalFilter: false,
     },

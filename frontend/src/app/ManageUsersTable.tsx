@@ -3,6 +3,9 @@ import {
   MaterialReactTable,
   useMaterialReactTable,
   type MRT_ColumnDef,
+  type MRT_ColumnFiltersState,
+  type MRT_PaginationState,
+  type MRT_SortingState,
 } from "material-react-table";
 import {
   Alert,
@@ -92,6 +95,10 @@ export default function ManageUsersTable(props: Props) {
   const [logoutDialogRow, setLogoutDialogRow] = useState<TableRow | null>(null);
   const [pendingRoles, setPendingRoles] = useState<string[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [tablePagination, setTablePagination] = useState<MRT_PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const [tableSorting, setTableSorting] = useState<MRT_SortingState>([]);
+  const [tableColumnFilters, setTableColumnFilters] = useState<MRT_ColumnFiltersState>([]);
+  const [tableGlobalFilter, setTableGlobalFilter] = useState("");
 
   const pendingCount = Object.keys(pendingBySubject).length;
 
@@ -195,6 +202,13 @@ export default function ManageUsersTable(props: Props) {
       })),
     [draftRows, formatIst]
   );
+
+  useEffect(() => {
+    const maxPageIndex = Math.max(0, Math.ceil(tableRows.length / tablePagination.pageSize) - 1);
+    if (tablePagination.pageIndex > maxPageIndex) {
+      setTablePagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
+    }
+  }, [tableRows.length, tablePagination.pageIndex, tablePagination.pageSize]);
 
   const handleRolesClose = () => {
     if (rolesDialog) {
@@ -457,7 +471,16 @@ export default function ManageUsersTable(props: Props) {
     state: {
       isLoading: props.busy,
       showSkeletons: props.busy && tableRows.length === 0,
+      pagination: tablePagination,
+      sorting: tableSorting,
+      columnFilters: tableColumnFilters,
+      globalFilter: tableGlobalFilter,
     },
+    onPaginationChange: setTablePagination,
+    onSortingChange: setTableSorting,
+    onColumnFiltersChange: setTableColumnFilters,
+    onGlobalFilterChange: (value) => setTableGlobalFilter(String(value ?? "")),
+    autoResetPageIndex: false,
 
     renderRowActions: ({ row }) => (
       <Box sx={{ display: "flex" }}>
@@ -579,7 +602,6 @@ export default function ManageUsersTable(props: Props) {
         "provider",
         "lastLogin",
       ],
-      pagination: { pageIndex: 0, pageSize: 10 },
       showColumnFilters: false,
       showGlobalFilter: false,
       columnVisibility: isDesktop ? {} : { lastLogin: false, provider: false },

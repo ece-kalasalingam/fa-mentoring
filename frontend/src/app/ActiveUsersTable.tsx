@@ -1,6 +1,12 @@
-import { useMemo } from "react";
-import { Avatar, Box, Chip, Tooltip, Typography, useMediaQuery, useTheme } from "@mui/material";
-import { MaterialReactTable, type MRT_ColumnDef } from "material-react-table";
+import { useEffect, useMemo, useState } from "react";
+import { Avatar, Box, Chip, Typography, useMediaQuery, useTheme } from "@mui/material";
+import {
+  MaterialReactTable,
+  type MRT_ColumnDef,
+  type MRT_ColumnFiltersState,
+  type MRT_PaginationState,
+  type MRT_SortingState,
+} from "material-react-table";
 import { mkConfig } from "export-to-csv";
 import {
   getInitials,
@@ -49,6 +55,10 @@ export default function ActiveUsersTable(props: Props) {
   const { formatIst } = useDateTimeContext();
   const theme = useTheme();
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
+  const [tablePagination, setTablePagination] = useState<MRT_PaginationState>({ pageIndex: 0, pageSize: 10 });
+  const [tableSorting, setTableSorting] = useState<MRT_SortingState>([]);
+  const [tableColumnFilters, setTableColumnFilters] = useState<MRT_ColumnFiltersState>([]);
+  const [tableGlobalFilter, setTableGlobalFilter] = useState("");
 
   const csvConfig = useMemo(
     () =>
@@ -77,6 +87,13 @@ export default function ActiveUsersTable(props: Props) {
       })),
     [props.rows, formatIst]
   );
+
+  useEffect(() => {
+    const maxPageIndex = Math.max(0, Math.ceil(tableRows.length / tablePagination.pageSize) - 1);
+    if (tablePagination.pageIndex > maxPageIndex) {
+      setTablePagination((prev) => ({ ...prev, pageIndex: maxPageIndex }));
+    }
+  }, [tableRows.length, tablePagination.pageIndex, tablePagination.pageSize]);
 
   const columns = useMemo<MRT_ColumnDef<TableRow>[]>(
     () => [
@@ -239,7 +256,16 @@ export default function ActiveUsersTable(props: Props) {
       state={{
         isLoading: props.busy,
         showSkeletons: props.busy && tableRows.length === 0,
+        pagination: tablePagination,
+        sorting: tableSorting,
+        columnFilters: tableColumnFilters,
+        globalFilter: tableGlobalFilter,
       }}
+      onPaginationChange={setTablePagination}
+      onSortingChange={setTableSorting}
+      onColumnFiltersChange={setTableColumnFilters}
+      onGlobalFilterChange={(value) => setTableGlobalFilter(String(value ?? ""))}
+      autoResetPageIndex={false}
       renderTopToolbarCustomActions={({ table }) => (
         <ExportToolbar
           table={table}
@@ -275,7 +301,6 @@ export default function ActiveUsersTable(props: Props) {
       muiTableHeadCellProps={MUI_TABLE_HEAD_CELL_PROPS}
       muiTableBodyCellProps={MUI_TABLE_BODY_CELL_PROPS}
       initialState={{
-        pagination: { pageIndex: 0, pageSize: 10 },
         showColumnFilters: false,
         showGlobalFilter: false,
         columnVisibility: isDesktop ? {} : { lastSeen: false, expiresAt: false, username: false },
