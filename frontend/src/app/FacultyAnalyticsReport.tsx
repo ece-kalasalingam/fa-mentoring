@@ -73,6 +73,7 @@ type Props = {
   plansOfStudy: PlanOfStudy[];
   regulations: Regulation[];
   onViewStudents?: (creditStatusFilter: CreditStatus | null, batchFilter: number | null) => void;
+  onOpenStudentCredits?: (userId: string) => void;
   defaultExpandFirstBatch?: boolean;
   showBatchStatusByLabelCard?: boolean;
   chartOnly?: boolean;
@@ -149,6 +150,7 @@ type BatchPanelProps = {
   catNameMap: Map<string, string>;
   catMeasureMap: Map<string, "credits" | "units">;
   onViewStudents?: (status: CreditStatus | null, batchFilter: number | null) => void;
+  onOpenStudentCredits?: (userId: string) => void;
 };
 
 // ── Tooltip that activates only when text is actually clipped ─────────────────
@@ -168,7 +170,7 @@ function OverflowTooltip({ text, sx }: { text: string; sx?: object }) {
   );
 }
 
-function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, onViewStudents }: BatchPanelProps) {
+function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, onViewStudents, onOpenStudentCredits }: BatchPanelProps) {
   const theme = useTheme();
   const isMobile  = useMediaQuery(theme.breakpoints.down("sm"));
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
@@ -678,7 +680,19 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
                     <OverflowTooltip text={sa.registrationNumber} sx={{ fontFamily: "monospace", fontSize: "0.75rem" }} />
                   </TableCell>
                   <TableCell sx={{ maxWidth: isMobile ? 110 : 150 }}>
-                    <OverflowTooltip text={sa.fullName} sx={{ fontSize: "0.8rem" }} />
+                    {onOpenStudentCredits ? (
+                      <Button
+                        type="button"
+                        variant="text"
+                        size="small"
+                        onClick={() => onOpenStudentCredits(sa.userId)}
+                        sx={{ textTransform: "none", minWidth: 0, p: 0, justifyContent: "flex-start", maxWidth: "100%" }}
+                      >
+                        <OverflowTooltip text={sa.fullName} sx={{ fontSize: "0.8rem" }} />
+                      </Button>
+                    ) : (
+                      <OverflowTooltip text={sa.fullName} sx={{ fontSize: "0.8rem" }} />
+                    )}
                   </TableCell>
                   {!isMobile && <TableCell align="center" sx={{ fontSize: "0.8rem" }}>{sa.currentSemester ?? "—"}</TableCell>}
                   {!isMobile && <TableCell align="right" sx={{ fontSize: "0.8rem" }}>{formatCredits(sa.requiredCredits)}+{formatCredits(sa.requiredUnits)}</TableCell>}
@@ -707,8 +721,9 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
                       : info.status === "marginal"  ? theme.palette.primary.main
                       : info.status === "alarming"  ? theme.palette.warning.main
                       : theme.palette.error.main;
+                    const metricLabel = cat.measure === "units" ? "ut" : "cr";
                     return (
-                      <Tooltip key={cat.code} title={`${cat.code}: ${formatCredits(info.earned)} / ${formatCredits(info.required)} cr — ${OVERALL_LABELS[info.status]}`} placement="top" arrow>
+                      <Tooltip key={cat.code} title={`${cat.code}: ${formatCredits(info.earned)} / ${formatCredits(info.required)} ${metricLabel} — ${OVERALL_LABELS[info.status]}`} placement="top" arrow>
                         <TableCell align="center" sx={{ bgcolor: cellBg, fontSize: "0.72rem", fontWeight: 600, color: cellColor }}>
                           {info.status === "complete" ? "✓" : formatCredits(info.earned)}
                         </TableCell>
@@ -745,6 +760,7 @@ export default function FacultyAnalyticsReport({
   plansOfStudy,
   regulations,
   onViewStudents,
+  onOpenStudentCredits,
   defaultExpandFirstBatch = true,
   showBatchStatusByLabelCard = false,
   chartOnly = false,
@@ -1134,6 +1150,7 @@ export default function FacultyAnalyticsReport({
                 catNameMap={catNameMap}
                 catMeasureMap={catMeasureMap}
                 onViewStudents={onViewStudents}
+                onOpenStudentCredits={onOpenStudentCredits}
               />
             </AccordionDetails>
           </Accordion>

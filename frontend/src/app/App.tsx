@@ -6227,6 +6227,11 @@ function App() {
                     plansOfStudy={plansOfStudy}
                     regulations={regulations}
                     expandAllBatches
+                    onOpenStudentCredits={(userId) => {
+                      const student = studentsDirectorySourceRows.find((row) => row.userId === userId);
+                      if (!student) return;
+                      openStudentCredits(student);
+                    }}
                     onViewStudents={(creditStatusFilter, batchFilter) => {
                       const analysisScope: "head" | "moderator" | "faculty" = hasHeadRole
                         ? "head"

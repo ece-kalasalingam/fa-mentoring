@@ -4579,3 +4579,18 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Replaced combined `cr+ut` total with explicit split values using the format `credits cr + units ut`.
   - Uses `totalCreditsRequired` and `totalUnitsRequired` directly with shared credit formatter.
 - Revert: none
+## 2026-05-22 16:52 IST | codex-gpt-5 | fix
+- Summary: Fixed analysis table tooltip unit suffix to show `ut` for non-credit categories.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, CHANGELOG.md
+- Details:
+  - Replaced hardcoded `cr` in per-category student-cell tooltip with a measure-aware suffix.
+  - Tooltip now renders `cr` for credit categories and `ut` for unit/non-credit categories using `cat.measure`.
+- Revert: none
+## 2026-05-22 17:02 IST | codex-gpt-5 | change
+- Summary: Linked analysis table student names to the individual student credit page.
+- Files: frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added optional `onOpenStudentCredits(userId)` callback support to `FacultyAnalyticsReport` and wired it into `BatchPanel`.
+  - Updated the student name cell in the analysis student-detail table to render as a link-style button that invokes the callback.
+  - Connected analysis view usage in `App.tsx` to existing `openStudentCredits(...)` by resolving the selected student from `studentsDirectorySourceRows`.
+- Revert: none
