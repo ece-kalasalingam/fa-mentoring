@@ -1,3 +1,21 @@
+## 2026-05-23 04:38 IST | codex | fix
+- Summary: Updated Worker FRONTEND_ORIGIN to production domain for correct CORS behavior.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Changed `FRONTEND_ORIGIN` in `api/wrangler.jsonc` from `http://localhost:5173` to `https://spris.eceklu.in`.
+  - Keeps other non-secret vars unchanged and still excludes `GOOGLE_CLIENT_ID` from local Wrangler vars.
+  - Aligns deployed CORS allow-origin with production frontend origin.
+- Revert: none
+
+## 2026-05-23 04:35 IST | codex | chore
+- Summary: Restored non-secret Worker vars from `.dev.vars` into Wrangler config while excluding Google client ID.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Added `vars` entries from `api/.dev.vars` for `AUTH_PROVIDER`, `ALLOW_INSECURE_AUTH_NONE`, `FRONTEND_ORIGIN`, logging controls, and `TURSO_ORG_NAME`.
+  - Explicitly excluded `GOOGLE_CLIENT_ID` from `wrangler.jsonc` as requested.
+  - Left secrets (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SETUP_BOOTSTRAP_KEY`, `TURSO_API_TOKEN`) out of `wrangler.jsonc`.
+- Revert: none
+
 ## 2026-05-23 04:25 IST | codex | chore
 - Summary: Removed remaining Cloudflare-managed Worker vars from local Wrangler config.
 - Files: api/wrangler.jsonc, CHANGELOG.md
