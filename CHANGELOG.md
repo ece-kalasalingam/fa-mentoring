@@ -4742,3 +4742,19 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added repeatable dependency security audit scripts in root `package.json` and CI workflow `.github/workflows/security-audit.yml`.
   - Updated `SECURITY.md` with private vulnerability reporting channel guidance and audit command documentation.
 - Revert: none
+## 2026-05-22 17:48 IST | codex-gpt-5 | change
+- Summary: Audited all `student_credit_details` reads and shifted eligible scoped summary stats to `student_credit_status_summary`.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Performed repository-wide scan for queries touching `student_credit_details`, `student_credit_status_summary`, and `batch_credit_status_summary`.
+  - Confirmed existing summary-first usage in bulk summary/batch paths and identified remaining `student_credit_details` reads as detail/audit/recompute paths requiring row-level granularity.
+  - Updated `getStudentStatsByScope` to join `student_credit_status_summary` and compute status counts (`on_track_count`, `complete_count`, `marginal_count`, `alarming_count`, `off_track_count`) from summary rows instead of returning null-like placeholders.
+- Revert: none
+## 2026-05-22 17:51 IST | codex-gpt-5 | change
+- Summary: Added session-scoped local caching for detailed student credit reads to reduce repeated `student_credit_details` API fetches.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added read-through cache for `loadStudentCredits(userId)` so previously fetched detailed credit/unit payloads are served from session-local scoped cache before network calls.
+  - Added write-through cache updates after successful detail fetches and after successful save operations, keeping cached detail state in sync within the session.
+  - Added session-bound invalidation hooks so cached student credit detail keys are cleared on principal/session scope changes and general session data cache resets.
+- Revert: none

@@ -123,8 +123,13 @@ export async function getStudentStatsByScope(env: Env, scope: StudentScope) {
     sql: `select
             count(*) as total_students,
             null as avg_risk_score,
-            null as on_track_count
+            coalesce(sum(case when coalesce(ss.status, 'On Track') = 'On Track' then 1 else 0 end), 0) as on_track_count,
+            coalesce(sum(case when coalesce(ss.status, 'On Track') = 'Complete' then 1 else 0 end), 0) as complete_count,
+            coalesce(sum(case when coalesce(ss.status, 'On Track') = 'Marginal' then 1 else 0 end), 0) as marginal_count,
+            coalesce(sum(case when coalesce(ss.status, 'On Track') = 'Alarming' then 1 else 0 end), 0) as alarming_count,
+            coalesce(sum(case when coalesce(ss.status, 'On Track') = 'Off Track' then 1 else 0 end), 0) as off_track_count
           from students s
+          left join student_credit_status_summary ss on ss.student_id = s.user_id
           ${scoped.clause}`,
     args: scoped.args
   });

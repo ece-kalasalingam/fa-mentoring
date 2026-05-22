@@ -96,6 +96,7 @@ const RegulationsView = lazy(() => import("./RegulationsView"));
 const LOCAL_DENSE_CACHE_PREFIX = "fa_dense_cache_v1";
 const STATIC_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const STUDENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
+const STUDENT_CREDIT_DETAILS_CACHE_KEY_PREFIX = "student-credit-details";
 const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
   "dashboard",
   "logs:error:first",
@@ -263,6 +264,7 @@ function App() {
   const adminCacheSessionKeyRef = useRef<string | null>(null);
   const studentSummaryCacheRef = useRef<Record<string, AdminCacheEntry>>({});
   const studentSummaryCacheKeysRef = useRef<Set<string>>(new Set());
+  const studentCreditDetailCacheKeysRef = useRef<Set<string>>(new Set());
 
   function toFacultyMentoredMinimalRows(rows: FacultyStudentRow[]): FacultyMentoredStudentMinimal[] {
     return rows
@@ -475,6 +477,48 @@ function App() {
     studentSummaryCacheKeysRef.current.clear();
   }
 
+  function getStudentCreditDetailsCacheKey(userId: string): string {
+    return `${STUDENT_CREDIT_DETAILS_CACHE_KEY_PREFIX}:${String(userId ?? "").trim()}`;
+  }
+
+  function readStudentCreditDetailCache(userId: string): {
+    bySemester: Record<number, Record<string, number>>;
+    byUnitCategory: Record<string, number>;
+  } | null {
+    const cacheKey = getStudentCreditDetailsCacheKey(userId);
+    const cached = readSessionJson<{
+      bySemester: Record<number, Record<string, number>>;
+      byUnitCategory: Record<string, number>;
+    }>(cacheKey);
+    if (!cached) return null;
+    studentCreditDetailCacheKeysRef.current.add(cacheKey);
+    return cached;
+  }
+
+  function writeStudentCreditDetailCache(
+    userId: string,
+    payload: {
+      bySemester: Record<number, Record<string, number>>;
+      byUnitCategory: Record<string, number>;
+    }
+  ): void {
+    const cacheKey = getStudentCreditDetailsCacheKey(userId);
+    studentCreditDetailCacheKeysRef.current.add(cacheKey);
+    writeSessionJson(cacheKey, payload);
+  }
+
+  function invalidateStudentCreditDetailCache(): void {
+    const sessionKey = adminCacheSessionKeyRef.current;
+    if (!sessionKey) {
+      studentCreditDetailCacheKeysRef.current.clear();
+      return;
+    }
+    for (const cacheKey of studentCreditDetailCacheKeysRef.current) {
+      removeLocalScopedCache(cacheKey, sessionKey);
+    }
+    studentCreditDetailCacheKeysRef.current.clear();
+  }
+
   function getPrincipalCacheSessionKey(nextPrincipal: Principal | null | undefined): string | null {
     if (!nextPrincipal) return null;
     return `${nextPrincipal.provider}|${nextPrincipal.subject}`;
@@ -486,6 +530,7 @@ function App() {
       clearSessionDataCaches(adminCacheSessionKeyRef.current);
       invalidateAdminCache();
       invalidateStudentSummaryCache();
+      invalidateStudentCreditDetailCache();
       adminCacheSessionKeyRef.current = nextKey;
     }
   }
@@ -521,6 +566,10 @@ function App() {
     removeLocalScopedCache(SESSION_PLAN_OF_STUDY_CACHE_KEY, resolvedSessionKey);
     removeLocalScopedCache(SESSION_PLAN_VALIDATION_CACHE_KEY, resolvedSessionKey);
     removeLocalScopedCache(SESSION_PROGRAMMES_CACHE_KEY, resolvedSessionKey);
+    for (const cacheKey of studentCreditDetailCacheKeysRef.current) {
+      removeLocalScopedCache(cacheKey, resolvedSessionKey);
+    }
+    studentCreditDetailCacheKeysRef.current.clear();
   }
 
   const userSummary = useMemo(() => {
@@ -1683,6 +1732,14 @@ function App() {
   }
 
   async function loadStudentCredits(userId: string) {
+    const cachedDetail = readStudentCreditDetailCache(userId);
+    if (cachedDetail) {
+      setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: cachedDetail.bySemester }));
+      setStudentEarnedCreditsByUser((prev) => ({ ...prev, [userId]: cachedDetail.bySemester }));
+      setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: cachedDetail.byUnitCategory }));
+      setStudentEarnedUnitsByUser((prev) => ({ ...prev, [userId]: cachedDetail.byUnitCategory }));
+      return;
+    }
     const result = await callApi(`/api/student-credits?studentId=${encodeURIComponent(userId)}`, "GET");
     if (result.ok && result.creditDetails) {
       const bySemester: Record<number, Record<string, number>> = {};
@@ -1697,9 +1754,11 @@ function App() {
       setStudentEarnedCreditsByUser((prev) => ({ ...prev, [userId]: bySemester }));
       setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: byUnitCategory }));
       setStudentEarnedUnitsByUser((prev) => ({ ...prev, [userId]: byUnitCategory }));
+      writeStudentCreditDetailCache(userId, { bySemester, byUnitCategory });
     } else {
       setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: {} }));
       setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: {} }));
+      writeStudentCreditDetailCache(userId, { bySemester: {}, byUnitCategory: {} });
     }
   }
   async function saveStudentCredits(userId: string) {
@@ -1724,6 +1783,7 @@ function App() {
       if (result.ok) {
         setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: draft }));
         setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: draftUnits }));
+        writeStudentCreditDetailCache(userId, { bySemester: draft, byUnitCategory: draftUnits });
         invalidateAdminCache(["dashboard"]);
       }
     } finally {
