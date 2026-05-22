@@ -14,13 +14,6 @@
       "previews_enabled": false
     }
   ],
-  "vars": {
-    "AUTH_PROVIDER": "password-session",
-    "ALLOW_INSECURE_AUTH_NONE": "false",
-    "FRONTEND_ORIGIN": "https://spris.eceklu.in",
-    "GOOGLE_CLIENT_ID": "911855405763-tr8bok9kmhj8djsjpt6g0cud9vfl3c6u.apps.googleusercontent.com",
-    "TURSO_ORG_NAME": "jeyaprakashk"
-  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,

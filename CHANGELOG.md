@@ -1,3 +1,21 @@
+## 2026-05-23 04:25 IST | codex | chore
+- Summary: Removed remaining Cloudflare-managed Worker vars from local Wrangler config.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Removed `AUTH_PROVIDER` from local `vars` to prevent local deploy-time overwrite.
+  - Removed `ALLOW_INSECURE_AUTH_NONE` from local `vars` to keep Cloudflare environment as source of truth.
+  - Removed `FRONTEND_ORIGIN` from local `vars`; Worker will now rely on Cloudflare-set environment value.
+- Revert: none
+
+## 2026-05-23 04:25 IST | codex | chore
+- Summary: Removed Cloudflare-managed environment vars from local Worker config to avoid local overwrite during deploy.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Removed `GOOGLE_CLIENT_ID` from `api/wrangler.jsonc` `vars`.
+  - Removed `TURSO_ORG_NAME` from `api/wrangler.jsonc` `vars`.
+  - Kept remaining non-secret deploy config unchanged.
+- Revert: none
+
 # Changelog
 
 All notable changes to this project must be documented in this file.
