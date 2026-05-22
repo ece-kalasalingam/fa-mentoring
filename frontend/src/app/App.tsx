@@ -25,6 +25,7 @@ import ComputerIcon from "@mui/icons-material/Computer";
 import MenuBookIcon from "@mui/icons-material/MenuBook";
 import SchoolIcon from "@mui/icons-material/School";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
@@ -50,7 +51,7 @@ import {
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
-import { computeCreditStatus, formatCredits, getInitials, normalizeCredits, ROLE_COLORS } from "./utils";
+import { computeStudentCreditBreakdown, computeCreditStatus, formatCredits, getInitials, normalizeCredits, ROLE_COLORS } from "./utils";
 import { CreditStatusChip } from "./CreditStatusChip";
 import { DateTimeProvider } from "./dateTimeContext";
 import type {
@@ -683,64 +684,8 @@ function App() {
     const earnedBySemCat = studentEarnedCreditsByUser[userId] ?? {};
     const currentSem = studentSelf.currentSemester ?? 1;
     const activeRegulation = regulations.find((r) => r.code === activeStudentPlan.regulationCode) ?? null;
-    const measureByCategory: Record<string, "credits" | "units"> = {};
-    for (const category of activeRegulation?.curriculumStructure.categories ?? []) {
-      measureByCategory[category.code] = category.measure ?? "credits";
-    }
-
-    let totalRequired = 0;
-    let totalExpected = 0;
-    const categoryRequired: Record<string, number> = {};
-    const categoryExpected: Record<string, number> = {};
-    for (const sem of activeStudentPlan.semesters) {
-      for (const [cat, req] of Object.entries(sem.categories)) {
-        if ((measureByCategory[cat] ?? "credits") !== "credits") continue;
-        totalRequired += Number(req);
-        categoryRequired[cat] = (categoryRequired[cat] ?? 0) + Number(req);
-        if (sem.semester < currentSem) {
-          categoryExpected[cat] = (categoryExpected[cat] ?? 0) + Number(req);
-          totalExpected += Number(req);
-        }
-      }
-    }
-
-    const categoryEarned: Record<string, number> = {};
-    let totalEarned = 0;
-    for (const semData of Object.values(earnedBySemCat)) {
-      for (const [cat, credits] of Object.entries(semData)) {
-        categoryEarned[cat] = (categoryEarned[cat] ?? 0) + credits;
-        totalEarned += credits;
-      }
-    }
-
-    const normRequired = normalizeCredits(totalRequired);
-    const normEarned = normalizeCredits(totalEarned);
-    const completionPct = normRequired > 0 ? Math.round((normEarned / normRequired) * 100) : 0;
-
-    const categoryList = Object.keys(categoryRequired)
-      .filter((code) => (categoryRequired[code] ?? 0) > 0)
-      .map((code) => ({
-        code,
-        required: normalizeCredits(categoryRequired[code] ?? 0),
-        earned: normalizeCredits(categoryEarned[code] ?? 0),
-        expected: normalizeCredits(categoryExpected[code] ?? 0),
-      }));
-
-    const overallStatus = computeCreditStatus(
-      totalRequired,
-      totalEarned,
-      totalExpected,
-      categoryList,
-    );
-
-    const categories = categoryList
-      .map((c) => ({
-        ...c,
-        status: computeCreditStatus(c.required, c.earned, c.expected),
-      }))
-      .sort((a, b) => a.code.localeCompare(b.code));
-
-    return { totalRequired: normRequired, totalEarned: normEarned, completionPct, overallStatus, categories, creditsLoaded };
+    const breakdown = computeStudentCreditBreakdown(activeStudentPlan, activeRegulation, earnedBySemCat, currentSem);
+    return { ...breakdown, creditsLoaded };
   }, [isStudentOnlySession, studentSelf, activeStudentPlan, studentEarnedCreditsByUser, regulations]);
   const regulationTabMax = Math.max(visibleRegulations.length - 1, 0);
   const planOfStudyTabMax = Math.max(filteredPlansOfStudy.length - 1, 0);
@@ -4920,46 +4865,54 @@ function App() {
                             <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
 
                               {/* Profile summary */}
-                              <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5 }}>
-                                <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
-                                  <Box>
-                                    <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
-                                      {studentSelf.fullName || "Student"}
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                                      {studentSelf.email}
-                                    </Typography>
-                                  </Box>
-                                  <Chip
-                                    label={studentSelf.graduated === "Yes" ? "Passed Out" : "Active"}
-                                    size="small"
-                                    color={studentSelf.graduated === "Yes" ? "success" : "primary"}
-                                    variant="outlined"
-                                    sx={{ height: 22, fontSize: "0.7rem", flexShrink: 0 }}
-                                  />
-                                </Stack>
-                                <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
-                                  {[
-                                    { label: "Reg. Number", value: studentSelf.registrationNumber || "Not Allotted" },
-                                    { label: "Batch", value: studentSelf.batch != null ? String(studentSelf.batch) : "—" },
-                                    { label: "Semester", value: studentSelf.currentSemester != null ? `Sem ${studentSelf.currentSemester}` : "—" },
-                                    { label: "Programme", value: programmeOptions.find((p) => p.id === studentSelf.programme)?.name ?? "—" },
-                                    { label: "Mentor", value: studentSelf.mentorName || "—" },
-                                    { label: "Plan of Study", value: activeStudentPlan?.planName ?? "—" },
-                                  ].map(({ label, value }, idx) => (
-                                    <Box key={`${label}-${idx}`}>
-                                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", textTransform: "uppercase", letterSpacing: 0.5 }}>
-                                        {label}
+                              <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                                <Box sx={{ p: 2.5, flex: 1 }}>
+                                  <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", mb: 2 }}>
+                                    <Box>
+                                      <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>
+                                        {studentSelf.fullName || "Student"}
                                       </Typography>
-                                      <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25 }}>{value}</Typography>
+                                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                                        {studentSelf.email}
+                                      </Typography>
                                     </Box>
-                                  ))}
+                                    <Chip
+                                      label={studentSelf.graduated === "Yes" ? "Passed Out" : "Active"}
+                                      size="small"
+                                      color={studentSelf.graduated === "Yes" ? "success" : "primary"}
+                                      variant="outlined"
+                                      sx={{ height: 22, fontSize: "0.7rem", flexShrink: 0 }}
+                                    />
+                                  </Stack>
+                                  <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2 }}>
+                                    {[
+                                      { label: "Reg. Number", value: studentSelf.registrationNumber || "Not Allotted" },
+                                      { label: "Batch", value: studentSelf.batch != null ? String(studentSelf.batch) : "—" },
+                                      { label: "Semester", value: studentSelf.currentSemester != null ? `Sem ${studentSelf.currentSemester}` : "—" },
+                                      { label: "Programme", value: programmeOptions.find((p) => p.id === studentSelf.programme)?.name ?? "—" },
+                                      { label: "Mentor", value: studentSelf.mentorName || "—" },
+                                      { label: "Plan of Study", value: activeStudentPlan?.planName ?? "—" },
+                                    ].map(({ label, value }, idx) => (
+                                      <Box key={`${label}-${idx}`}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                          {label}
+                                        </Typography>
+                                        <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.25 }}>{value}</Typography>
+                                      </Box>
+                                    ))}
+                                  </Box>
+                                </Box>
+                                <Box sx={{ px: 2, py: 1, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "flex-end" }}>
+                                  <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => { navigateTo("account"); setAccountView("profile"); }}>
+                                    View Profile
+                                  </Button>
                                 </Box>
                               </Paper>
 
                               {/* Plan of study — semester overview */}
                               {activeStudentPlan ? (
-                                <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, flex: 1 }}>
+                                <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", flex: 1, display: "flex", flexDirection: "column" }}>
+                                  <Box sx={{ p: 2.5, flex: 1 }}>
                                   <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
                                     <Box>
                                       <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Plan of Study</Typography>
@@ -4967,30 +4920,56 @@ function App() {
                                     </Box>
                                     <Chip label={activeStudentPlan.regulationCode} size="small" variant="outlined" sx={{ height: 20, fontSize: "0.65rem", fontFamily: "monospace" }} />
                                   </Stack>
-                                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-                                    {activeStudentPlan.semesters.map((sem) => {
-                                      const isCurrent = sem.semester === studentSelf.currentSemester;
-                                      const isPast = studentSelf.currentSemester != null && sem.semester < studentSelf.currentSemester;
-                                      return (
-                                        <Box
-                                          key={sem.semester}
-                                          sx={{
-                                            px: 1.5, py: 0.75, borderRadius: 1.5,
-                                            border: "1px solid",
-                                            borderColor: isCurrent ? "primary.main" : "divider",
-                                            bgcolor: isCurrent ? (theme) => alpha(theme.palette.primary.main, 0.06) : isPast ? "action.hover" : "transparent",
-                                            minWidth: 60, textAlign: "center",
-                                          }}
-                                        >
-                                          <Typography variant="caption" sx={{ fontWeight: isCurrent ? 700 : 400, fontSize: "0.7rem", color: isCurrent ? "primary.main" : "text.secondary", display: "block" }}>
-                                            Sem {sem.semester}
-                                          </Typography>
-                                          <Typography variant="caption" sx={{ fontSize: "0.68rem", color: "text.disabled" }}>
-                                            {sem.totalCredits} cr
-                                          </Typography>
-                                        </Box>
-                                      );
-                                    })}
+                                  {(() => {
+                                    const earnedBySem = studentEarnedCreditsByUser[studentSelf.userId] ?? {};
+                                    const activeReg = regulations.find((r) => r.code === activeStudentPlan.regulationCode) ?? null;
+                                    const measureByCode = Object.fromEntries(
+                                      (activeReg?.curriculumStructure.categories ?? []).map((c) => [c.code, c.measure ?? "credits"])
+                                    );
+                                    const currentSem = studentSelf.currentSemester ?? 1;
+                                    return (
+                                      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                                        {activeStudentPlan.semesters.map((sem) => {
+                                          const isCurr = sem.semester === currentSem;
+                                          const isPast = sem.semester < currentSem;
+                                          const toBeEarned = Object.entries(sem.categories ?? {}).reduce((s, [code, v]) => {
+                                            return (measureByCode[code] ?? "credits") === "credits" ? s + Number(v) : s;
+                                          }, 0);
+                                          const semEarned = Object.entries(earnedBySem[sem.semester] ?? {}).reduce((s, [code, v]) => {
+                                            return (measureByCode[code] ?? "credits") === "credits" ? s + Number(v) : s;
+                                          }, 0);
+                                          const isDone = isPast && semEarned >= toBeEarned && toBeEarned > 0;
+                                          const isIncomplete = isPast && !isDone;
+                                          const chipColor = isCurr ? "primary" : isDone ? "success" : isIncomplete ? "warning" : "default";
+                                          const totalCr = sem.totalCredits ?? toBeEarned;
+                                          return (
+                                            <Box key={sem.semester} sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.4 }}>
+                                              <Chip
+                                                label={`Sem ${sem.semester}${isCurr ? " ★" : ""}`}
+                                                size="small"
+                                                color={chipColor}
+                                                variant={isCurr ? "filled" : "outlined"}
+                                                icon={isDone
+                                                  ? <CheckCircleIcon sx={{ fontSize: "0.65rem !important" }} />
+                                                  : undefined
+                                                }
+                                                sx={{ fontWeight: isCurr ? 700 : 400, fontSize: "0.72rem" }}
+                                                aria-label={`Semester ${sem.semester}${isCurr ? ", current" : isDone ? ", complete" : isIncomplete ? ", incomplete" : ", planned"}`}
+                                              />
+                                              <Typography variant="caption" sx={{ fontSize: "0.65rem", color: "text.disabled", lineHeight: 1 }}>
+                                                {totalCr} cr
+                                              </Typography>
+                                            </Box>
+                                          );
+                                        })}
+                                      </Box>
+                                    );
+                                  })()}
+                                  </Box>{/* end content box */}
+                                  <Box sx={{ px: 2, py: 1, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "flex-end" }}>
+                                    <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => { navigateTo("regulations"); }}>
+                                      View Plan of Study
+                                    </Button>
                                   </Box>
                                 </Paper>
                               ) : null}
@@ -4998,97 +4977,112 @@ function App() {
                             </Box>{/* end left column */}
 
                             {/* Right column: credit progress */}
-                            {studentSelfCreditSummary ? (
-                              <Paper variant="outlined" sx={{ borderRadius: 2, p: 2.5, height: "100%" }}>
-                                {/* Header */}
-                                <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-                                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Credit Progress</Typography>
-                                  <CreditStatusChip status={studentSelfCreditSummary.overallStatus} />
-                                </Stack>
-                                {/* Overall stat + bar */}
-                                <Stack direction="row" sx={{ alignItems: "baseline", gap: 0.75, mb: 1 }}>
-                                  <Typography
-                                    variant="h4"
-                                    sx={{
-                                      fontWeight: 700,
-                                      lineHeight: 1,
-                                      color: studentSelfCreditSummary.overallStatus === "complete" ? "success.main" :
-                                        studentSelfCreditSummary.overallStatus === "on-track" ? "success.main" :
-                                        studentSelfCreditSummary.overallStatus === "marginal" ? "primary.main" :
-                                        studentSelfCreditSummary.overallStatus === "alarming" ? "warning.main" : "error.main",
-                                    }}
-                                  >
-                                    {formatCredits(studentSelfCreditSummary.totalEarned)}
-                                  </Typography>
-                                  <Typography variant="body2" color="text.secondary">
-                                    / {formatCredits(studentSelfCreditSummary.totalRequired)} cr
-                                  </Typography>
-                                  <Box sx={{ flex: 1 }} />
-                                  <Typography variant="caption" color="text.secondary">
-                                    {studentSelfCreditSummary.completionPct}% complete
-                                  </Typography>
-                                </Stack>
-                                <LinearProgress
-                                  variant="determinate"
-                                  value={Math.min(100, studentSelfCreditSummary.completionPct)}
-                                  color={
-                                    studentSelfCreditSummary.overallStatus === "complete" ? "success" :
-                                    studentSelfCreditSummary.overallStatus === "on-track" ? "success" :
-                                    studentSelfCreditSummary.overallStatus === "marginal" ? "primary" :
-                                    studentSelfCreditSummary.overallStatus === "alarming" ? "warning" : "error"
-                                  }
-                                  sx={{ height: 6, borderRadius: 1 }}
-                                />
-                                {/* Category rows */}
-                                {studentSelfCreditSummary.categories.length > 0 && (
-                                  <>
-                                    <Divider sx={{ my: 2 }} />
-                                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
-                                      {studentSelfCreditSummary.categories.map((cat) => {
-                                        const catName = visibleRegulations[0]?.curriculumStructure?.categories?.find((c) => c.code === cat.code)?.name ?? cat.code;
-                                        const catPct = cat.required > 0 ? Math.round((cat.earned / cat.required) * 100) : 0;
-                                        const catColor = cat.status === "complete" ? "success" : cat.status === "on-track" ? "success" : cat.status === "marginal" ? "primary" : cat.status === "alarming" ? "warning" : "error";
-                                        const catColorMain = cat.status === "complete" ? "success.main" : cat.status === "on-track" ? "success.main" : cat.status === "marginal" ? "primary.main" : cat.status === "alarming" ? "warning.main" : "error.main";
-                                        return (
-                                          <Stack key={cat.code} direction="row" sx={{ alignItems: "center", gap: 1.5 }}>
-                                            <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.72rem", color: catColorMain, flexShrink: 0, minWidth: 32 }}>
-                                              {cat.code}
-                                            </Typography>
-                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                              {catName}
-                                            </Typography>
-                                            <Box sx={{ width: 80, flexShrink: 0 }}>
-                                              <LinearProgress variant="determinate" value={Math.min(100, catPct)} color={catColor} sx={{ height: 4, borderRadius: 1 }} />
-                                            </Box>
-                                            <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.67rem", flexShrink: 0, width: 60, textAlign: "right" }}>
-                                              {formatCredits(cat.earned)}/{formatCredits(cat.required)} cr
-                                            </Typography>
-                                          </Stack>
-                                        );
-                                      })}
+                            {studentSelfCreditSummary ? (() => {
+                              const s = studentSelfCreditSummary;
+                              const isComplete = s.overallStatus === "complete";
+                              const hasUnits = s.totalUnitsRequired > 0 || s.totalUnitsEarned > 0;
+                              const earnedStr = hasUnits
+                                ? `${formatCredits(s.totalCreditsEarned)}+${formatCredits(s.totalUnitsEarned)}`
+                                : formatCredits(s.totalCreditsEarned);
+                              const requiredStr = hasUnits
+                                ? `${formatCredits(s.totalCreditsRequired)}+${formatCredits(s.totalUnitsRequired)}`
+                                : formatCredits(s.totalCreditsRequired);
+                              const unitSuffix = hasUnits ? " (cr+ut)" : " cr";
+                              const progressPct = s.totalCreditsRequired > 0
+                                ? Math.min(100, Math.round((s.totalCreditsEarned / s.totalCreditsRequired) * 100))
+                                : 0;
+                              const renderCatRow = (row: (typeof s.creditRows)[number], measure: "cr" | "ut") => {
+                                const totalEarned = row.earnedPast + row.onStudy;
+                                const complete = row.planTotal > 0 && totalEarned >= row.planTotal;
+                                const pct = row.planTotal > 0 ? Math.min(100, (row.earnedPast / row.planTotal) * 100) : 0;
+                                const barColor = complete ? "success" : row.earnedPast > 0 ? "primary" : "inherit";
+                                const codeColor = complete ? "success.main" : row.earnedPast > 0 ? "primary.main" : "text.disabled";
+                                return (
+                                  <Stack key={row.code} direction="row" sx={{ alignItems: "center", gap: 1.5 }}>
+                                    <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.72rem", color: codeColor, flexShrink: 0, minWidth: 32 }}>
+                                      {row.code}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.7rem", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {row.name}
+                                    </Typography>
+                                    <Box sx={{ width: 80, flexShrink: 0 }}>
+                                      <LinearProgress variant="determinate" value={pct} color={barColor as "success" | "primary" | "inherit"} sx={{ height: 3 }} />
                                     </Box>
-                                  </>
-                                )}
-                                {!studentSelfCreditSummary.creditsLoaded && (
-                                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>Loading credit data...</Typography>
-                                )}
-                              </Paper>
-                            ) : null}
+                                    <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.67rem", flexShrink: 0, width: 64, textAlign: "right" }}>
+                                      {formatCredits(totalEarned)}/{formatCredits(row.planTotal)} {measure}
+                                    </Typography>
+                                  </Stack>
+                                );
+                              };
+                              return (
+                                <Paper variant="outlined" sx={{ borderRadius: 2, overflow: "hidden", height: "100%", display: "flex", flexDirection: "column" }}>
+                                  <Box sx={{ p: 2.5, flex: 1 }}>
+                                  {/* Header */}
+                                  <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Credit Progress</Typography>
+                                    <CreditStatusChip status={s.overallStatus} />
+                                  </Stack>
+                                  {/* Overall earned + required */}
+                                  <Stack direction="row" sx={{ alignItems: "baseline", gap: 0.75, mb: 0.75 }}>
+                                    <Typography
+                                      variant="h4"
+                                      sx={{ fontWeight: 700, lineHeight: 1, color: isComplete ? "success.main" : "text.primary" }}
+                                    >
+                                      {earnedStr}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      / {requiredStr}{unitSuffix}
+                                    </Typography>
+                                    <Box sx={{ flex: 1 }} />
+                                    <Typography variant="caption" color="text.secondary">
+                                      {progressPct}% complete
+                                    </Typography>
+                                  </Stack>
+                                  {/* Overall progress bar — same CSS as analytics header bar */}
+                                  <LinearProgress
+                                    variant="determinate"
+                                    value={progressPct}
+                                    color={isComplete ? "success" : "primary"}
+                                    sx={{ borderRadius: 4, height: 7 }}
+                                  />
+                                  {/* Credit category rows */}
+                                  {s.creditRows.length > 0 && (
+                                    <>
+                                      <Divider sx={{ my: 1.75 }} />
+                                      <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", letterSpacing: 0.2, display: "block", mb: 1 }}>
+                                        Credits
+                                      </Typography>
+                                      <Box sx={{ display: "flex", flexDirection: "column", gap: 1.1 }}>
+                                        {s.creditRows.map((row) => renderCatRow(row, "cr"))}
+                                      </Box>
+                                    </>
+                                  )}
+                                  {/* Unit (non-credit) category rows */}
+                                  {s.unitRows.length > 0 && (
+                                    <>
+                                      <Divider sx={{ my: 1.75 }} />
+                                      <Typography variant="caption" sx={{ fontWeight: 700, color: "secondary.main", letterSpacing: 0.2, display: "block", mb: 1 }}>
+                                        Non-credits
+                                      </Typography>
+                                      <Box sx={{ display: "flex", flexDirection: "column", gap: 1.1 }}>
+                                        {s.unitRows.map((row) => renderCatRow(row, "ut"))}
+                                      </Box>
+                                    </>
+                                  )}
+                                  {!s.creditsLoaded && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1.5 }}>Loading credit data…</Typography>
+                                  )}
+                                  </Box>{/* end content box */}
+                                  <Box sx={{ px: 2, py: 1, borderTop: "1px solid", borderColor: "divider", display: "flex", justifyContent: "flex-end" }}>
+                                    <Button size="small" endIcon={<ArrowForwardIcon />} onClick={() => { openStudentCredits(studentSelf); }}>
+                                      View Credits
+                                    </Button>
+                                  </Box>
+                                </Paper>
+                              );
+                            })() : null}
 
                           </Box>{/* end two-column grid */}
-
-                          {/* Quick actions */}
-                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                            <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { openStudentCredits(studentSelf); }}>
-                              View My Credits
-                            </Button>
-                            <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { navigateTo("regulations"); }}>
-                              View My Plan of Study
-                            </Button>
-                            <Button variant="outlined" size="small" endIcon={<ArrowForwardIcon />} onClick={() => { navigateTo("account"); setAccountView("profile"); }}>
-                              My Profile
-                            </Button>
-                          </Stack>
                         </>
                       ) : (
                         <Typography variant="body2" color="text.secondary">Loading your profile...</Typography>

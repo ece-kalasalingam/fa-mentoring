@@ -29,6 +29,20 @@ Allowed `<type>` values:
 ---
 
 ## 2026-05-22 IST | claude-sonnet-4-6 | change
+- Summary: Refactored student dashboard cards with shared credit breakdown helper, colored plan-of-study chips, and pinned card footers
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/utils.ts
+- Details:
+  - Added `computeStudentCreditBreakdown` canonical helper in `utils.ts` — single source of truth for per-category credit/unit rows, all totals, and overall status; used by both the dashboard and `StudentCreditsView` so both surfaces always show identical numbers.
+  - Added `CategoryBreakdownRow` and `StudentCreditBreakdown` types; added `aggregateEarnedCredits`, `normalizeCredits`, `formatCredits` utility functions.
+  - Dashboard Credit Progress card: composite "X+Y / A+B (cr+ut)" header format matching the individual analytics header; separate Credits and Non-credits sections with per-category progress bars; bar style unified with analytics (height 7 overall, height 3 per-category, borderRadius 4).
+  - Plan of Study card: replaced flat grey semester boxes with MUI Chip components — `color="primary"` filled + star icon for current semester, `color="success"` outlined + CheckCircle icon for completed past semesters, `color="warning"` outlined for incomplete past semesters, `color="default"` for future semesters.
+  - Moved Quick Action links into card footers: "View Profile" on Profile card, "View Plan of Study" on Plan of Study card, "View Credits" on Credit Progress card. Removed standalone Quick Actions row.
+  - Footer pattern: Paper uses `display:flex, flexDirection:column, overflow:hidden`; content area has `flex:1`; footer Box has `borderTop` border — pinned to bottom of card regardless of content height.
+  - Renamed footer button labels: removed "My" prefix — now "View Profile", "View Plan of Study", "View Credits".
+  - `StudentCreditsView`: replaced five separate useMemos with a single `breakdown` useMemo calling `computeStudentCreditBreakdown`.
+- Revert: none
+
+## 2026-05-22 IST | claude-sonnet-4-6 | change
 - Summary: Unified credit status chip rendering via a shared CreditStatusChip component; added status chip to individual student credits header; hid navigation strip for student-only sessions; returned pre-computed status from summary API.
 - Files: frontend/src/app/CreditStatusChip.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/App.tsx, api/src/modules/students/students.service.ts
 - Details:

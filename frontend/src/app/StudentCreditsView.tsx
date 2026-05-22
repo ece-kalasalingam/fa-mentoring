@@ -10,7 +10,7 @@ import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import SaveIcon from "@mui/icons-material/Save";
 import { alpha } from "@mui/material/styles";
 import { useTheme } from "@mui/material/styles";
-import { formatCredits, getInitials, normalizeCredits } from "./utils";
+import { computeStudentCreditBreakdown, formatCredits, getInitials, normalizeCredits } from "./utils";
 import type { CreditStatus, PlanOfStudy, Regulation, StudentDirectoryRow } from "./types";
 import { CreditStatusChip } from "./CreditStatusChip";
 
@@ -124,64 +124,44 @@ export default function StudentCreditsView(props: Props) {
     [sortedSemesters, activeCategoryCodes, props.earnedCreditsBySemester, categoryMeasureByCode],
   );
 
-  const overallEarned = useMemo(
-    () => semesterSummaries.reduce((s, sem) => s + sem.earned, 0),
-    [semesterSummaries],
+  // Single canonical breakdown — source of truth for all analytics-tab values.
+  const breakdown = useMemo(
+    () => computeStudentCreditBreakdown(
+      props.plan!,
+      props.regulation,
+      props.earnedCreditsBySemester,
+      currentSemesterBoundary,
+    ),
+    [props.plan, props.regulation, props.earnedCreditsBySemester, currentSemesterBoundary],
   );
 
-  const overallRequired = useMemo(
-    () =>
-      props.regulation?.curriculumStructure.totalCreditsRequired ??
-      semesterSummaries.reduce((s, sem) => s + sem.toBeEarned, 0),
-    [props.regulation, semesterSummaries],
-  );
-
+  // analyticsData shape kept for backward-compatible rendering (earnedTotal = past sems).
   const analyticsData = useMemo(
-    () =>
-      categoryOrder
-        .map((code) => {
-          if ((categoryMeasureByCode[code] ?? "credits") !== "credits") {
-            return { code, name: categoryNameByCode[code] ?? code, planTotal: 0, earnedTotal: 0, onStudy: 0 };
-          }
-          const planTotal = sortedSemesters.reduce((s, sem) => s + Number(sem.categories?.[code] ?? 0), 0);
-          const earnedTotal = Object.entries(props.earnedCreditsBySemester)
-            .filter(([sem]) => Number(sem) < currentSemesterBoundary)
-            .reduce((s, [, bySem]) => s + Number(bySem[code] ?? 0), 0);
-          const onStudy = Number(props.earnedCreditsBySemester[currentSemesterBoundary]?.[code] ?? 0);
-          return { code, name: categoryNameByCode[code] ?? code, planTotal, earnedTotal, onStudy };
-        })
-        .filter((row) => row.planTotal > 0 || row.onStudy > 0),
-    [categoryOrder, sortedSemesters, props.earnedCreditsBySemester, currentSemesterBoundary, categoryNameByCode, categoryMeasureByCode],
+    () => breakdown.creditRows.map((r) => ({
+      code: r.code,
+      name: r.name,
+      planTotal: r.planTotal,
+      earnedTotal: r.earnedPast,
+      onStudy: r.onStudy,
+    })),
+    [breakdown],
   );
 
+  // unitRows shape kept for backward-compatible rendering (earned = all sems).
   const unitRows = useMemo(
-    () =>
-      categoryOrder
-        .filter((code) => (categoryMeasureByCode[code] ?? "credits") === "units")
-        .map((code) => {
-          const required = sortedSemesters.reduce((s, sem) => s + Number(sem.categories?.[code] ?? 0), 0);
-          const earned = Object.values(props.earnedCreditsBySemester).reduce(
-            (s, bySem) => s + Number(bySem[code] ?? 0),
-            0,
-          );
-          return { code, name: categoryNameByCode[code] ?? code, required, earned };
-        })
-        .filter((row) => row.required > 0 || row.earned > 0),
-    [categoryOrder, categoryMeasureByCode, sortedSemesters, props.earnedCreditsBySemester, categoryNameByCode],
+    () => breakdown.unitRows.map((r) => ({
+      code: r.code,
+      name: r.name,
+      required: r.planTotal,
+      earned: r.earnedPast + r.onStudy,
+    })),
+    [breakdown],
   );
 
-  const creditsOnStudy = useMemo(
-    () => analyticsData.reduce((s, r) => s + r.onStudy, 0),
-    [analyticsData],
-  );
-
-  const unitsOnStudy = useMemo(
-    () =>
-      Object.entries(props.earnedCreditsBySemester[currentSemesterBoundary] ?? {})
-        .filter(([code]) => (categoryMeasureByCode[code] ?? "credits") === "units")
-        .reduce((s, [, v]) => s + Number(v), 0),
-    [props.earnedCreditsBySemester, currentSemesterBoundary, categoryMeasureByCode],
-  );
+  const overallEarned   = breakdown.totalCreditsEarned;
+  const overallRequired = breakdown.totalCreditsRequired;
+  const creditsOnStudy  = breakdown.totalCreditsOnStudy;
+  const unitsOnStudy    = breakdown.totalUnitsOnStudy;
 
   const isDirty = useMemo(() => {
     const allSems = new Set([
@@ -225,8 +205,8 @@ export default function StudentCreditsView(props: Props) {
     (sum, row) => sum + Math.max(0, row.planTotal - row.earnedTotal - row.onStudy),
     0,
   );
-  const overallRequiredUnits = unitRows.reduce((sum, row) => sum + Number(row.required ?? 0), 0);
-  const overallEarnedUnits = unitRows.reduce((sum, row) => sum + Number(row.earned ?? 0), 0);
+  const overallRequiredUnits = breakdown.totalUnitsRequired;
+  const overallEarnedUnits   = breakdown.totalUnitsEarned;
   const earnedComposite = `${formatCredits(overallEarned)}+${formatCredits(overallEarnedUnits)}`;
   const requiredComposite = `${formatCredits(overallRequired)}+${formatCredits(overallRequiredUnits)}`;
   const progressPct  = overallRequired > 0 ? Math.min(100, (overallEarned / overallRequired) * 100) : 0;
