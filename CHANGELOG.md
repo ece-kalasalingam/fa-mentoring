@@ -4765,3 +4765,14 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Removed `console.info(...)` emission from `incrementAndLogEstimatedDbReads(...)`.
   - Kept session-scoped DB read estimate accumulation logic unchanged in `sessionStorage`.
 - Revert: none
+## 2026-05-22 18:05 IST | codex-gpt-5 | change
+- Summary: Reduced repeated DB reads and tightened refresh/query behavior with memoized student details, bounded user fetch, and paginated server-side credit-table reads.
+- Files: api/src/app/worker.ts, api/src/modules/students/students.service.ts, frontend/src/app/App.tsx, frontend/src/app/types.ts, CHANGELOG.md
+- Details:
+  - Added short-TTL principal+student scoped in-memory memoization in Worker for `/api/student-credits` GET responses to avoid repeated same-session reads of `student_credit_details` for the same student.
+  - Added invalidation of student-credit detail memo cache on all relevant write paths (`/api/student-credits` POST, `/api/student-credits/import-batch`, `/api/import/students`).
+  - Upgraded `/api/student-credit-table` to support server-side pagination and filters (`limit`, `offset`, `registrationNumber`, `categoryId`, `graduated`, `modifiedByUsername`, `semester`) and return a `page` object with `total` and `hasMore`.
+  - Kept statistics safety by preserving summary-driven status/analytics sources (`student_credit_status_summary`, `batch_credit_status_summary`) outside paged detail-table reads.
+  - Replaced unbounded all-users fetch loop with bounded prefetch (`MAX_INITIAL_PAGES = 3`) while retaining cache-first behavior.
+  - Reduced non-user-triggered forced refresh usage after mutations by relying on explicit cache invalidation plus normal reload calls.
+- Revert: none

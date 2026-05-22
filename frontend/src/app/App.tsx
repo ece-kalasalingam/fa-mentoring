@@ -1322,11 +1322,11 @@ function App() {
       return;
     }
 
+    const MAX_INITIAL_PAGES = 3;
     const allRows: UserRow[] = [];
     let nextCursor: string | null = null;
     let hasMore = true;
-    let pageSafety = 0;
-    while (hasMore && pageSafety < 1000) {
+    for (let page = 0; page < MAX_INITIAL_PAGES && hasMore; page += 1) {
       const res = await fetchUsersPage(nextCursor);
       if (!res.ok) {
         const msg = `Unable to load users: ${res.error ?? "Unknown error"}`;
@@ -1338,7 +1338,6 @@ function App() {
       allRows.push(...rows);
       nextCursor = res.page?.nextCursor ?? null;
       hasMore = Boolean(res.page?.hasMore && nextCursor);
-      pageSafety += 1;
     }
     setUserRows(allRows);
     setCachedAdminPayload(cacheKey, {
@@ -1540,17 +1539,27 @@ function App() {
   }
 
   async function loadScopedCreditTable(roleContext: "faculty" | "moderator") {
-    const res = await callApi(`/api/student-credit-table?roleContext=${roleContext}`, "GET");
-    if (!res.ok) {
-      const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
-      setStatus(msg);
-      setApiError({ message: msg, retryFn: () => loadScopedCreditTable(roleContext) });
-      return;
+    const PAGE_SIZE = 250;
+    const MAX_PAGES = 8;
+    const rows: unknown[] = [];
+    for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
+      const offset = pageIndex * PAGE_SIZE;
+      const res = await callApi(`/api/student-credit-table?roleContext=${roleContext}&limit=${PAGE_SIZE}&offset=${offset}`, "GET");
+      if (!res.ok) {
+        const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
+        setStatus(msg);
+        setApiError({ message: msg, retryFn: () => loadScopedCreditTable(roleContext) });
+        return;
+      }
+      if (Array.isArray(res.rows)) {
+        rows.push(...res.rows);
+      }
+      if (!res.page?.hasMore) break;
     }
-    const rows = Array.isArray(res.rows) ? res.rows : [];
     const normalizedRows: FacultyCreditTableRow[] = rows.map((row) => {
       const data = row as Record<string, unknown>;
       return {
+        studentId: String(data.studentId ?? "").trim(),
         registrationNumber: data.registrationNumber == null ? null : String(data.registrationNumber),
         graduated: String(data.graduated ?? "").trim().toLowerCase() === "yes" || Number(data.graduated ?? 0) === 1 ? "Yes" : "No",
         categoryId: String(data.categoryId ?? ""),
@@ -1839,7 +1848,7 @@ function App() {
     await loadRegulations();
     await loadPlansOfStudy();
     if (isStudentOnlySession) {
-      await loadStudentSelfPlanOfStudy({ force: true });
+      await loadStudentSelfPlanOfStudy();
       return;
     }
     if (isScopedStudentDashboardOnly) {
@@ -1924,9 +1933,9 @@ function App() {
       setStatus(`Students updated (${payload.length} row${payload.length === 1 ? "" : "s"}).`);
       invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first", "dashboard"]);
       if (isScopedStudentDashboardOnly) {
-        await loadPrimaryScopedStudents({ force: true });
+        await loadPrimaryScopedStudents();
       } else {
-        await loadStudentsDirectory(undefined, { force: true });
+        await loadStudentsDirectory();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Inline student update failed";
@@ -2029,14 +2038,14 @@ function App() {
       }
       invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first", "dashboard"]);
       if (isScopedStudentDashboardOnly) {
-        await loadPrimaryScopedStudents({ force: true });
+        await loadPrimaryScopedStudents();
       } else {
-        await loadStudentsDirectory(undefined, { force: true });
+        await loadStudentsDirectory();
         if (hasFacultyRole) {
-          await loadFacultyStudents({ force: true });
+          await loadFacultyStudents();
         }
         if (hasModeratorRole) {
-          await loadModeratorStudents({ force: true });
+          await loadModeratorStudents();
         }
       }
     } finally {
@@ -2048,7 +2057,7 @@ function App() {
   useEffect(() => {
     if (!principal || !isAdmin || superView !== "all-users") return;
     const timeoutId = window.setTimeout(() => {
-      void loadUsers(undefined, { force: true });
+      void loadUsers();
     }, 250);
     return () => window.clearTimeout(timeoutId);
   }, [userGlobalFilter, principal, isAdmin, superView]);
@@ -2112,7 +2121,7 @@ function App() {
       setAddUserErrors({});
       setShowAddUserForm(false);
       invalidateAdminCache(["users:first", "dashboard"]);
-      await loadUsers(undefined, { force: true });
+      await loadUsers();
     } finally {
       setBusy(false);
     }
@@ -2173,7 +2182,7 @@ function App() {
       }
       if (createdCount > 0) {
         invalidateAdminCache(["users:first", "dashboard"]);
-        await loadUsers(undefined, { force: true });
+        await loadUsers();
       }
       setStatus(`CSV import complete. Created: ${createdCount}, Failed: ${failedCount}.`);
       if (errors.length > 0) {
@@ -2252,7 +2261,7 @@ function App() {
     }
     if (!options?.suppressReload) {
       invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
-      await loadUsers(undefined, { force: true });
+      await loadUsers();
     }
     return newRow;
   }
@@ -2363,7 +2372,7 @@ function App() {
         return;
       }
       invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
-      await loadUsers(undefined, { force: true });
+      await loadUsers();
       setStatus(`Status CSV update complete. Updated: ${updates.length}.`);
     } finally {
       setBusy(false);
@@ -2393,7 +2402,7 @@ function App() {
         await processUserGridRowUpdate(nextRow, oldRow, { suppressReload: true, suppressStatus: true });
       }
       invalidateAdminCache(["users:first", "dashboard", "active-users:first"]);
-      await loadUsers(undefined, { force: true });
+      await loadUsers();
       setStatus(`Users updated (${updates.length} row${updates.length === 1 ? "" : "s"}).`);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "User batch update failed");
@@ -3335,7 +3344,7 @@ function App() {
                     await loadProgrammes({ force: true });
                     await loadPlansOfStudy();
                     if (isStudentOnlySession) {
-                      await loadStudentSelfPlanOfStudy({ force: true });
+                      await loadStudentSelfPlanOfStudy();
                     } else if (isScopedStudentDashboardOnly) {
                       await loadPrimaryScopedStudents();
                     } else {
@@ -4629,7 +4638,7 @@ function App() {
                         <Stack direction="row" sx={{ alignItems: "center", gap: 0.5 }}>
                           <Tooltip title="Refresh all data">
                             <span>
-                              <IconButton size="small" aria-label="Refresh faculty dashboard" onClick={() => { void loadFacultyStudents({ force: true }); }} disabled={busy}>
+                              <IconButton size="small" aria-label="Refresh faculty dashboard" onClick={() => { void loadFacultyStudents(); }} disabled={busy}>
                                 <RefreshIcon fontSize="small" />
                               </IconButton>
                             </span>
@@ -5720,7 +5729,7 @@ function App() {
                             size="small"
                             aria-label="Refresh user list"
                             disabled={busy}
-                            onClick={() => { void loadUsers(undefined, { force: true }); }}
+                            onClick={() => { void loadUsers(); }}
                           >
                             <RefreshIcon
                               fontSize="small"
@@ -5973,11 +5982,11 @@ function App() {
                               void (async () => {
                                 await loadProgrammes({ force: true });
                                 if (isStudentOnlySession) {
-                                  await loadStudentSelfPlanOfStudy({ force: true });
+                                  await loadStudentSelfPlanOfStudy();
                                 } else if (isScopedStudentDashboardOnly) {
-                                  await loadPrimaryScopedStudents({ force: true });
+                                  await loadPrimaryScopedStudents();
                                 } else {
-                                  await loadStudentsDirectory(undefined, { force: true });
+                                  await loadStudentsDirectory();
                                 }
                               })();
                             }}
@@ -6770,6 +6779,8 @@ function App() {
 }
 
 export default App;
+
+
 
 
 

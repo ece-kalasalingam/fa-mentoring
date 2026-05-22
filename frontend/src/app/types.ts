@@ -155,6 +155,7 @@ export type FacultyMentoredStudentMinimal = {
 };
 
 export type FacultyCreditTableRow = {
+  studentId: string;
   registrationNumber: string | null;
   graduated: "Yes" | "No";
   categoryId: string;

@@ -707,6 +707,7 @@ export async function readBatchStatusSummaryByScope(
 
 export type StudentCreditTableRow = {
   registrationNumber: string | null;
+  studentId: string;
   graduated: "Yes" | "No";
   categoryId: string;
   semester: number;
@@ -715,18 +716,90 @@ export type StudentCreditTableRow = {
   modifiedAt: string | null;
 };
 
+export type StudentCreditTableFilters = {
+  registrationNumber?: string | null;
+  categoryId?: string | null;
+  graduated?: "Yes" | "No" | null;
+  modifiedByUsername?: string | null;
+  semester?: number | null;
+};
+
+export type StudentCreditTablePage = {
+  limit: number;
+  offset: number;
+  total: number;
+  hasMore: boolean;
+};
+
 export async function listStudentCreditTableByScope(
   env: Env,
   scope: StudentScope,
   activeOnly = false,
-): Promise<StudentCreditTableRow[]> {
+  options?: {
+    limitRaw?: string | null;
+    offsetRaw?: string | null;
+    filters?: StudentCreditTableFilters;
+  },
+): Promise<{ rows: StudentCreditTableRow[]; page: StudentCreditTablePage }> {
   const db = getDb(env);
+  const limit = parseLimit(options?.limitRaw ?? null);
+  const offsetParsed = Number.parseInt(String(options?.offsetRaw ?? ""), 10);
+  const offset = Number.isFinite(offsetParsed) && offsetParsed > 0 ? offsetParsed : 0;
+  const registrationNumberFilter = String(options?.filters?.registrationNumber ?? "").trim().toLowerCase();
+  const categoryIdFilter = String(options?.filters?.categoryId ?? "").trim().toLowerCase();
+  const modifiedByFilter = String(options?.filters?.modifiedByUsername ?? "").trim().toLowerCase();
+  const semesterFilter = Number(options?.filters?.semester ?? 0);
+  const graduatedFilterRaw = String(options?.filters?.graduated ?? "").trim().toLowerCase();
+  const graduatedFilter =
+    graduatedFilterRaw === "yes" ? 1
+    : graduatedFilterRaw === "no" ? 0
+    : null;
   const scoped = scopeWhere(scope);
-  const scopedWithActivity = activeOnly
-    ? `${scoped.clause}${scoped.clause ? " and " : " where "}coalesce(student_ua.active, 0) = 1 `
-    : scoped.clause;
+  const whereClauses: string[] = [];
+  const args: Array<string | number | null> = [...scoped.args];
+  if (scoped.clause) {
+    const normalized = scoped.clause.replace(/^\s*where\s+/i, "").trim();
+    if (normalized) whereClauses.push(normalized);
+  }
+  if (activeOnly) {
+    whereClauses.push("coalesce(student_ua.active, 0) = 1");
+  }
+  if (registrationNumberFilter) {
+    whereClauses.push("lower(coalesce(s.registration_number, '')) like ?");
+    args.push(`%${registrationNumberFilter}%`);
+  }
+  if (categoryIdFilter) {
+    whereClauses.push("lower(coalesce(scd.category_id, '')) like ?");
+    args.push(`%${categoryIdFilter}%`);
+  }
+  if (modifiedByFilter) {
+    whereClauses.push("lower(coalesce(modifier.full_name, modifier.email, modifier.subject, '')) like ?");
+    args.push(`%${modifiedByFilter}%`);
+  }
+  if (Number.isFinite(semesterFilter) && semesterFilter > 0) {
+    whereClauses.push("scd.semester_taken = ?");
+    args.push(semesterFilter);
+  }
+  if (graduatedFilter !== null) {
+    whereClauses.push("coalesce(s.graduated, 0) = ?");
+    args.push(graduatedFilter);
+  }
+  const whereSql = whereClauses.length > 0 ? `where ${whereClauses.join(" and ")}` : "";
+
+  const countRes = await db.execute({
+    sql: `select count(*) as total
+          from student_credit_details scd
+          inner join students s on s.user_id = scd.student_id
+          left join user_accounts student_ua on student_ua.id = s.user_id
+          left join user_accounts modifier on modifier.id = scd.modified_by
+          ${whereSql}`,
+    args,
+  });
+  const total = Number(countRes.rows[0]?.total ?? 0);
+
   const result = await db.execute({
     sql: `select
+            s.user_id as student_id,
             s.registration_number,
             s.graduated,
             scd.category_id,
@@ -738,11 +811,13 @@ export async function listStudentCreditTableByScope(
           inner join students s on s.user_id = scd.student_id
           left join user_accounts student_ua on student_ua.id = s.user_id
           left join user_accounts modifier on modifier.id = scd.modified_by
-          ${scopedWithActivity}
-          order by s.registration_number asc, scd.semester_taken asc, scd.category_id asc`,
-    args: scoped.args,
+          ${whereSql}
+          order by s.registration_number asc, scd.semester_taken asc, scd.category_id asc
+          limit ? offset ?`,
+    args: [...args, limit, offset],
   });
-  return result.rows.map((row) => ({
+  const rows = result.rows.map((row) => ({
+    studentId: String(row.student_id ?? "").trim(),
     registrationNumber: row.registration_number == null ? null : String(row.registration_number),
     graduated: Number(row.graduated ?? 0) === 1 ? "Yes" : "No",
     categoryId: String(row.category_id ?? ""),
@@ -751,6 +826,15 @@ export async function listStudentCreditTableByScope(
     modifiedByUsername: row.modified_by_username == null ? null : String(row.modified_by_username),
     modifiedAt: row.modified_at == null ? null : String(row.modified_at),
   }));
+  return {
+    rows,
+    page: {
+      limit,
+      offset,
+      total,
+      hasMore: offset + rows.length < total,
+    },
+  };
 }
 
 type CreditEntry = { categoryId: string; semesterTaken: number; credits: number };

@@ -88,10 +88,16 @@ const ROOT_ENDPOINTS = [
 
 const ADMIN_DASHBOARD_CACHE_TTL_MS = 10 * 60 * 1000;
 const SCOPED_STUDENTS_CACHE_TTL_MS = 10 * 60 * 1000;
+const STUDENT_CREDIT_DETAILS_CACHE_TTL_MS = 2 * 60 * 1000;
 type AdminDashboardPayload = Awaited<ReturnType<typeof getAdminDashboard>>;
 const adminDashboardCacheByPrincipal = new Map<string, { cachedAt: number; payload: AdminDashboardPayload }>();
 type ScopedStudentsPayload = Awaited<ReturnType<typeof listStudentsByScope>>;
 const scopedStudentsCacheByPrincipal = new Map<string, { cachedAt: number; payload: ScopedStudentsPayload }>();
+type StudentCreditDetailsPayload = {
+  creditDetails: Awaited<ReturnType<typeof getStudentCredits>>;
+  unitDetails: Awaited<ReturnType<typeof getStudentUnits>>;
+};
+const studentCreditDetailsCacheByPrincipal = new Map<string, { cachedAt: number; payload: StudentCreditDetailsPayload }>();
 
 function getAdminDashboardCacheKey(principal: { provider: string; subject: string } | null | undefined): string | null {
   if (!principal) return null;
@@ -155,6 +161,34 @@ function readScopedStudentsCache(cacheKey: string): ScopedStudentsPayload | null
 
 function writeScopedStudentsCache(cacheKey: string, payload: ScopedStudentsPayload): void {
   scopedStudentsCacheByPrincipal.set(cacheKey, { cachedAt: Date.now(), payload });
+}
+
+function getStudentCreditDetailsCacheKey(
+  principal: { provider: string; subject: string } | null | undefined,
+  studentId: string,
+): string | null {
+  const principalKey = getAdminDashboardCacheKey(principal);
+  const normalizedStudentId = String(studentId ?? "").trim();
+  if (!principalKey || !normalizedStudentId) return null;
+  return `${principalKey}|student-credits|${normalizedStudentId}`;
+}
+
+function readStudentCreditDetailsCache(cacheKey: string): StudentCreditDetailsPayload | null {
+  const entry = studentCreditDetailsCacheByPrincipal.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > STUDENT_CREDIT_DETAILS_CACHE_TTL_MS) {
+    studentCreditDetailsCacheByPrincipal.delete(cacheKey);
+    return null;
+  }
+  return entry.payload;
+}
+
+function writeStudentCreditDetailsCache(cacheKey: string, payload: StudentCreditDetailsPayload): void {
+  studentCreditDetailsCacheByPrincipal.set(cacheKey, { cachedAt: Date.now(), payload });
+}
+
+function invalidateAllStudentCreditDetailsCaches(): void {
+  studentCreditDetailsCacheByPrincipal.clear();
 }
 
 function toTwoDecimalNumber(value: number): number {
@@ -1273,8 +1307,21 @@ export const worker = {
         } else if (scope.type === "self") {
           await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
         }
-        const credits = await getStudentCredits(env, studentId);
-        const units = await getStudentUnits(env, studentId);
+        const cacheKey = getStudentCreditDetailsCacheKey(principal, studentId);
+        if (cacheKey) {
+          const cached = readStudentCreditDetailsCache(cacheKey);
+          if (cached) {
+            statusCode = 200;
+            return respond({ ok: true, ...cached });
+          }
+        }
+        const [credits, units] = await Promise.all([
+          getStudentCredits(env, studentId),
+          getStudentUnits(env, studentId),
+        ]);
+        if (cacheKey) {
+          writeStudentCreditDetailsCache(cacheKey, { creditDetails: credits, unitDetails: units });
+        }
         statusCode = 200;
         return respond({ ok: true, creditDetails: credits, unitDetails: units });
       }
@@ -1336,6 +1383,7 @@ export const worker = {
           allowClearAll,
         );
         invalidateAllAdminDashboardCaches();
+        invalidateAllStudentCreditDetailsCaches();
         statusCode = 200;
         event = "students.credits.updated";
         return respond({ ok: true, message: "Credits saved." });
@@ -1389,6 +1437,7 @@ export const worker = {
           allowClearAll,
         );
         invalidateAllAdminDashboardCaches();
+        invalidateAllStudentCreditDetailsCaches();
         statusCode = 200;
         event = "students.credits.batch_imported";
         return respond({ ok: true, ...result });
@@ -1396,13 +1445,25 @@ export const worker = {
 
       if (pathname === "/api/student-credit-table" && request.method === "GET") {
         const scope = resolveScopedStudentAccess(principal!);
-        const rows = await listStudentCreditTableByScope(
+        const url = new URL(request.url);
+        const data = await listStudentCreditTableByScope(
           env,
           scope,
           shouldRestrictToActiveStudents(principal!),
+          {
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            filters: {
+              registrationNumber: url.searchParams.get("registrationNumber"),
+              categoryId: url.searchParams.get("categoryId"),
+              graduated: (url.searchParams.get("graduated") as "Yes" | "No" | null),
+              modifiedByUsername: url.searchParams.get("modifiedByUsername"),
+              semester: url.searchParams.get("semester") == null ? null : Number(url.searchParams.get("semester")),
+            },
+          },
         );
         statusCode = 200;
-        return respond({ ok: true, rows });
+        return respond({ ok: true, rows: data.rows, page: data.page });
       }
 
       if (pathname === "/api/import/students" && request.method === "POST") {
@@ -1441,6 +1502,7 @@ export const worker = {
         });
         await recomputeStudentCreditSummaries(env, (result.updatedStudentUserIds ?? []) as string[]);
         invalidateAllAdminDashboardCaches();
+        invalidateAllStudentCreditDetailsCaches();
         statusCode = 200;
         return respond({
           ok: true,
