@@ -1,6 +1,6 @@
 import { isObject } from "../core/csv";
 import { getDb } from "../core/db";
-import { json } from "../core/http";
+import { buildCorsAwareHeaders, json } from "../core/http";
 import { sanitizeResponsePayload } from "../core/sanitize";
 import type { CsvImportRow, Env } from "../core/types";
 import { getAdminDashboard } from "../modules/admin/dashboard.service";
@@ -83,6 +83,7 @@ const ROOT_ENDPOINTS = [
   "/api/students/stats",
   "/api/students/batch-summary",
   "/api/student-credit-table",
+  "/api/student-credit-table/export.csv",
   "/api/import/students"
 ];
 
@@ -194,6 +195,14 @@ function invalidateAllStudentCreditDetailsCaches(): void {
 function toTwoDecimalNumber(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.round(value * 100) / 100;
+}
+
+function csvEscape(value: unknown): string {
+  const raw = value == null ? "" : String(value);
+  if (raw.includes(",") || raw.includes("\"") || raw.includes("\n") || raw.includes("\r")) {
+    return `"${raw.replace(/"/g, "\"\"")}"`;
+  }
+  return raw;
 }
 
 async function recomputeStudentSummaryTablesForSubjects(env: Env, subjects: string[]): Promise<void> {
@@ -1465,6 +1474,81 @@ export const worker = {
         );
         statusCode = 200;
         return respond({ ok: true, rows: data.rows, page: data.page });
+      }
+
+      if (pathname === "/api/student-credit-table/export.csv" && request.method === "GET") {
+        const url = new URL(request.url);
+        const roleContextRaw = String(url.searchParams.get("roleContext") ?? "").trim().toLowerCase();
+        const roleContext: "all" | "faculty" | "moderator" =
+          roleContextRaw === "all" ? "all"
+          : roleContextRaw === "moderator" ? "moderator"
+          : "faculty";
+        const fullDbAccess = roleContext === "all" && (principal!.roles.includes("admin") || principal!.roles.includes("moderator"));
+        const scope = fullDbAccess ? { type: "all" as const } : resolveScopedStudentAccess(principal!);
+        const activeOnly = fullDbAccess ? false : shouldRestrictToActiveStudents(principal!);
+        const rows: Array<{
+          studentId: string;
+          registrationNumber: string | null;
+          graduated: "Yes" | "No";
+          categoryId: string;
+          semester: number;
+          credits: number;
+          modifiedByUsername: string | null;
+          modifiedAt: string | null;
+        }> = [];
+
+        const pageSize = 100;
+        let offset = 0;
+        while (true) {
+          const page = await listStudentCreditTableByScope(
+            env,
+            scope,
+            activeOnly,
+            {
+              limitRaw: String(pageSize),
+              offsetRaw: String(offset),
+              filters: {
+                registrationNumber: url.searchParams.get("registrationNumber"),
+                categoryId: url.searchParams.get("categoryId"),
+                graduated: (url.searchParams.get("graduated") as "Yes" | "No" | null),
+                modifiedByUsername: url.searchParams.get("modifiedByUsername"),
+                semester: url.searchParams.get("semester") == null ? null : Number(url.searchParams.get("semester")),
+              },
+            },
+          );
+          rows.push(...page.rows);
+          if (!page.page.hasMore) break;
+          offset += pageSize;
+        }
+
+        const header = [
+          "registration_number",
+          "category_id",
+          "semester",
+          "credits",
+          "modified_by",
+          "modified_at",
+        ];
+        const lines = [header.join(",")];
+        for (const row of rows) {
+          lines.push([
+            csvEscape(row.registrationNumber),
+            csvEscape(row.categoryId),
+            csvEscape(row.semester),
+            csvEscape(toTwoDecimalNumber(row.credits)),
+            csvEscape(row.modifiedByUsername),
+            csvEscape(row.modifiedAt),
+          ].join(","));
+        }
+        const filename = `student-credit-table-${roleContext}-${new Date().toISOString().slice(0, 10)}.csv`;
+        statusCode = 200;
+        return new Response(lines.join("\n"), {
+          status: 200,
+          headers: buildCorsAwareHeaders(request, env, {
+            "content-type": "text/csv; charset=utf-8",
+            "content-disposition": `attachment; filename="${filename}"`,
+          }),
+        });
       }
 
       if (pathname === "/api/import/students" && request.method === "POST") {

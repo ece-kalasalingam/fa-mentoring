@@ -9,6 +9,7 @@ import BuildIcon from "@mui/icons-material/Build";
 import StorageIcon from "@mui/icons-material/Storage";
 import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import DownloadIcon from "@mui/icons-material/Download";
 import GroupIcon from "@mui/icons-material/Group";
 import HistoryIcon from "@mui/icons-material/History";
 import LockPersonIcon from "@mui/icons-material/LockPerson";
@@ -31,7 +32,7 @@ import EditIcon from "@mui/icons-material/Edit";
 import EmailIcon from "@mui/icons-material/Email";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
-import { callApi, setCsrfToken } from "../shared/api/client";
+import { callApi, setCsrfToken, toApiUrl } from "../shared/api/client";
 import { APP_NAME_FULL, APP_NAME_SHORT, ORG_NAME } from "../shared/branding";
 import {
   ACTIVITY_LOGS_PAGE_SIZE,
@@ -67,7 +68,6 @@ import type {
   AdminDashboard,
   CreditStatus,
   FailedLoginRow,
-  FacultyCreditTableRow,
   FacultyStudentRow,
   FacultyMentoredStudentMinimal,
   GoogleCredentialResponse,
@@ -90,7 +90,6 @@ const ActiveUsersTable = lazy(() => import("./ActiveUsersTable"));
 const FailedLoginsTable = lazy(() => import("./FailedLoginsTable"));
 const StudentsDirectoryTable = lazy(() => import("./StudentsDirectoryTable"));
 const StudentCreditsView = lazy(() => import("./StudentCreditsView"));
-const FacultyCreditDetailsTable = lazy(() => import("./FacultyCreditDetailsTable"));
 const FacultyAnalyticsReport = lazy(() => import("./FacultyAnalyticsReport"));
 const RegulationsView = lazy(() => import("./RegulationsView"));
 const LOCAL_DENSE_CACHE_PREFIX = "fa_dense_cache_v1";
@@ -180,9 +179,7 @@ function App() {
   const [studentSummaryCatEarned, setStudentSummaryCatEarned] = useState<Record<string, Record<string, number>>>({});
   const [creditTotalsLoaded, setCreditTotalsLoaded] = useState(false);
   const [facultyStudentRows, setFacultyStudentRows] = useState<FacultyStudentRow[]>([]);
-  const [facultyCreditTableRows, setFacultyCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [moderatorStudentRows, setModeratorStudentRows] = useState<FacultyStudentRow[]>([]);
-  const [moderatorCreditTableRows, setModeratorCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
   const [headStudentRows, setHeadStudentRows] = useState<FacultyStudentRow[]>([]);
   const [headModeratorBatchSummaryRows, setHeadModeratorBatchSummaryRows] = useState<Array<{
     batch: number;
@@ -1542,44 +1539,6 @@ function App() {
     }
   }
 
-  async function loadScopedCreditTable(roleContext: "faculty" | "moderator") {
-    const PAGE_SIZE = 250;
-    const MAX_PAGES = 8;
-    const rows: unknown[] = [];
-    for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
-      const offset = pageIndex * PAGE_SIZE;
-      const res = await callApi(`/api/student-credit-table?roleContext=${roleContext}&limit=${PAGE_SIZE}&offset=${offset}`, "GET");
-      if (!res.ok) {
-        const msg = `Unable to load student credit table: ${res.error ?? "Unknown error"}`;
-        setStatus(msg);
-        setApiError({ message: msg, retryFn: () => loadScopedCreditTable(roleContext) });
-        return;
-      }
-      if (Array.isArray(res.rows)) {
-        rows.push(...res.rows);
-      }
-      if (!res.page?.hasMore) break;
-    }
-    const normalizedRows: FacultyCreditTableRow[] = rows.map((row) => {
-      const data = row as Record<string, unknown>;
-      return {
-        studentId: String(data.studentId ?? "").trim(),
-        registrationNumber: data.registrationNumber == null ? null : String(data.registrationNumber),
-        graduated: String(data.graduated ?? "").trim().toLowerCase() === "yes" || Number(data.graduated ?? 0) === 1 ? "Yes" : "No",
-        categoryId: String(data.categoryId ?? ""),
-        semester: Number(data.semester ?? 0),
-        credits: normalizeCredits(Number(data.credits ?? 0)),
-        modifiedByUsername: data.modifiedByUsername == null ? null : String(data.modifiedByUsername),
-        modifiedAt: data.modifiedAt == null ? null : String(data.modifiedAt),
-      };
-    });
-    if (roleContext === "faculty") {
-      setFacultyCreditTableRows(normalizedRows);
-    } else {
-      setModeratorCreditTableRows(normalizedRows);
-    }
-  }
-
   async function loadFacultyStudents(options?: { force?: boolean }) {
     return loadScopedStudents("faculty", options);
   }
@@ -1633,15 +1592,6 @@ function App() {
     }
   }
 
-  async function loadFacultyCreditTable() {
-    await loadScopedCreditTable("faculty");
-  }
-
-  async function loadModeratorCreditTable() {
-    await loadScopedCreditTable("moderator");
-  }
-
-
   async function loadPrimaryScopedStudents(options?: { force?: boolean }) {
     if (scopedDashboardRoleContext === "moderator") {
       await loadModeratorStudents(options);
@@ -1650,12 +1600,38 @@ function App() {
     await loadFacultyStudents(options);
   }
 
-  async function loadPrimaryScopedCreditTable() {
-    if (scopedDashboardRoleContext === "moderator") {
-      await loadModeratorCreditTable();
-      return;
+  async function exportPrimaryScopedCreditTableCsv() {
+    const roleContext = (isAdmin || hasModeratorRole) ? "all" : "faculty";
+    const exportUrl = toApiUrl(`/api/student-credit-table/export.csv?roleContext=${roleContext}`);
+    try {
+      setBusy(true);
+      const response = await fetch(exportUrl, {
+        method: "GET",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(`Export failed with status ${response.status}`);
+      }
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filenameMatch = disposition.match(/filename="([^"]+)"/i);
+      const filename = filenameMatch?.[1] ?? `student-credit-table-${roleContext}.csv`;
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(blobUrl);
+      setStatus("Credit details CSV exported.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(`Unable to export credit details CSV: ${message}`);
+      setApiError({ message: `Unable to export credit details CSV: ${message}`, retryFn: () => exportPrimaryScopedCreditTableCsv() });
+    } finally {
+      setBusy(false);
     }
-    await loadFacultyCreditTable();
   }
 
   function prefetchStudentSummariesForRows(rows: Array<{ userId: string }>) {
@@ -2709,8 +2685,6 @@ function App() {
     hasFacultyRole ? "faculty" : hasModeratorRole ? "moderator" : null;
   const scopedDashboardStudentRows =
     scopedDashboardRoleContext === "moderator" ? moderatorStudentRows : facultyStudentRows;
-  const scopedDashboardCreditRows =
-    scopedDashboardRoleContext === "moderator" ? moderatorCreditTableRows : facultyCreditTableRows;
   const combinedHmRows = useMemo(
     () => (hasHeadRole ? headStudentRows : moderatorStudentRows),
     [hasHeadRole, headStudentRows, moderatorStudentRows],
@@ -3420,7 +3394,7 @@ function App() {
                 })();
               },
             }] : []),
-            ...((isScopedStudentDashboardOnly) ? [{
+            ...((isScopedStudentDashboardOnly || isAdmin || hasModeratorRole) ? [{
               id: "faculty-credit-table",
               label: "Student Credit Table",
               icon: <ReceiptLongIcon fontSize="small" />,
@@ -3429,7 +3403,6 @@ function App() {
                 void (async () => {
                   if (await ensureActiveServerSession()) {
                     navigateTo("faculty-credit-table");
-                    await loadPrimaryScopedCreditTable();
                   }
                 })();
               },
@@ -6260,14 +6233,22 @@ function App() {
                 <Box sx={adminPageSx.headerPanel}>
                   <Typography variant="h6">Student Credit Table</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {scopedDashboardRoleContext === "moderator"
-                      ? "Credits recorded for all active students."
-                      : "Credits recorded for students under your faculty mentoring scope."}
+                    {(isAdmin || hasModeratorRole)
+                      ? "Export complete credit records for the full database."
+                      : "Export complete credit records for students under your faculty mentoring scope."}
                   </Typography>
                 </Box>
-                <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading student credit table...</Typography>}>
-                  <FacultyCreditDetailsTable rows={scopedDashboardCreditRows} busy={busy} />
-                </Suspense>
+                <Box>
+                  <Button
+                    type="button"
+                    variant="contained"
+                    startIcon={<DownloadIcon />}
+                    disabled={busy}
+                    onClick={() => { void exportPrimaryScopedCreditTableCsv(); }}
+                  >
+                    Export Credit Details CSV
+                  </Button>
+                </Box>
               </Stack>
             </CardContent>
           </Card>

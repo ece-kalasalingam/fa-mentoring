@@ -28,6 +28,52 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-23 08:42 IST | codex | change
+- Summary: Replaced scoped faculty/moderator credit-table rendering with a direct full CSV export flow backed by a dedicated API endpoint.
+- Files: api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `GET /api/student-credit-table/export.csv` that exports complete scoped credit-detail records as CSV with role-aware access control and active-student scope behavior preserved.
+  - Implemented CSV export pagination on the server by iterating existing scoped table reads (`limit=100`) until `hasMore` is false, then returning an attachment response.
+  - Removed frontend eager loading/rendering of scoped credit-table rows and replaced the `Student Credit Table` view with a single `Export Credit Details CSV` button.
+  - Updated scoped navigation action to open the export page without preloading table data, reducing unnecessary read load on Cloudflare Worker + Turso free-tier usage.
+- Revert: none
+
+## 2026-05-23 08:50 IST | codex | fix
+- Summary: Fixed credit CSV export download URL to target API origin instead of frontend dev origin.
+- Files: frontend/src/shared/api/client.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added shared `toApiUrl(path)` helper in API client to build absolute URLs from the configured API base.
+  - Updated faculty/moderator credit export button to call `toApiUrl("/api/student-credit-table/export.csv?...")`.
+  - Prevents downloads of frontend HTML (`index.html`) when running under local dev servers without matching `/api` proxy behavior.
+- Revert: none
+
+## 2026-05-23 09:02 IST | codex | fix
+- Summary: Fixed CSV export `Failed to fetch` by adding CORS/security headers to non-JSON export responses.
+- Files: api/src/core/http.ts, api/src/app/worker.ts, api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Added shared `buildCorsAwareHeaders()` helper in `api/src/core/http.ts` and refactored `json()` to use it.
+  - Updated `/api/student-credit-table/export.csv` response to use `buildCorsAwareHeaders(...)` so credentialed cross-origin fetches succeed.
+  - Added explicit `StudentCreditTableRow[]` typing in credit-table row mapping to keep API TypeScript checks strict and passing.
+- Revert: none
+
+## 2026-05-23 09:09 IST | codex | change
+- Summary: Removed `student_id` and `graduated` columns from scoped credit-details CSV export.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Updated `/api/student-credit-table/export.csv` header and row serialization to exclude `student_id`.
+  - Updated `/api/student-credit-table/export.csv` header and row serialization to exclude `graduated`.
+  - Kept all other export columns and ordering intact.
+- Revert: none
+
+## 2026-05-23 09:18 IST | codex | change
+- Summary: Made Student Credit Table export menu available to Administrator and Moderator with full-database export scope.
+- Files: frontend/src/app/App.tsx, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Expanded `Student Credit Table` navigation visibility to include `Administrator` and `Moderator` roles in addition to scoped-only users.
+  - Updated frontend export action to send `roleContext=all` for admin/moderator users and keep faculty users on scoped export.
+  - Updated CSV export API to honor `roleContext=all` for admin/moderator by using full database scope (`type: all`) and disabling active-only restriction; other contexts continue existing scoped behavior.
+- Revert: none
+
 ## 2026-05-22 20:49 IST | codex | fix
 - Summary: Auto-invalidated and reloaded student credit caches after successful batch credit import to prevent stale session data across views.
 - Files: frontend/src/app/App.tsx, frontend/src/shared/api/client.ts, CHANGELOG.md

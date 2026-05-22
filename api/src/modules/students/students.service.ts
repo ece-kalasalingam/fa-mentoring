@@ -875,7 +875,7 @@ export async function listStudentCreditTableByScope(
           limit ? offset ?`,
     args: [...args, limit, offset],
   });
-  const rows = result.rows.map((row) => ({
+  const rows: StudentCreditTableRow[] = result.rows.map((row) => ({
     studentId: String(row.student_id ?? "").trim(),
     registrationNumber: row.registration_number == null ? null : String(row.registration_number),
     graduated: Number(row.graduated ?? 0) === 1 ? "Yes" : "No",

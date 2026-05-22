@@ -232,6 +232,9 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL
   ?? ((typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"))
     ? "http://localhost:8787"
     : "https://spris-api.eceklu.in");
+export function toApiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
 let csrfTokenMemory = "";
 const inFlightGetRequests = new Map<string, Promise<ApiResult>>();
 const DB_READ_ESTIMATE_SESSION_KEY = "fa_db_read_estimate_total_v1";

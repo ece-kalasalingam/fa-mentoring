@@ -32,25 +32,35 @@ function resolveCorsPolicy(request: Request, env: Env): CorsPolicy {
 }
 
 export function json(data: unknown, status = 200, request?: Request, env?: Env, extraHeaders?: Record<string, string>) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: buildCorsAwareHeaders(request, env, {
+      "content-type": "application/json; charset=utf-8",
+      ...extraHeaders,
+    }),
+  });
+}
+
+export function buildCorsAwareHeaders(
+  request?: Request,
+  env?: Env,
+  extraHeaders?: Record<string, string>,
+): Record<string, string> {
   const corsPolicy = request && env
     ? resolveCorsPolicy(request, env)
     : { allowedOrigin: "null", allowCredentials: false };
   const isHttps = request ? new URL(request.url).protocol === "https:" : false;
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": corsPolicy.allowedOrigin,
-      "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type, authorization, x-csrf-token",
-      "access-control-allow-credentials": corsPolicy.allowCredentials ? "true" : "false",
-      "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
-      "referrer-policy": "no-referrer",
-      "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
-      ...(isHttps ? { "strict-transport-security": "max-age=31536000; includeSubDomains; preload" } : {}),
-      vary: "origin",
-      ...extraHeaders
-    }
-  });
+  return {
+    "access-control-allow-origin": corsPolicy.allowedOrigin,
+    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-headers": "content-type, authorization, x-csrf-token",
+    "access-control-allow-credentials": corsPolicy.allowCredentials ? "true" : "false",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    ...(isHttps ? { "strict-transport-security": "max-age=31536000; includeSubDomains; preload" } : {}),
+    vary: "origin",
+    ...extraHeaders,
+  };
 }

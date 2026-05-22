@@ -95,10 +95,10 @@
             "CSC1": 0,
             "CSC2": 1,
             "CSC3": 0,
-            "MAND": 0
+            "MAND": 3
           },
           "totalCredits": 24,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 6,
@@ -114,10 +114,10 @@
             "CSC1": 0,
             "CSC2": 0,
             "CSC3": 1,
-            "MAND": 3
+            "MAND": 0
           },
           "totalCredits": 24,
-          "totalUnits": 4
+          "totalUnits": 1
         },
         {
           "semester": 7,
@@ -216,10 +216,10 @@
             "CSC1": 0,
             "CSC2": 1,
             "CSC3": 0,
-            "MAND": 0
+            "MAND": 3
           },
           "totalCredits": 25,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 6,
@@ -235,10 +235,10 @@
             "CSC1": 0,
             "CSC2": 0,
             "CSC3": 1,
-            "MAND": 3
+            "MAND": 0
           },
           "totalCredits": 24,
-          "totalUnits": 4
+          "totalUnits": 1
         },
         {
           "semester": 7,
@@ -365,10 +365,10 @@
             "CSC1": 0,
             "CSC2": 1,
             "CSC3": 0,
-            "MAND": 0
+            "MAND": 3
           },
           "totalCredits": 23,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 6,
@@ -382,10 +382,10 @@
             "CSC1": 0,
             "CSC2": 0,
             "CSC3": 1,
-            "MAND": 3
+            "MAND": 0
           },
           "totalCredits": 23,
-          "totalUnits": 4
+          "totalUnits": 1
         },
         {
           "semester": 7,
@@ -474,10 +474,10 @@
             "CSC1": 0,
             "CSC2": 1,
             "CSC3": 0,
-            "MAND": 0
+            "MAND": 3
           },
           "totalCredits": 23,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 6,
@@ -491,10 +491,10 @@
             "CSC1": 0,
             "CSC2": 0,
             "CSC3": 1,
-            "MAND": 3
+            "MAND": 0
           },
           "totalCredits": 24,
-          "totalUnits": 4
+          "totalUnits": 1
         },
         {
           "semester": 7,
