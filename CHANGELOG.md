@@ -4294,3 +4294,14 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Preloaded mentor faculty accounts (`user_accounts by mentor email`) to avoid per-row mentor resolution reads.
   - Kept row-level validation messages and update/insert semantics intact.
 - Revert: none
+## 2026-05-22 10:06 IST | codex-gpt-5 | perf
+- Summary: Added session-identity dashboard caching with force-refresh bypass and invalidation hooks for auth and grade/credit writes.
+- Files: api/src/app/worker.ts, frontend/src/app/App.tsx, frontend/src/app/constants.ts, CHANGELOG.md
+- Details:
+  - Added backend in-memory admin dashboard cache keyed by `provider|subject` with a 10-minute TTL.
+  - Updated `GET /api/admin/dashboard` to serve cached payloads by default and bypass cache when `force=1|true|yes` is present.
+  - Added backend cache invalidation on successful login/logout flows and on student/credit write endpoints (`students-directory` updates, `student-credits` save/import, and student CSV import).
+  - Updated frontend dashboard loader to call `/api/admin/dashboard?force=1` when force refresh is requested.
+  - Added explicit admin dashboard Refresh button in the dashboard header.
+  - Increased frontend dashboard local cache TTL to 10 minutes and invalidated local dashboard cache after credit save/import success.
+- Revert: none

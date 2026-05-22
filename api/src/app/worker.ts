@@ -85,6 +85,42 @@ const ROOT_ENDPOINTS = [
   "/api/import/students"
 ];
 
+const ADMIN_DASHBOARD_CACHE_TTL_MS = 10 * 60 * 1000;
+type AdminDashboardPayload = Awaited<ReturnType<typeof getAdminDashboard>>;
+const adminDashboardCacheByPrincipal = new Map<string, { cachedAt: number; payload: AdminDashboardPayload }>();
+
+function getAdminDashboardCacheKey(principal: { provider: string; subject: string } | null | undefined): string | null {
+  if (!principal) return null;
+  const provider = String(principal.provider ?? "").trim();
+  const subject = String(principal.subject ?? "").trim();
+  if (!provider || !subject) return null;
+  return `${provider}|${subject}`;
+}
+
+function readAdminDashboardCache(cacheKey: string): AdminDashboardPayload | null {
+  const entry = adminDashboardCacheByPrincipal.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > ADMIN_DASHBOARD_CACHE_TTL_MS) {
+    adminDashboardCacheByPrincipal.delete(cacheKey);
+    return null;
+  }
+  return entry.payload;
+}
+
+function writeAdminDashboardCache(cacheKey: string, payload: AdminDashboardPayload): void {
+  adminDashboardCacheByPrincipal.set(cacheKey, { cachedAt: Date.now(), payload });
+}
+
+function invalidateAdminDashboardCacheForPrincipal(principal: { provider: string; subject: string } | null | undefined): void {
+  const cacheKey = getAdminDashboardCacheKey(principal);
+  if (!cacheKey) return;
+  adminDashboardCacheByPrincipal.delete(cacheKey);
+}
+
+function invalidateAllAdminDashboardCaches(): void {
+  adminDashboardCacheByPrincipal.clear();
+}
+
 function toTwoDecimalNumber(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.round(value * 100) / 100;
@@ -296,7 +332,20 @@ export const worker = {
           event = "request.forbidden";
           return respond({ ok: false, error: "Admin or head access required." }, 403);
         }
+        const url = new URL(request.url);
+        const forceRefresh = ["1", "true", "yes"].includes(String(url.searchParams.get("force") ?? "").trim().toLowerCase());
+        const cacheKey = getAdminDashboardCacheKey(principal);
+        if (!forceRefresh && cacheKey) {
+          const cached = readAdminDashboardCache(cacheKey);
+          if (cached) {
+            statusCode = 200;
+            return respond({ ok: true, ...cached });
+          }
+        }
         const data = await getAdminDashboard(env);
+        if (cacheKey) {
+          writeAdminDashboardCache(cacheKey, data);
+        }
         statusCode = 200;
         return respond({ ok: true, ...data });
       }
@@ -717,6 +766,7 @@ export const worker = {
         }
         const ipAddress = resolveClientIp(request);
         const loginResult = await loginWithPassword(env, username, password, ipAddress);
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "auth.login_success";
         const cookie = buildSessionCookie(env, request, loginResult.token);
@@ -740,6 +790,7 @@ export const worker = {
           return respond({ ok: false, error: "idToken is required" }, 400);
         }
         const loginResult = await loginWithGoogleIdToken(env, idToken);
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "auth.login_success";
         const cookie = buildSessionCookie(env, request, loginResult.token);
@@ -755,6 +806,7 @@ export const worker = {
       }
 
       if (pathname === "/api/auth/logout" && request.method === "POST") {
+        invalidateAdminDashboardCacheForPrincipal(principal);
         const token = parseBearerToken(request) || parseCookieToken(request, getAuthCookieName(env));
         await revokeSessionToken(env, token);
         statusCode = 200;
@@ -771,6 +823,7 @@ export const worker = {
         }
         const currentToken = parseBearerToken(request) || parseCookieToken(request, getAuthCookieName(env));
         const revokedSessions = await revokeOtherSessionsForPrincipal(env, principal, currentToken);
+        invalidateAdminDashboardCacheForPrincipal(principal);
         statusCode = 200;
         event = "auth.logout_other_sessions";
         return respond({ ok: true, revokedSessions });
@@ -990,6 +1043,7 @@ export const worker = {
           mentorName,
           modifiedByUserId: modifierUserId,
         });
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "students.directory.updated";
         return respond({ ok: true, message: "Student updated." });
@@ -1058,6 +1112,7 @@ export const worker = {
             modifiedByUserId: modifierUserId,
           });
         }
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "students.directory.batch_updated";
         return respond({ ok: true, updated: updates.length, message: "Students updated." });
@@ -1153,6 +1208,7 @@ export const worker = {
           writeMode === "replace_all" ? "replace_all" : "patch",
           allowClearAll,
         );
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "students.credits.updated";
         return respond({ ok: true, message: "Credits saved." });
@@ -1207,6 +1263,7 @@ export const worker = {
           writeMode === "replace_all" ? "replace_all" : "patch",
           allowClearAll,
         );
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "students.credits.batch_imported";
         return respond({ ok: true, ...result });
@@ -1257,6 +1314,7 @@ export const worker = {
           restrictToActiveMentorEmail: facultyRestrictedEmail,
           modifiedByUserId: modifierUserId,
         });
+        invalidateAllAdminDashboardCaches();
         statusCode = 200;
         return respond({
           ok: true,

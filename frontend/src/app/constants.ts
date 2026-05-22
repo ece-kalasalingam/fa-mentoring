@@ -15,7 +15,7 @@ export const STATUS_AUTO_HIDE_MS = 15_000;
 export const INACTIVITY_LOGOUT_MS = 15 * 60 * 1000;
 export const INACTIVITY_WARN_BEFORE_MS = 60 * 1000;
 export const ADMIN_CACHE_TTL_MS = {
-  dashboard: 60_000,
+  dashboard: 10 * 60_000,
   logs: 20_000,
   activityLogs: 20_000,
   activeUsers: 20_000,

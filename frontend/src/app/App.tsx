@@ -985,7 +985,8 @@ function App() {
         return;
       }
     }
-    const res = await callApi("/api/admin/dashboard", "GET");
+    const endpoint = force ? "/api/admin/dashboard?force=1" : "/api/admin/dashboard";
+    const res = await callApi(endpoint, "GET");
     if (!res.ok) {
       const msg = `Unable to load dashboard: ${res.error ?? "Unknown error"}`;
       setStatus(msg);
@@ -1628,6 +1629,7 @@ function App() {
       if (result.ok) {
         setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: draft }));
         setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: draftUnits }));
+        invalidateAdminCache(["dashboard"]);
       }
     } finally {
       setStudentCreditsSaving(false);
@@ -3878,6 +3880,21 @@ function App() {
                   <Typography variant="body2" color="text.secondary">Have a productive day!</Typography>
                 </Box>
                 <Box sx={{ textAlign: { xs: "left", sm: "right" }, mt: { xs: 0, sm: 0.25 } }}>
+                  {isAdmin ? (
+                    <Tooltip title="Refresh dashboard" arrow>
+                      <span>
+                        <IconButton
+                          size="small"
+                          aria-label="Refresh admin dashboard"
+                          onClick={() => { void loadDashboard({ force: true }); }}
+                          disabled={busy}
+                          sx={{ mb: 0.25 }}
+                        >
+                          <RefreshIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  ) : null}
                   <Typography variant="body2" color="text.secondary">
                     {new Intl.DateTimeFormat("en-IN", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date())}
                   </Typography>
@@ -5913,6 +5930,9 @@ function App() {
                         allowClearAll: false,
                         rows,
                       });
+                      if (result.ok) {
+                        invalidateAdminCache(["dashboard", "students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first"]);
+                      }
                       return {
                         imported: Number(result.imported ?? 0),
                         failed: Number(result.failed ?? 0),
