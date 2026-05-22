@@ -85,6 +85,7 @@ const StudentsDirectoryTable = lazy(() => import("./StudentsDirectoryTable"));
 const StudentCreditsView = lazy(() => import("./StudentCreditsView"));
 const FacultyCreditDetailsTable = lazy(() => import("./FacultyCreditDetailsTable"));
 const FacultyAnalyticsReport = lazy(() => import("./FacultyAnalyticsReport"));
+const RegulationsView = lazy(() => import("./RegulationsView"));
 const LOCAL_DENSE_CACHE_PREFIX = "fa_dense_cache_v1";
 const STATIC_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const STUDENT_SUMMARY_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -253,6 +254,7 @@ function App() {
   const tabIdRef = useRef("");
   const authSyncInFlightRef = useRef(false);
   const googleIdpInitializedRef = useRef(false);
+  const lastHiddenAtRef = useRef<number | null>(null);
   const lastActivityAtRef = useRef(Date.now());
   const inactivityWarnedRef = useRef(false);
   const inactivityLogoutInFlightRef = useRef(false);
@@ -296,6 +298,39 @@ function App() {
     () => [hasHeadRole, hasModeratorRole, hasFacultyRole].filter(Boolean).length > 1,
     [hasHeadRole, hasModeratorRole, hasFacultyRole],
   );
+  const principalStableKey = useMemo(() => {
+    if (!principal) return "";
+    const normalizedRoles = [...principal.roles].map((role) => String(role).trim().toLowerCase()).sort().join("|");
+    return [
+      principal.provider,
+      principal.subject,
+      principal.email ?? "",
+      principal.fullName ?? "",
+      principal.isSuperuser ? "1" : "0",
+      normalizedRoles,
+    ].join("::");
+  }, [principal]);
+
+  const principalStableKeyOf = useCallback((value: Principal | null | undefined): string => {
+    if (!value) return "";
+    const normalizedRoles = [...value.roles].map((role) => String(role).trim().toLowerCase()).sort().join("|");
+    return [
+      value.provider,
+      value.subject,
+      value.email ?? "",
+      value.fullName ?? "",
+      value.isSuperuser ? "1" : "0",
+      normalizedRoles,
+    ].join("::");
+  }, []);
+
+  const applyPrincipalIfChanged = useCallback((nextPrincipal: Principal) => {
+    if (principalStableKeyOf(principal) === principalStableKeyOf(nextPrincipal)) {
+      return false;
+    }
+    setPrincipal(nextPrincipal);
+    return true;
+  }, [principal, principalStableKeyOf]);
 
   function navigateTo(view: typeof superView) {
     setApiError(null);
@@ -811,14 +846,14 @@ function App() {
           { label: "Writes", value: dashboard.system.turso.rowsWritten ?? 0, max: 10_000_000, isBytes: false },
           { label: "Syncs", value: dashboard.system.turso.bytesSynced ?? 0, max: 3_000_000_000, isBytes: true },
           { label: "Storage", value: dashboard.system.turso.storageBytes ?? 0, max: 5_000_000_000, isBytes: true },
-        ].map(({ label, value, max, isBytes }) => {
+        ].map(({ label, value, max, isBytes }, idx) => {
           const pct = Math.min(100, (value / max) * 100);
           const fmt = (n: number) => isBytes
             ? (n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} KB` : `${n} B`)
             : (n >= 1e9 ? `${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${n}`);
           const barColor: "error" | "warning" | "success" = pct > 80 ? "error" : pct > 50 ? "warning" : "success";
           return (
-            <Box key={label} sx={{ textAlign: "center" }}>
+            <Box key={`${label}-${idx}`} sx={{ textAlign: "center" }}>
               <Typography variant="h5" sx={{ fontWeight: 700, color: `${barColor}.main`, lineHeight: 1.2 }}>
                 {pct.toFixed(1)}%
               </Typography>
@@ -991,7 +1026,7 @@ function App() {
     if (me.ok && me.principal) {
       const nextPrincipal = me.principal as Principal;
       bindAdminCacheToSession(nextPrincipal);
-      setPrincipal(nextPrincipal);
+      applyPrincipalIfChanged(nextPrincipal);
       sessionCheckRef.current = { checkedAt: Date.now(), ok: true };
       await refreshCsrf();
       setStatus("Logged in");
@@ -1076,7 +1111,7 @@ function App() {
       if (me.ok && me.principal && !sessionTakenOver) {
         const nextPrincipal = me.principal as Principal;
         bindAdminCacheToSession(nextPrincipal);
-        setPrincipal(nextPrincipal);
+        applyPrincipalIfChanged(nextPrincipal);
         sessionCheckRef.current = { checkedAt: Date.now(), ok: true };
         return;
       }
@@ -2473,7 +2508,17 @@ function App() {
       void revalidateSessionStrict();
     };
     const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        lastHiddenAtRef.current = Date.now();
+        return;
+      }
       if (document.visibilityState === "visible") {
+        const hiddenAt = lastHiddenAtRef.current;
+        const hiddenDurationMs = hiddenAt == null ? null : Date.now() - hiddenAt;
+        const recentServerCheck = sessionCheckRef.current.ok && Date.now() - sessionCheckRef.current.checkedAt < 60_000;
+        if (hiddenDurationMs != null && hiddenDurationMs < 20_000 && recentServerCheck) {
+          return;
+        }
         void revalidateSessionStrict();
       }
     };
@@ -2485,7 +2530,7 @@ function App() {
       window.removeEventListener("popstate", onPopState);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [sessionTakenOver]);
+  }, [sessionTakenOver, principalStableKey]);
 
   useEffect(() => {
     if (!principal) {
@@ -2588,7 +2633,7 @@ function App() {
       return;
     }
     void loadDashboard();
-  }, [principal, superView, isAdmin, hasHeadRole]);
+  }, [principalStableKey, superView, isAdmin, hasHeadRole]);
 
   useEffect(() => {
     if (!principal || superView !== "dashboard" || !hasScopedStudentDashboardRole) return;
@@ -2606,7 +2651,7 @@ function App() {
       }
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
+  }, [principalStableKey, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   useEffect(() => {
     if (!principal || superView !== "dashboard" || !isStudentOnlySession) return;
@@ -2616,7 +2661,7 @@ function App() {
       await loadRegulations();
       await loadPlansOfStudy();
     })();
-  }, [principal, superView, isStudentOnlySession]);
+  }, [principalStableKey, superView, isStudentOnlySession]);
 
   useEffect(() => {
     if (!isStudentOnlySession || studentSelfDirectoryRows.length === 0) return;
@@ -2634,14 +2679,14 @@ function App() {
     if (isStudentOnlySession) {
       void loadStudentSelfPlanOfStudy();
     }
-  }, [principal, superView, isStudentOnlySession]);
+  }, [principalStableKey, superView, isStudentOnlySession]);
 
   useEffect(() => {
     if (!principal) {
       setStudentSelfPlanOfStudyCode(null);
       setStudentSelfDirectoryRows([]);
     }
-  }, [principal]);
+  }, [principalStableKey]);
 
   useEffect(() => {
     if (!principal || superView !== "students-directory") {
@@ -2665,7 +2710,7 @@ function App() {
       await loadRegulations();
       await loadPlansOfStudy();
     })();
-  }, [principal, superView, programmeOptions.length, plansOfStudy.length, regulations.length, isStudentOnlySession]);
+  }, [principalStableKey, superView, programmeOptions.length, plansOfStudy.length, regulations.length, isStudentOnlySession]);
 
   useEffect(() => {
     if (!principal || superView !== "students-directory" || !hasScopedStudentDashboardRole) {
@@ -2684,7 +2729,7 @@ function App() {
     if (hasHeadRole || hasModeratorRole) {
       void loadHeadModeratorBatchSummary();
     }
-  }, [principal, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
+  }, [principalStableKey, superView, hasScopedStudentDashboardRole, hasFacultyRole, hasModeratorRole, hasHeadRole]);
 
   const facultyGraduatedCount = useMemo(
     () => facultyStudentRows.filter((student) => student.studentActive && student.graduated === "Yes").length,
@@ -3574,7 +3619,7 @@ function App() {
       }}
     >
       {navSections.map((section, sIdx) => (
-        <Fragment key={section.label}>
+        <Fragment key={`${section.label}-${sIdx}`}>
           <Typography
             variant="overline"
             sx={{
@@ -4202,8 +4247,8 @@ function App() {
                 </Box>
               </Stack>
               <Box sx={{ mt: 1.25, display: "flex", flexWrap: "wrap", gap: 0.75 }}>
-                {principal.roles.map((role) => (
-                  <Chip key={role} size="small" label={role} color={ROLE_COLORS[role] ?? "default"} />
+                {principal.roles.map((role, idx) => (
+                  <Chip key={`${role}-${idx}`} size="small" label={role} color={ROLE_COLORS[role] ?? "default"} />
                 ))}
                 {isSuperAdmin ? <Chip size="small" color="error" label="superadmin" /> : null}
               </Box>
@@ -4900,8 +4945,8 @@ function App() {
                                     { label: "Programme", value: programmeOptions.find((p) => p.id === studentSelf.programme)?.name ?? "—" },
                                     { label: "Mentor", value: studentSelf.mentorName || "—" },
                                     { label: "Plan of Study", value: activeStudentPlan?.planName ?? "—" },
-                                  ].map(({ label, value }) => (
-                                    <Box key={label}>
+                                  ].map(({ label, value }, idx) => (
+                                    <Box key={`${label}-${idx}`}>
                                       <Typography variant="caption" color="text.secondary" sx={{ fontSize: "0.65rem", display: "block", textTransform: "uppercase", letterSpacing: 0.5 }}>
                                         {label}
                                       </Typography>
@@ -5397,9 +5442,9 @@ function App() {
                       setActivityEventFilters([]);
                     }}
                   />
-                  {activityLevelOptions.map((level) => (
+                  {activityLevelOptions.map((level, idx) => (
                     <Chip
-                      key={level}
+                      key={`${level}-${idx}`}
                       size="small"
                       clickable
                       color={level === "error" ? "error" : level === "warn" ? "warning" : "info"}
@@ -5409,9 +5454,9 @@ function App() {
                       onClick={() => toggleActivityLevelFilter(level)}
                     />
                   ))}
-                  {activityStatusOptions.map((statusFamily) => (
+                  {activityStatusOptions.map((statusFamily, idx) => (
                     <Chip
-                      key={statusFamily}
+                      key={`${statusFamily}-${idx}`}
                       size="small"
                       clickable
                       color={
@@ -6065,366 +6110,28 @@ function App() {
         ) : null}
 
         {principal && superView === "regulations" ? (
-          <Card>
-            <CardContent>
-              <Stack spacing={adminPageSx.pageStack.spacing}>
-                <Box sx={adminPageSx.headerPanel}>
-                  <Stack
-                    direction={{ xs: "column", sm: "row" }}
-                    spacing={1.5}
-                    sx={{ justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}
-                  >
-                    <Box>
-                      <Typography variant="h6">Regulations And Plans Of Study</Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Curriculum structure, credit requirements, and batch plan distribution
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: "flex", justifyContent: "flex-end", alignSelf: { xs: "flex-start", sm: "flex-start" } }}>
-                      <Tooltip title="Refresh" arrow>
-                        <span>
-                          <IconButton
-                            size="small"
-                            aria-label="Refresh regulations"
-                            disabled={busy}
-                            onClick={() => {
-                              void loadRegulations({ force: true });
-                              void loadPlansOfStudy({ force: true });
-                              if (isStudentOnlySession) {
-                                void loadStudentSelfPlanOfStudy({ force: true });
-                              }
-                            }}
-                          >
-                            <RefreshIcon
-                              fontSize="small"
-                              sx={{
-                                "@keyframes spin": { from: { transform: "rotate(0deg)" }, to: { transform: "rotate(360deg)" } },
-                                animation: busy ? "spin 0.8s linear infinite" : "none",
-                              }}
-                            />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </Box>
-                  </Stack>
-                  {plansValidationReport?.hasErrors && !isStudentOnlySession ? (
-                    <Alert severity="error" sx={{ mt: 1.5 }}>
-                      {`Validation found ${plansValidationReport.totalErrors} issue(s).`}
-                      <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
-                        {plansValidationReport.byPlan
-                          .flatMap((plan) => plan.errors.map((error) => ({ planCode: plan.planCode, planName: plan.planName, message: error.message })))
-                          .slice(0, 5)
-                          .map((item, idx) => (
-                            <Box component="li" key={`reg-validation-${item.planCode}-${idx}`}>
-                              <Typography variant="body2">{`${item.planName} (Code ${item.planCode}): ${item.message}`}</Typography>
-                            </Box>
-                          ))}
-                      </Box>
-                    </Alert>
-                  ) : null}
-                </Box>
-
-              {visibleRegulations.length > 0 ? (
-                <Paper variant="outlined">
-                    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-                      <Tabs
-                        value={safeRegulationTab}
-                        onChange={(_, v: number) => { setRegulationTab(v); }}
-                        variant="scrollable"
-                        scrollButtons="auto"
-                      >
-                        {visibleRegulations.map((reg, i) => (
-                          <Tab
-                            key={reg.code}
-                            value={i}
-                            label={
-                              <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
-                                <span>{reg.code}</span>
-                                <Chip
-                                  label={`${formatCredits(reg.curriculumStructure.totalCreditsRequired)} cr`}
-                                  size="small"
-                                  sx={{ height: 18, fontSize: "0.68rem", pointerEvents: "none", mx: 0.25, my: 0.25 }}
-                                />
-                              </Stack>
-                            }
-                          />
-                        ))}
-                      </Tabs>
-                    </Box>
-
-                    {visibleRegulations.map((regulation, i) => {
-                      if (i !== safeRegulationTab) return null;
-                      const total = regulation.curriculumStructure.totalCreditsRequired;
-                      const categories = regulation.curriculumStructure.categories;
-                      const rangeCount = categories.filter((c) => c.rule.type === "range").length;
-
-                      return (
-                        <Box key={regulation.code} sx={{ p: 3 }}>
-                          <Stack direction="row" sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                              {regulation.name}
-                            </Typography>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", ml: 0.5 }}>
-                              <Chip label={`${formatCredits(total)} credits required`} size="small" color="primary" sx={{ m: 0.25 }} />
-                              <Chip label={`${categories.length} categories`} size="small" variant="outlined" sx={{ m: 0.25 }} />
-                              {rangeCount > 0 && (
-                                <Chip label={`${rangeCount} flexible`} size="small" color="warning" variant="outlined" sx={{ m: 0.25 }} />
-                              )}
-                            </Stack>
-                          </Stack>
-
-                          <TableContainer component={Paper} variant="outlined">
-                            <Table>
-                              <TableHead>
-                                <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "action.hover", fontWeight: 700 } }}>
-                                  <TableCell>Code</TableCell>
-                                  <TableCell>Category</TableCell>
-                                  <TableCell align="right">Credits</TableCell>
-                                  <TableCell sx={{ width: 140 }}>Share of Total</TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {categories.map((category) => {
-                                  const isRange = category.rule.type === "range";
-                                  const creditsText = isRange
-                                    ? `${(category.rule as { type: "range"; min: number; max: number }).min}–${(category.rule as { type: "range"; min: number; max: number }).max}`
-                                    : formatCredits((category.rule as { type: string; value: number }).value);
-                                  const barValue = isRange
-                                    ? (((category.rule as { type: "range"; min: number; max: number }).min + (category.rule as { type: "range"; min: number; max: number }).max) / 2 / total) * 100
-                                    : ((category.rule as { type: string; value: number }).value / total) * 100;
-
-                                  return (
-                                    <TableRow key={`${regulation.code}-${category.code}`} hover>
-                                      <TableCell>
-                                        <Chip
-                                          label={category.code}
-                                          size="small"
-                                          variant="outlined"
-                                          sx={{ fontFamily: "monospace", fontWeight: 600 }}
-                                        />
-                                      </TableCell>
-                                      <TableCell>{category.name}</TableCell>
-                                      <TableCell align="right">
-                                        <Chip
-                                          label={creditsText}
-                                          size="small"
-                                          color={isRange ? "warning" : "default"}
-                                          variant={isRange ? "outlined" : "filled"}
-                                          sx={{ fontWeight: 600, minWidth: 52 }}
-                                        />
-                                      </TableCell>
-                                      <TableCell>
-                                        <Stack spacing={0.75}>
-                                          <LinearProgress
-                                            variant="determinate"
-                                            value={barValue}
-                                            color={isRange ? "warning" : "primary"}
-                                            sx={{ height: 6, borderRadius: 3 }}
-                                          />
-                                          <Typography variant="caption" color="text.secondary">
-                                            {Math.round(barValue)}%
-                                          </Typography>
-                                        </Stack>
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </TableContainer>
-                        </Box>
-                      );
-                    })}
-                </Paper>
-              ) : (
-                <Paper variant="outlined" sx={{ p: 3 }}>
-                  <Box sx={{ textAlign: "center" }}>
-                    <Typography variant="body2" color="text.secondary">
-                      {isStudentOnlySession
-                        ? "No regulations found for your assigned plan of study."
-                        : "No regulations found. Click Refresh to reload."}
-                    </Typography>
-                  </Box>
-                </Paper>
-              )}
-
-              {filteredPlansOfStudy.length > 0 ? (
-                <Paper variant="outlined">
-                    <Box sx={{ borderBottom: 1, borderColor: "divider" }}>
-                      <Tabs
-                        value={safePlanOfStudyTab}
-                        onChange={(_, v: number) => { setPlanOfStudyTab(v); }}
-                        variant="scrollable"
-                        scrollButtons="auto"
-                      >
-                        {filteredPlansOfStudy.map((plan, i) => (
-                          (() => {
-                            const computedPlanTotalCredits = plan.semesters.reduce(
-                              (acc, semester) => acc + Number(semester.totalCredits ?? 0),
-                              0
-                            );
-                            return (
-                          <Tab
-                            key={plan.planCode}
-                            value={i}
-                            label={
-                              <Stack direction="row" spacing={0.75} sx={{ alignItems: "center" }}>
-                                <span>{plan.planName}</span>
-                                <Chip
-                                  label={`${formatCredits(computedPlanTotalCredits)} cr`}
-                                  size="small"
-                                  sx={{ height: 18, fontSize: "0.68rem", pointerEvents: "none", mx: 0.25, my: 0.25 }}
-                                />
-                              </Stack>
-                            }
-                          />
-                            );
-                          })()
-                        ))}
-                      </Tabs>
-                    </Box>
-                    {filteredPlansOfStudy.map((plan, i) => {
-                      if (i !== safePlanOfStudyTab) return null;
-                      const regulation = regulations.find((r) => r.code === plan.regulationCode) ?? null;
-                      const measureByCode = new Map<string, "credits" | "units">(
-                        (regulation?.curriculumStructure.categories ?? []).map((c) => [c.code, c.measure ?? "credits"]),
-                      );
-                      const computedCategoryTotals = plan.semesters.reduce<Record<string, number>>((acc, semester) => {
-                        Object.entries(semester.categories ?? {}).forEach(([code, rawValue]) => {
-                          const value = Number(rawValue ?? 0);
-                          acc[code] = (acc[code] ?? 0) + value;
-                        });
-                        return acc;
-                      }, {});
-                      const computedPlanTotalCredits = plan.semesters.reduce(
-                        (acc, semester) => acc + Number(semester.totalCredits ?? 0),
-                        0
-                      );
-                      const categoryCodes = Array.from(
-                        new Set(plan.semesters.flatMap((semester) => Object.keys(semester.categories ?? {})))
-                      );
-                      const creditCategoryCodes = categoryCodes.filter((code) => (measureByCode.get(code) ?? "credits") === "credits");
-                      const unitCategoryCodes = categoryCodes.filter((code) => (measureByCode.get(code) ?? "credits") === "units");
-                      const categoryCodesOrdered = [...creditCategoryCodes, ...unitCategoryCodes];
-                      const firstUnitColumnIndex = creditCategoryCodes.length;
-                      return (
-                        <Box key={plan.planCode} sx={{ p: 3 }}>
-                          <Stack direction="row" sx={{ mb: 2.5, flexWrap: "wrap", alignItems: "center", gap: 1.5 }}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-                              {plan.planName}
-                            </Typography>
-                            <Stack direction="row" spacing={1} sx={{ alignItems: "center", flexWrap: "wrap", ml: 0.5 }}>
-                              <Chip label={`Code ${plan.planCode}`} size="small" variant="outlined" sx={{ m: 0.25 }} />
-                              <Chip label={plan.regulationCode} size="small" variant="outlined" sx={{ m: 0.25 }} />
-                              <Chip label={`${plan.semesters.length} semesters`} size="small" variant="outlined" sx={{ m: 0.25 }} />
-                              <Chip label={`${formatCredits(computedPlanTotalCredits)} credits planned`} size="small" color="primary" sx={{ m: 0.25 }} />
-                              {unitCategoryCodes.length > 0 && (
-                                <Chip
-                                  label={`${formatCredits(plan.semesters.reduce((acc, sem) => acc + Number(sem.totalUnits ?? 0), 0))} units planned`}
-                                  size="small"
-                                  color="secondary"
-                                  variant="outlined"
-                                  sx={{ m: 0.25 }}
-                                />
-                              )}
-                            </Stack>
-                          </Stack>
-
-                          <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-                            <Table size="small">
-                              <TableHead>
-                                <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "background.default", fontWeight: 600, fontSize: "0.72rem", py: 0.75 } }}>
-                                  <TableCell />
-                                  <TableCell
-                                    colSpan={Math.max(creditCategoryCodes.length, 1)}
-                                    align="center"
-                                    sx={{ color: "primary.main" }}
-                                  >
-                                    Credits
-                                  </TableCell>
-                                  {unitCategoryCodes.length > 0 && (
-                                    <TableCell
-                                      colSpan={unitCategoryCodes.length}
-                                      align="center"
-                                      sx={{ color: "secondary.main", borderLeft: "2px solid", borderLeftColor: "divider" }}
-                                    >
-                                      Non-credits
-                                    </TableCell>
-                                  )}
-                                  <TableCell />
-                                </TableRow>
-                                <TableRow sx={{ "& .MuiTableCell-head": { bgcolor: "action.hover", fontWeight: 700 } }}>
-                                  <TableCell>Semester</TableCell>
-                                  {categoryCodesOrdered.map((code, idx) => (
-                                    <TableCell
-                                      key={`${plan.planCode}-${code}`}
-                                      align="right"
-                                      sx={idx === firstUnitColumnIndex && unitCategoryCodes.length > 0
-                                        ? { borderLeft: "2px solid", borderLeftColor: "divider" }
-                                        : undefined}
-                                    >
-                                      {code}
-                                    </TableCell>
-                                  ))}
-                                  <TableCell align="right">Total</TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {plan.semesters.map((semester) => (
-                                  <TableRow key={`${plan.planCode}-sem-${semester.semester}`} hover>
-                                    <TableCell>{semester.semester}</TableCell>
-                                    {categoryCodesOrdered.map((code, idx) => (
-                                      <TableCell
-                                        key={`${plan.planCode}-sem-${semester.semester}-${code}`}
-                                        align="right"
-                                        sx={idx === firstUnitColumnIndex && unitCategoryCodes.length > 0
-                                          ? { borderLeft: "2px solid", borderLeftColor: "divider" }
-                                          : undefined}
-                                      >
-                                        {formatCredits(Number(semester.categories?.[code] ?? 0))}
-                                      </TableCell>
-                                    ))}
-                                    <TableCell align="right">
-                                      <Chip label={formatCredits(Number(semester.totalCredits ?? 0))} size="small" sx={{ m: 0.25 }} />
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                                <TableRow sx={{ "& .MuiTableCell-root": { fontWeight: 700 } }}>
-                                  <TableCell>Total</TableCell>
-                                  {categoryCodesOrdered.map((code, idx) => (
-                                    <TableCell
-                                      key={`${plan.planCode}-tot-${code}`}
-                                      align="right"
-                                      sx={idx === firstUnitColumnIndex && unitCategoryCodes.length > 0
-                                        ? { borderLeft: "2px solid", borderLeftColor: "divider" }
-                                        : undefined}
-                                    >
-                                      {formatCredits(Number(computedCategoryTotals[code] ?? 0))}
-                                    </TableCell>
-                                  ))}
-                                  <TableCell align="right">
-                                    <Chip label={formatCredits(computedPlanTotalCredits)} size="small" color="primary" sx={{ m: 0.25 }} />
-                                  </TableCell>
-                                </TableRow>
-                              </TableBody>
-                            </Table>
-                          </TableContainer>
-                        </Box>
-                      );
-                    })}
-                </Paper>
-              ) : (
-                <Paper variant="outlined" sx={{ p: 3 }}>
-                  <Box sx={{ textAlign: "center" }}>
-                    <Typography variant="body2" color="text.secondary">
-                      No plans of study found for the selected regulation. Click Refresh to reload.
-                    </Typography>
-                  </Box>
-                </Paper>
-              )}
-              </Stack>
-            </CardContent>
-          </Card>
+          <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading regulations...</Typography>}>
+            <RegulationsView
+              regulations={regulations}
+              plansOfStudy={plansOfStudy}
+              plansValidationReport={plansValidationReport}
+              isStudentOnlySession={isStudentOnlySession}
+              busy={busy}
+              onRefresh={() => {
+                void loadRegulations({ force: true });
+                void loadPlansOfStudy({ force: true });
+                if (isStudentOnlySession) {
+                  void loadStudentSelfPlanOfStudy({ force: true });
+                }
+              }}
+              visibleRegulations={visibleRegulations}
+              filteredPlansOfStudy={filteredPlansOfStudy}
+              regulationTab={safeRegulationTab}
+              setRegulationTab={setRegulationTab}
+              planOfStudyTab={safePlanOfStudyTab}
+              setPlanOfStudyTab={setPlanOfStudyTab}
+            />
+          </Suspense>
         ) : null}
         {principal && superView === "student-credits" ? (
           <Suspense fallback={<Typography variant="body2" color="text.secondary">Loading student credits...</Typography>}>
@@ -6606,8 +6313,8 @@ function App() {
                               justifyContent: { xs: "center", sm: "flex-start" },
                             }}
                           >
-                            {myAccount.roles.map((role) => (
-                              <Chip key={role} label={role} size="small" color={ROLE_COLORS[role] ?? "default"} />
+                            {myAccount.roles.map((role, idx) => (
+                              <Chip key={`${role}-${idx}`} label={role} size="small" color={ROLE_COLORS[role] ?? "default"} />
                             ))}
                             {myAccount.provider ? (
                               <Chip

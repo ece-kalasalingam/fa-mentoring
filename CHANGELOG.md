@@ -29,6 +29,20 @@ Allowed `<type>` values:
 ---
 
 ## 2026-05-22 IST | claude-sonnet-4-6 | change
+- Summary: Extracted regulations page into a dedicated RegulationsView component with simplified, student-friendly UI.
+- Files: frontend/src/app/RegulationsView.tsx, frontend/src/app/App.tsx
+- Details:
+  - Created `RegulationsView.tsx` as a lazy-loaded component, removing ~380 lines of inline JSX from `App.tsx`.
+  - Replaced complex card grid, donut chart, stat boxes, and progress bars with clean readable tables — designed for first-year students transitioning from school.
+  - Regulation panel: plain-language summary line ("You need 160 credits…"), dense two-column tables for Course Credits and Non-Credit Units (renamed from "Skill Units"), total row per section, flexible-range info note.
+  - Plan of Study panel: separate Credits and Units total columns (previously a single mixed total), `padding="none"` with `px: 1` for compact layout, striped rows via `nth-of-type(odd)` on TableBody.
+  - Both regulation tables also striped for visual consistency.
+  - Tab labels show full regulation/plan names instead of codes.
+  - Page heading corrected to "Regulations & Plan of Study".
+  - All tables use `size="small"` + `padding="none"` (native MUI dense mode) instead of custom sx padding overrides.
+- Revert: none
+
+## 2026-05-22 IST | claude-sonnet-4-6 | change
 - Summary: Replaced 4-status credit classification with a new 5-status percentage-based system and extracted it as a shared canonical module.
 - Files: shared/src/creditStatus.ts, frontend/src/app/utils.ts, frontend/src/app/constants.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/tsconfig.app.json, frontend/vite.config.ts, api/tsconfig.json, CHANGELOG.md
 - Details:
@@ -4505,4 +4519,63 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Changed print chart image sizing from fixed pixel width/height to fluid (`width: 100%`, `max-width: 100%`, `height: auto`).
   - Ensured chart parent containers in print clone are set to `width: 100%`, `height: auto`, and `overflow: visible`.
   - Prevents right-edge legend/content clipping in printed ECharts snapshots.
+- Revert: none
+
+## 2026-05-22 11:49 IST | codex-gpt-5 | fix
+- Summary: Stabilized UI state across focus/session revalidation and prevented MRT pagination resets during benign refreshes.
+- Files: frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/ManageUsersTable.tsx, frontend/src/app/ActiveUsersTable.tsx, CHANGELOG.md
+- Details:
+  - Made session principal updates idempotent in loadSessionPrincipal and evalidateSessionStrict by comparing a stable auth/identity key before calling setPrincipal, preventing unnecessary downstream reload effects.
+  - Hardened visibility-triggered revalidation by skipping strict auth checks after short tab blur intervals when a recent successful server check exists, reducing focus churn resets without changing auth enforcement.
+  - Switched Students, Manage Users, and Active Users MRT instances to controlled pagination state with utoResetPageIndex: false, preserving current page across normal data refreshes and clamping page index when row counts shrink.
+  - Added controlled sorting/filter/global filter state for Manage Users and Active Users to preserve current table view context through re-renders.
+- Revert: none
+
+## 2026-05-22 16:05 IST | codex-gpt-5 | fix
+- Summary: Fixed React key warning in App role chip lists by using collision-safe keys.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated dashboard role chip rendering to use composite keys (ole + index) instead of plain role names.
+  - Updated My Account role chip rendering with the same composite key strategy.
+  - Prevents duplicate-key warnings when role arrays contain repeated values while preserving existing UI behavior.
+- Revert: none
+## 2026-05-22 16:13 IST | codex-gpt-5 | fix
+- Summary: Hardened additional App.tsx list keys against duplicate-key warnings.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated Turso usage card map key from label to label-index.
+  - Updated sidebar nav section fragment key from section.label to section.label-index.
+  - Updated student profile summary grid key from label to label-index.
+  - Updated activity filter chip keys from raw option values to alue-index for level and status families.
+  - Kept all behavior and rendering order unchanged; this only strengthens key uniqueness guarantees.
+- Revert: none
+## 2026-05-22 16:24 IST | codex-gpt-5 | change
+- Summary: Grouped regulation categories under Credits and Non-Credits sub-headings and renamed Credits column to Credits/Units.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - In Regulations detail table, categories are now rendered in two sections based on category measure: Credits and Non-Credits.
+  - Added section header rows within the table body for both sub-headings (shown only when that section has rows).
+  - Renamed table column heading from Credits to Credits/Units.
+  - Preserved existing percentage/share calculations and row content behavior.
+- Revert: none
+## 2026-05-22 16:31 IST | codex-gpt-5 | change
+- Summary: Added units-required chip to the Regulations header alongside credits-required chip.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - In each Regulations detail header, added a `units required` chip using `curriculumStructure.totalUnitsRequired` (defaulting to 0 when absent).
+  - Kept existing `credits required`, category count, and flexible-range chips unchanged.
+- Revert: none
+## 2026-05-22 16:38 IST | codex-gpt-5 | change
+- Summary: Updated Regulations tab chip to display combined credits+units count as `cr+ut`.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - In Regulations tabs, changed chip value from credits-only to `(totalCreditsRequired + totalUnitsRequired)`.
+  - Updated chip suffix from `cr` to `cr+ut`.
+- Revert: none
+## 2026-05-22 16:44 IST | codex-gpt-5 | fix
+- Summary: Updated Regulations tab chip format to display separate credits and units as `x cr + y ut`.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Replaced combined `cr+ut` total with explicit split values using the format `credits cr + units ut`.
+  - Uses `totalCreditsRequired` and `totalUnitsRequired` directly with shared credit formatter.
 - Revert: none
