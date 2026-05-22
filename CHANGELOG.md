@@ -28,6 +28,15 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-23 04:13 IST | codex | fix
+- Summary: Resolved transitive `ws` npm audit vulnerability in API dependency graph and revalidated workspace security audit.
+- Files: api/package.json, api/package-lock.json, package-lock.json, node_modules/.package-lock.json, CHANGELOG.md
+- Details:
+  - Added `overrides.ws` in `api/package.json` to force a patched `ws` resolution for transitive dependencies.
+  - Regenerated lockfiles so API dependencies resolve without the vulnerable `ws` range reported by npm audit.
+  - Re-ran `npm run security:audit` and confirmed `root`, `api`, and `frontend` all report `found 0 vulnerabilities`.
+- Revert: none
+
 ## 2026-05-23 08:42 IST | codex | change
 - Summary: Replaced scoped faculty/moderator credit-table rendering with a direct full CSV export flow backed by a dedicated API endpoint.
 - Files: api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
