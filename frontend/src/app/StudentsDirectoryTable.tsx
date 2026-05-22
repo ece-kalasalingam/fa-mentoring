@@ -31,6 +31,7 @@ import ExportToolbar from "./ExportToolbar";
 import { formatIst } from "./dateTime";
 import type { CreditStatus, StudentCreditSummary, StudentDirectoryRow } from "./types";
 import { CREDIT_STATUSES, CREDIT_STATUS_LABELS } from "./constants";
+import { CreditStatusChip } from "./CreditStatusChip";
 
 type StudentPatch = Pick<
   StudentDirectoryRow,
@@ -721,59 +722,7 @@ export default function StudentsDirectoryTable(props: Props) {
         Cell: ({ row }) => {
           const s = props.creditSummaries?.[row.original.userId];
           if (!s) return <Typography variant="body2" color="text.disabled">—</Typography>;
-          if (s.status === "complete") {
-            return (
-              <Chip
-                icon={<CheckCircleIcon sx={{ fontSize: "0.7rem !important" }} />}
-                label="Complete"
-                size="small"
-                color="success"
-                sx={{ height: 20, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
-              />
-            );
-          }
-          if (s.status === "on-track") {
-            return (
-              <Chip
-                label="On Track"
-                size="small"
-                color="success"
-                variant="outlined"
-                sx={{ height: 20, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
-              />
-            );
-          }
-          if (s.status === "marginal") {
-            return (
-              <Chip
-                label="Marginal"
-                size="small"
-                color="primary"
-                variant="outlined"
-                sx={{ height: 20, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
-              />
-            );
-          }
-          if (s.status === "alarming") {
-            return (
-              <Chip
-                label="Alarming"
-                size="small"
-                color="warning"
-                variant="outlined"
-                sx={{ height: 20, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
-              />
-            );
-          }
-          return (
-            <Chip
-              label="Off Track"
-              size="small"
-              color="error"
-              variant="outlined"
-              sx={{ height: 20, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
-            />
-          );
+          return <CreditStatusChip status={s.status} />;
         },
       },
       ...(showMentorName

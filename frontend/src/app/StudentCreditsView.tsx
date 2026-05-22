@@ -11,7 +11,8 @@ import SaveIcon from "@mui/icons-material/Save";
 import { alpha } from "@mui/material/styles";
 import { useTheme } from "@mui/material/styles";
 import { formatCredits, getInitials, normalizeCredits } from "./utils";
-import type { PlanOfStudy, Regulation, StudentDirectoryRow } from "./types";
+import type { CreditStatus, PlanOfStudy, Regulation, StudentDirectoryRow } from "./types";
+import { CreditStatusChip } from "./CreditStatusChip";
 
 type Props = {
   student: StudentDirectoryRow;
@@ -22,6 +23,8 @@ type Props = {
   earnedUnitsByCategory: Record<string, number>;
   savedUnitsByCategory: Record<string, number>;
   isSaving: boolean;
+  creditStatus?: CreditStatus;
+  isStudentOnly?: boolean;
   studentIndex?: number;
   studentCount?: number;
   onChangeEarnedCredit: (semester: number, categoryCode: string, value: number) => void;
@@ -278,8 +281,8 @@ export default function StudentCreditsView(props: Props) {
               bgcolor: "action.hover",
             }}
           >
-            {/* Navigation strip */}
-            {props.studentCount != null && props.studentCount > 1 && (
+            {/* Navigation strip — hidden for student-only sessions */}
+            {!props.isStudentOnly && props.studentCount != null && props.studentCount > 1 && (
               <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
                 <Tooltip title="Previous student" arrow>
                   <span>
@@ -344,6 +347,7 @@ export default function StudentCreditsView(props: Props) {
                       variant="outlined"
                       sx={{ height: 18, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
                     />
+                    {props.creditStatus && <CreditStatusChip status={props.creditStatus} />}
                   </Box>
                 </Box>
               </Box>

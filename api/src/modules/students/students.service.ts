@@ -1,9 +1,14 @@
 import { getDb } from "../../core/db";
 import type { Env } from "../../core/types";
 import type { StudentScope } from "../auth/authorization.service";
-import { computeCreditStatus } from "#shared/creditStatus";
+import { computeCreditStatus, CREDIT_STATUSES, CREDIT_STATUS_LABELS, type CreditStatus } from "#shared/creditStatus";
 import { fetchPlansOfStudyFromJson } from "../plan-of-study/plan-of-study.service";
 import { fetchRegulationsFromJson } from "../regulations/regulations.service";
+
+// Reverse map: "On Track" → "on-track", "Complete" → "complete", etc.
+const STATUS_LABEL_TO_KEY = new Map<string, CreditStatus>(
+  CREDIT_STATUSES.map((s) => [CREDIT_STATUS_LABELS[s], s]),
+);
 
 function toTwoDecimalNumber(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -140,7 +145,7 @@ export async function getStudentStatsByScope(env: Env, scope: StudentScope) {
 export async function getStudentCreditSummaries(
   env: Env,
   studentIds: string[],
-): Promise<Array<{ studentId: string; totalCredits: number; totalUnits: number; byCategory: Record<string, number> }>> {
+): Promise<Array<{ studentId: string; totalCredits: number; totalUnits: number; byCategory: Record<string, number>; status: CreditStatus | null }>> {
   if (studentIds.length === 0) return [];
   const db = getDb(env);
   const placeholders = studentIds.map(() => "?").join(", ");
@@ -149,7 +154,8 @@ export async function getStudentCreditSummaries(
             student_id,
             coalesce(earned_credits, 0) as total_credits,
             coalesce(earned_units, 0) as total_units,
-            coalesce(category_totals_json, '{}') as category_totals_json
+            coalesce(category_totals_json, '{}') as category_totals_json,
+            status
           from student_credit_status_summary
           where student_id in (${placeholders})`,
     args: studentIds as Array<string | number | null>,
@@ -158,6 +164,7 @@ export async function getStudentCreditSummaries(
   const byStudentCategory = new Map<string, Record<string, number>>();
   const totalCreditsByStudent = new Map<string, number>();
   const totalUnitsByStudent = new Map<string, number>();
+  const statusByStudent = new Map<string, CreditStatus>();
   for (const row of result.rows) {
     const studentId = String(row.student_id ?? "");
     if (!studentId) continue;
@@ -177,6 +184,8 @@ export async function getStudentCreditSummaries(
     byStudentCategory.set(studentId, normalizedCategoryTotals);
     totalCreditsByStudent.set(studentId, toTwoDecimalNumber(Number(row.total_credits ?? 0)));
     totalUnitsByStudent.set(studentId, toTwoDecimalNumber(Number(row.total_units ?? 0)));
+    const statusKey = STATUS_LABEL_TO_KEY.get(String(row.status ?? ""));
+    if (statusKey) statusByStudent.set(studentId, statusKey);
   }
 
   return studentIds.map((id) => {
@@ -186,6 +195,7 @@ export async function getStudentCreditSummaries(
       totalCredits: totalCreditsByStudent.get(studentId) ?? 0,
       totalUnits: totalUnitsByStudent.get(studentId) ?? 0,
       byCategory: byStudentCategory.get(studentId) ?? {},
+      status: statusByStudent.get(studentId) ?? null,
     };
   });
 }

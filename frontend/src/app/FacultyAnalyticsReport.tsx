@@ -30,6 +30,7 @@ import type { EChartsOption } from "echarts";
 import type { CreditStatus, FacultyStudentRow, PlanOfStudy, Regulation } from "./types";
 import { CREDIT_STATUSES, CREDIT_STATUS_LABELS } from "./constants";
 import { computeCreditStatus, formatCredits, normalizeCredits } from "./utils";
+import { CreditStatusChip } from "./CreditStatusChip";
 
 // ── Internal status types ─────────────────────────────────────────────────────
 type OverallStatus = CreditStatus;
@@ -100,16 +101,6 @@ function overallStatusColor(status: OverallStatus, theme: ReturnType<typeof useT
     case "off-track": return theme.palette.error.main;
   }
 }
-function overallChipColor(status: OverallStatus): "success" | "primary" | "warning" | "error" {
-  switch (status) {
-    case "complete":  return "success";
-    case "on-track":  return "success";
-    case "marginal":  return "primary";
-    case "alarming":  return "warning";
-    case "off-track": return "error";
-  }
-}
-
 // ── Build category analytics from a student list ──────────────────────────────
 function buildCategoryAnalytics(
   students: StudentAnalytic[],
@@ -638,11 +629,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
           </Box>
           <Box sx={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
             {onViewStudents && CREDIT_STATUSES.map((s) => statusCounts[s] > 0 && (
-              <Chip key={s} size="small" label={`${OVERALL_LABELS[s]} (${statusCounts[s]})`}
-                color={overallChipColor(s)} variant="outlined"
-                onClick={() => onViewStudents(s, batch)}
-                sx={{ fontSize: "0.62rem", height: 22, cursor: "pointer" }}
-              />
+              <CreditStatusChip key={s} status={s} count={statusCounts[s]} onClick={() => onViewStudents(s, batch)} />
             ))}
             <Button size="small" variant="outlined" startIcon={<DownloadIcon fontSize="small" />} onClick={handleExportCsv} sx={{ flexShrink: 0 }}>
               CSV
@@ -705,8 +692,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
                     </TableCell>
                   )}
                   <TableCell>
-                    <Chip size="small" label={OVERALL_LABELS[sa.overallStatus]} color={overallChipColor(sa.overallStatus)}
-                      variant="outlined" sx={{ fontSize: "0.63rem", height: 20 }} />
+                    <CreditStatusChip status={sa.overallStatus} />
                   </TableCell>
                   {categoryAnalytics.slice(0, maxCatCols).map((cat) => {
                     const info = sa.categoryStatuses[cat.code];
@@ -1120,12 +1106,7 @@ export default function FacultyAnalyticsReport({
                     const count = batchStatusCounts[s];
                     if (count === 0) return null;
                     return (
-                      <Chip key={s} size="small"
-                        label={`${OVERALL_LABELS[s]}: ${count}`}
-                        color={overallChipColor(s)}
-                        variant="outlined"
-                        sx={{ fontSize: "0.6rem", height: 20 }}
-                      />
+                      <CreditStatusChip key={s} status={s} count={count} />
                     );
                   })}
                 </Box>

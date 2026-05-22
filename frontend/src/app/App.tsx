@@ -47,11 +47,11 @@ import {
   SESSION_PLAN_VALIDATION_CACHE_KEY,
   SESSION_PROGRAMMES_CACHE_KEY,
   SESSION_FACULTY_MENTORED_MINIMAL_KEY,
-  CREDIT_STATUS_LABELS,
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
 import { computeCreditStatus, formatCredits, getInitials, normalizeCredits, ROLE_COLORS } from "./utils";
+import { CreditStatusChip } from "./CreditStatusChip";
 import { DateTimeProvider } from "./dateTimeContext";
 import type {
   ActiveUserRow,
@@ -1751,12 +1751,13 @@ function App() {
             ? (scopedDashboardRoleContext === "moderator" ? "moderator" : "faculty")
             : (hasHeadRole ? "head" : "all"));
     const cacheKey = getStudentSummaryCacheKey(summaryRoleContext, userIds);
-    const cached = readStudentSummaryCache<Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>>(cacheKey);
+    type SummaryItem = { studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number>; status?: string };
+    const cached = readStudentSummaryCache<SummaryItem[]>(cacheKey);
     const result = cached
       ? { ok: true, summaries: cached }
       : await callApi("/api/student-credits/summaries", "POST", undefined, { studentIds: userIds });
     if (!cached && result.ok && Array.isArray(result.summaries)) {
-      writeStudentSummaryCache(cacheKey, result.summaries as Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>);
+      writeStudentSummaryCache(cacheKey, result.summaries as SummaryItem[]);
     }
     if (result.ok && Array.isArray(result.summaries)) {
       const planByCode = new Map(plansOfStudy.map((plan) => [plan.planCode, plan]));
@@ -1765,7 +1766,7 @@ function App() {
       const totals: Record<string, number> = {};
       const unitTotals: Record<string, number> = {};
       const summaryCatEarned: Record<string, Record<string, number>> = {};
-      for (const item of result.summaries as Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>) {
+      for (const item of result.summaries as SummaryItem[]) {
         const studentId = String(item.studentId ?? "");
         if (!studentId) continue;
         const student = studentById.get(studentId);
@@ -4675,11 +4676,11 @@ function App() {
                                 <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
                                   {`${row.total} student${row.total === 1 ? "" : "s"}`}
                                 </Typography>
-                                {row.complete > 0 ? <Chip size="small" label={`Complete: ${row.complete}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                                {row.onTrack > 0 ? <Chip size="small" label={`On Track: ${row.onTrack}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                                {row.marginal > 0 ? <Chip size="small" label={`Marginal: ${row.marginal}`} color="primary" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                                {row.alarming > 0 ? <Chip size="small" label={`Alarming: ${row.alarming}`} color="warning" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                                {row.offTrack > 0 ? <Chip size="small" label={`Off Track: ${row.offTrack}`} color="error" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                                {row.complete > 0 ? <CreditStatusChip status="complete" count={row.complete} /> : null}
+                                {row.onTrack > 0 ? <CreditStatusChip status="on-track" count={row.onTrack} /> : null}
+                                {row.marginal > 0 ? <CreditStatusChip status="marginal" count={row.marginal} /> : null}
+                                {row.alarming > 0 ? <CreditStatusChip status="alarming" count={row.alarming} /> : null}
+                                {row.offTrack > 0 ? <CreditStatusChip status="off-track" count={row.offTrack} /> : null}
                               </Box>
                             ))}
                             {combinedHmBatchSummaries.length === 0 ? (
@@ -4868,11 +4869,11 @@ function App() {
                             <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: "nowrap" }}>
                               {`${row.total} student${row.total === 1 ? "" : "s"}`}
                             </Typography>
-                            {row.complete > 0 ? <Chip size="small" label={`Complete: ${row.complete}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                            {row.onTrack > 0 ? <Chip size="small" label={`On Track: ${row.onTrack}`} color="success" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                            {row.marginal > 0 ? <Chip size="small" label={`Marginal: ${row.marginal}`} color="primary" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                            {row.alarming > 0 ? <Chip size="small" label={`Alarming: ${row.alarming}`} color="warning" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
-                            {row.offTrack > 0 ? <Chip size="small" label={`Off Track: ${row.offTrack}`} color="error" variant="outlined" sx={{ fontSize: "0.6rem", height: 20, whiteSpace: "nowrap" }} /> : null}
+                            {row.complete > 0 ? <CreditStatusChip status="complete" count={row.complete} /> : null}
+                            {row.onTrack > 0 ? <CreditStatusChip status="on-track" count={row.onTrack} /> : null}
+                            {row.marginal > 0 ? <CreditStatusChip status="marginal" count={row.marginal} /> : null}
+                            {row.alarming > 0 ? <CreditStatusChip status="alarming" count={row.alarming} /> : null}
+                            {row.offTrack > 0 ? <CreditStatusChip status="off-track" count={row.offTrack} /> : null}
                             <Button type="button" size="small" sx={{ ml: "auto", whiteSpace: "nowrap" }} onClick={(event) => { event.stopPropagation(); openBatchAnalysis(row.batch); }}>
                               Analysis
                             </Button>
@@ -5002,17 +5003,7 @@ function App() {
                                 {/* Header */}
                                 <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", mb: 2 }}>
                                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Credit Progress</Typography>
-                                  <Chip
-                                    label={CREDIT_STATUS_LABELS[studentSelfCreditSummary.overallStatus]}
-                                    size="small"
-                                    color={
-                                      studentSelfCreditSummary.overallStatus === "complete" ? "success" :
-                                      studentSelfCreditSummary.overallStatus === "on-track" ? "success" :
-                                      studentSelfCreditSummary.overallStatus === "marginal" ? "primary" :
-                                      studentSelfCreditSummary.overallStatus === "alarming" ? "warning" : "error"
-                                    }
-                                    sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }}
-                                  />
+                                  <CreditStatusChip status={studentSelfCreditSummary.overallStatus} />
                                 </Stack>
                                 {/* Overall stat + bar */}
                                 <Stack direction="row" sx={{ alignItems: "baseline", gap: 0.75, mb: 1 }}>
@@ -6157,8 +6148,10 @@ function App() {
               earnedUnitsByCategory={selectedStudentForCredits?.userId ? (studentEarnedUnitsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
               savedUnitsByCategory={selectedStudentForCredits?.userId ? (studentSavedUnitsByUser[selectedStudentForCredits.userId] ?? {}) : {}}
               isSaving={studentCreditsSaving}
+              creditStatus={selectedStudentForCredits?.userId ? creditSummaries[selectedStudentForCredits.userId]?.status : undefined}
+              isStudentOnly={isStudentOnlySession}
               studentIndex={selectedStudentIndex >= 0 ? selectedStudentIndex : undefined}
-              studentCount={effectiveCreditNavRows.length > 1 ? effectiveCreditNavRows.length : undefined}
+              studentCount={!isStudentOnlySession && effectiveCreditNavRows.length > 1 ? effectiveCreditNavRows.length : undefined}
               onNavigate={(direction) => {
                 const next = selectedStudentIndex + direction;
                 if (next >= 0 && next < effectiveCreditNavRows.length) openStudentCredits(effectiveCreditNavRows[next]);

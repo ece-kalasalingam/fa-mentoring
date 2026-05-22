@@ -29,6 +29,19 @@ Allowed `<type>` values:
 ---
 
 ## 2026-05-22 IST | claude-sonnet-4-6 | change
+- Summary: Unified credit status chip rendering via a shared CreditStatusChip component; added status chip to individual student credits header; hid navigation strip for student-only sessions; returned pre-computed status from summary API.
+- Files: frontend/src/app/CreditStatusChip.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/App.tsx, api/src/modules/students/students.service.ts
+- Details:
+  - Created `CreditStatusChip.tsx` as the single shared component for all credit status chips across the app. Accepts `status`, optional `count` (renders "Label: N"), and optional `onClick` for interactive chips. Standardised CSS: `height 20`, `fontSize 0.65rem`, `whiteSpace nowrap`, `px 0.75` label padding everywhere.
+  - `StudentsDirectoryTable`: replaced 50-line inline chip switch with `<CreditStatusChip status={s.status} />`.
+  - `FacultyAnalyticsReport`: replaced three inline chip sites (per-student status column, clickable filter row with counts, batch count row); removed `overallChipColor` helper function entirely.
+  - `App.tsx`: replaced student dashboard "Credit Progress" header chip and both batch-summary card chip rows (head/moderator and faculty sections, 5 statuses each) with `<CreditStatusChip>`; removed now-unused `CREDIT_STATUS_LABELS` import.
+  - `StudentCreditsView`: added `creditStatus?: CreditStatus` prop — renders `<CreditStatusChip>` inline beside the "Semester X of Y" chip in the student identity row; added `isStudentOnly?: boolean` prop — hides the "x of y students" navigation strip for student-role sessions.
+  - `App.tsx`: passes `creditStatus` from `creditSummaries[userId]?.status` and `isStudentOnly={isStudentOnlySession}` to `StudentCreditsView`; `studentCount` also suppressed for student-only sessions.
+  - `students.service.ts`: `getStudentCreditSummaries` now selects the pre-computed `status` column from `student_credit_status_summary` and returns it via `STATUS_LABEL_TO_KEY` reverse map (built from shared constants). The API response now includes `status: CreditStatus | null` — no extra SQL query, same single read from the summary table.
+- Revert: Reverted use of backend-provided status in the `creditSummaries` memo — DB status is computed at save time and becomes stale when `currentSemester` or plan data changes without a credit resave. Status is always recomputed on the frontend from live loaded data; backend `status` field is returned but not used in the memo.
+
+## 2026-05-22 IST | claude-sonnet-4-6 | change
 - Summary: Extracted regulations page into a dedicated RegulationsView component with simplified, student-friendly UI.
 - Files: frontend/src/app/RegulationsView.tsx, frontend/src/app/App.tsx
 - Details:
