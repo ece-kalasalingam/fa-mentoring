@@ -1,3 +1,12 @@
+## 2026-05-23 04:48 IST | codex | change
+- Summary: Replaced SPRIS branding and expanded app name in UI/UX metadata and shared frontend branding constants.
+- Files: frontend/src/shared/branding.ts, frontend/index.html, frontend/public/favicons/site.webmanifest, CHANGELOG.md
+- Details:
+  - Updated shared frontend branding constants so both short and full app labels render as `FA-Mentoring`.
+  - Replaced HTML app title and web app meta names with `FA-Mentoring`.
+  - Updated PWA manifest `name` and `short_name` to `FA-Mentoring`.
+- Revert: none
+
 ## 2026-05-23 04:38 IST | codex | fix
 - Summary: Updated Worker FRONTEND_ORIGIN to production domain for correct CORS behavior.
 - Files: api/wrangler.jsonc, CHANGELOG.md

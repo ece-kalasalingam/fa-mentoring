@@ -22,8 +22,7 @@
     "LOG_INFO_SAMPLE_RATE": "0.05",
     "LOG_PRUNE_EVERY_N_WRITES": "200",
     "LOG_RETENTION_DAYS": "7",
-    "LOG_MAX_ROWS": "500",
-    "TURSO_ORG_NAME": "jeyaprakashk"
+    "LOG_MAX_ROWS": "500"
   },
   "observability": {
     "enabled": true,
