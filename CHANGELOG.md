@@ -4720,3 +4720,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Removed/cleaned unused identifiers in table modules and addressed React refresh lint rule in `dateTimeContext.tsx`.
   - Re-ran validation until clean: API tests pass, frontend build passes, frontend lint passes, workspace build passes.
 - Revert: none
+## 2026-05-22 17:36 IST | codex-gpt-5 | fix
+- Summary: Hardened production security defaults for CORS, debug endpoint exposure, and API error responses.
+- Files: api/src/core/types.ts, api/src/core/http.ts, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Replaced permissive CORS fallback behavior with fail-closed policy when `FRONTEND_ORIGIN` is not configured, while preserving localhost-to-localhost development access.
+  - Stopped sending credentialed CORS responses for denied origins by dynamically setting `access-control-allow-credentials`.
+  - Added explicit `ALLOW_DEBUG_ENDPOINTS` environment switch and super-admin enforcement for `/api/debug-env`; endpoint now returns `404` when debug mode is disabled.
+  - Replaced raw exception message responses with a generic client-safe error string while preserving detailed server-side logging.
+- Revert: none

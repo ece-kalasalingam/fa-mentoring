@@ -1,37 +1,49 @@
 import type { Env } from "./types";
 
-function resolveAllowedOrigin(request: Request, env: Env): string {
+type CorsPolicy = {
+  allowedOrigin: string;
+  allowCredentials: boolean;
+};
+
+function resolveCorsPolicy(request: Request, env: Env): CorsPolicy {
   const requestOrigin = request.headers.get("origin") ?? "";
   const configured = String(env.FRONTEND_ORIGIN ?? "").trim();
   const requestUrl = new URL(request.url);
   const requestHost = requestUrl.hostname.toLowerCase();
   const requestOriginHost = requestOrigin ? new URL(requestOrigin).hostname.toLowerCase() : "";
   if (!configured) {
-    return requestOrigin || "*";
+    const isLocalApiHost = requestHost === "localhost" || requestHost === "127.0.0.1";
+    const isLocalFrontendOrigin = requestOriginHost === "localhost" || requestOriginHost === "127.0.0.1";
+    if (isLocalApiHost && isLocalFrontendOrigin && requestOrigin) {
+      return { allowedOrigin: requestOrigin, allowCredentials: true };
+    }
+    return { allowedOrigin: "null", allowCredentials: false };
   }
   const allowedOrigins = configured.split(",").map((item) => item.trim()).filter(Boolean);
   if (allowedOrigins.includes(requestOrigin)) {
-    return requestOrigin;
+    return { allowedOrigin: requestOrigin, allowCredentials: true };
   }
   const isLocalApiHost = requestHost === "localhost" || requestHost === "127.0.0.1";
   const isLocalFrontendOrigin = requestOriginHost === "localhost" || requestOriginHost === "127.0.0.1";
-  if (isLocalApiHost && isLocalFrontendOrigin) {
-    return requestOrigin;
+  if (isLocalApiHost && isLocalFrontendOrigin && requestOrigin) {
+    return { allowedOrigin: requestOrigin, allowCredentials: true };
   }
-  return allowedOrigins[0];
+  return { allowedOrigin: allowedOrigins[0] ?? "null", allowCredentials: true };
 }
 
 export function json(data: unknown, status = 200, request?: Request, env?: Env, extraHeaders?: Record<string, string>) {
-  const allowedOrigin = request && env ? resolveAllowedOrigin(request, env) : "*";
+  const corsPolicy = request && env
+    ? resolveCorsPolicy(request, env)
+    : { allowedOrigin: "null", allowCredentials: false };
   const isHttps = request ? new URL(request.url).protocol === "https:" : false;
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": allowedOrigin,
+      "access-control-allow-origin": corsPolicy.allowedOrigin,
       "access-control-allow-methods": "GET,POST,OPTIONS",
       "access-control-allow-headers": "content-type, authorization, x-csrf-token",
-      "access-control-allow-credentials": "true",
+      "access-control-allow-credentials": corsPolicy.allowCredentials ? "true" : "false",
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "referrer-policy": "no-referrer",

@@ -18,6 +18,7 @@ export type Env = {
   LOG_DISABLE_SUCCESS_REQUESTS?: string;
   LOG_INFO_SAMPLE_RATE?: string;
   LOG_PRUNE_EVERY_N_WRITES?: string;
+  ALLOW_DEBUG_ENDPOINTS?: string;
 };
 
 export type CsvImportRow = Record<string, string | number | null | undefined>;

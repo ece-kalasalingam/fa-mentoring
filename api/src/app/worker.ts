@@ -357,6 +357,18 @@ export const worker = {
       }
 
       if (pathname === "/api/debug-env" && request.method === "GET") {
+        const allowDebugEndpoints = String(env.ALLOW_DEBUG_ENDPOINTS ?? "").trim().toLowerCase() === "true";
+        if (!allowDebugEndpoints) {
+          statusCode = 404;
+          event = "request.not_found";
+          return respond({ ok: false, error: "Not found" }, 404);
+        }
+        const flags = principal ? await getPrincipalAccountFlags(env, principal) : null;
+        if (!flags?.isSuperuser) {
+          statusCode = 403;
+          event = "request.forbidden";
+          return respond({ ok: false, error: "Super admin access required." }, 403);
+        }
         statusCode = 200;
         return respond({
           ok: true,
@@ -1449,7 +1461,7 @@ export const worker = {
       return respond(
         {
           ok: false,
-          error: errorMessage
+          error: "Request failed. See server logs for details."
         },
         400
       );
