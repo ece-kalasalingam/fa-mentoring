@@ -1120,7 +1120,7 @@ export default function StudentsDirectoryTable(props: Props) {
                 </Box>
               )}
               <Typography variant="caption" color="text.secondary">
-                Credits are aggregated by semester and category code. Existing credits for updated students are replaced.
+                Credits are aggregated by semester and category code. Existing rows are updated and missing rows are inserted (patch mode).
               </Typography>
             </Box>
           )}

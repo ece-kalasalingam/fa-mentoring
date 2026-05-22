@@ -28,6 +28,15 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-22 20:49 IST | codex | fix
+- Summary: Auto-invalidated and reloaded student credit caches after successful batch credit import to prevent stale session data across views.
+- Files: frontend/src/app/App.tsx, frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Added post-import success re-evaluation in `onImportCredits` to invalidate student summary/detail caches and clear in-memory aggregate maps before reloading.
+  - Forced fresh summary fetch and conditional open-student detail reload after import updates, then forced students directory refresh for scoped/global views.
+  - Added `updatedStudentUserIds` to shared `ApiResult` type and tightened callback typing to keep the import refresh path type-safe.
+- Revert: none
+
 ## 2026-05-22 IST | claude-sonnet-4-6 | change
 - Summary: Refactored student dashboard cards with shared credit breakdown helper, colored plan-of-study chips, and pinned card footers
 - Files: frontend/src/app/App.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/src/app/utils.ts
@@ -4844,4 +4853,40 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added `updatedStudentUserIds` to bulk-import result payload for explicit traceability of recomputed principals.
   - Added optional `recomputeSummary` control to `upsertStudentCredits(...)` (default remains `true` for non-bulk paths).
   - Ensures `student_credit_status_summary` and `batch_credit_status_summary` are refreshed after bulk imports.
+- Revert: none
+## 2026-05-22 20:16 IST | codex-gpt-5 | fix
+- Summary: Fixed stale student-credit values after save by forcing summary refresh and correcting unit payload persistence.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `force` option to `loadStudentCreditSummaries(...)` to bypass summary cache when needed.
+  - Switched summary totals writes to merge mode (`setStudentCreditTotals` / `setStudentUnitTotals`) to avoid clobbering previously loaded students when refreshing subsets.
+  - Fixed `saveStudentCredits(...)` to actually populate and send `unitEntries` from `draftUnits`.
+  - After successful credit save, expanded cache invalidation scope for dashboard/student-directory/faculty-moderator-head student caches and triggered immediate forced summary refresh for current scoped student IDs.
+  - Removes dependency on hard reload (`Ctrl+F5`) for analysis, students directory, and student credit page consistency after updates.
+- Revert: none
+## 2026-05-22 20:19 IST | codex-gpt-5 | fix
+- Summary: Added fail-safe consistency checks for bulk credit import to guarantee summary-table updates or fail the request.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Extended `bulkImportStudentCredits(...)` response with `summaryRowsUpdated` diagnostics.
+  - After bulk writes and recompute pass, added strict verification that every touched student has a row in `student_credit_status_summary`.
+  - Added automatic one-time recompute retry when verification mismatches.
+  - If mismatch persists after retry, API now throws explicit consistency error instead of returning silent partial success.
+  - Prevents cases where `student_credit_details` appears updated but `student_credit_status_summary`/derived batch status lags without visibility.
+- Revert: none
+## 2026-05-22 20:39 IST | codex-gpt-5 | change
+- Summary: Switched bulk credit import to non-destructive patch mode by default.
+- Files: api/src/app/worker.ts, frontend/src/app/App.tsx, frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated `/api/student-credits/import-batch` handling to default missing/empty `writeMode` to `patch`.
+  - Updated frontend bulk credits upload request to send `writeMode: "patch"` (instead of `replace_all`).
+  - Updated import result helper text to reflect patch behavior (update existing + insert missing rows) rather than replacement semantics.
+- Revert: none
+## 2026-05-22 20:41 IST | codex-gpt-5 | fix
+- Summary: Ensured dashboard fetch bypasses stale cache after credit save/import by forcing next dashboard reload.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added `dashboardForceNextLoadRef` flag to mark dashboard as stale after successful student-credit save/import mutations.
+  - Updated `loadDashboard(...)` to honor this flag and issue a forced API read (`force=1`) on next dashboard load, then clear the flag.
+  - Prevents stale cached dashboard stats when navigating from import/edit workflows to dashboard.
 - Revert: none

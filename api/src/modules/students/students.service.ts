@@ -923,7 +923,13 @@ export async function bulkImportStudentCredits(
   modifiedById: string | null,
   writeMode: CreditWriteMode,
   allowClearAll: boolean,
-): Promise<{ imported: number; failed: number; errors: string[]; updatedStudentUserIds: string[] }> {
+): Promise<{
+  imported: number;
+  failed: number;
+  errors: string[];
+  updatedStudentUserIds: string[];
+  summaryRowsUpdated: number;
+}> {
   const db = getDb(env);
   await ensureStudentCreditDetailsSchemaHealthy(db);
   const scoped = scopeWhere(scope);
@@ -977,7 +983,37 @@ export async function bulkImportStudentCredits(
     await recomputeStudentCreditSummaries(env, updatedStudentUserIds);
   }
 
-  return { imported, failed: unknownRegs.size, errors, updatedStudentUserIds };
+  // Fail-safe verification: ensure every touched student has a summary row.
+  let summaryRowsUpdated = 0;
+  if (updatedStudentUserIds.length > 0) {
+    const placeholders = updatedStudentUserIds.map(() => "?").join(", ");
+    const summaryCountRes = await db.execute({
+      sql: `select count(*) as c
+            from student_credit_status_summary
+            where student_id in (${placeholders})`,
+      args: updatedStudentUserIds,
+    });
+    summaryRowsUpdated = Number(summaryCountRes.rows[0]?.c ?? 0);
+
+    if (summaryRowsUpdated !== updatedStudentUserIds.length) {
+      // One retry pass to self-heal transient/partial states.
+      await recomputeStudentCreditSummaries(env, updatedStudentUserIds);
+      const retryCountRes = await db.execute({
+        sql: `select count(*) as c
+              from student_credit_status_summary
+              where student_id in (${placeholders})`,
+        args: updatedStudentUserIds,
+      });
+      summaryRowsUpdated = Number(retryCountRes.rows[0]?.c ?? 0);
+      if (summaryRowsUpdated !== updatedStudentUserIds.length) {
+        throw new Error(
+          `Bulk import consistency check failed: expected ${updatedStudentUserIds.length} student summary rows, found ${summaryRowsUpdated}.`,
+        );
+      }
+    }
+  }
+
+  return { imported, failed: unknownRegs.size, errors, updatedStudentUserIds, summaryRowsUpdated };
 }
 
 export async function upsertStudentCredits(

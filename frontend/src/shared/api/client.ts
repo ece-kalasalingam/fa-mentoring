@@ -224,6 +224,7 @@ export type ApiResult = {
   failed?: number;
   total?: number;
   errors?: string[];
+  updatedStudentUserIds?: string[];
   summaries?: Array<{ studentId: string; totalCredits: number }>;
 }
 

@@ -1411,7 +1411,8 @@ export const worker = {
 
       if (pathname === "/api/student-credits/import-batch" && request.method === "POST") {
         const body = await request.json();
-        const writeMode = isObject(body) ? String(body.writeMode ?? "").trim().toLowerCase() : "";
+        const writeModeRaw = isObject(body) ? String(body.writeMode ?? "").trim().toLowerCase() : "";
+        const writeMode = writeModeRaw === "" ? "patch" : writeModeRaw;
         if (writeMode !== "replace_all" && writeMode !== "patch") {
           return respond({ ok: false, error: "writeMode is required and must be replace_all or patch" }, 400);
         }

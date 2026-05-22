@@ -265,6 +265,7 @@ function App() {
   const studentSummaryCacheRef = useRef<Record<string, AdminCacheEntry>>({});
   const studentSummaryCacheKeysRef = useRef<Set<string>>(new Set());
   const studentCreditDetailCacheKeysRef = useRef<Set<string>>(new Set());
+  const dashboardForceNextLoadRef = useRef(false);
 
   function toFacultyMentoredMinimalRows(rows: FacultyStudentRow[]): FacultyMentoredStudentMinimal[] {
     return rows
@@ -1071,7 +1072,10 @@ function App() {
   }
 
   async function loadDashboard(options?: { force?: boolean }) {
-    const force = Boolean(options?.force);
+    const force = Boolean(options?.force) || dashboardForceNextLoadRef.current;
+    if (force) {
+      dashboardForceNextLoadRef.current = false;
+    }
     const cacheKey: AdminCacheKey = "dashboard";
     if (!force) {
       const cached = getCachedAdminPayload<AdminDashboard>(cacheKey, ADMIN_CACHE_TTL_MS.dashboard);
@@ -1674,8 +1678,9 @@ function App() {
       void loadStudentCredits(row.userId);
     }
   }
-  async function loadStudentCreditSummaries(userIds: string[]) {
+  async function loadStudentCreditSummaries(userIds: string[], options?: { force?: boolean }) {
     if (userIds.length === 0) return;
+    const force = Boolean(options?.force);
     const summaryRoleContext: "all" | "faculty" | "moderator" | "head" | "self" =
       isStudentOnlySession
         ? "self"
@@ -1684,7 +1689,7 @@ function App() {
             : (hasHeadRole ? "head" : "all"));
     const cacheKey = getStudentSummaryCacheKey(summaryRoleContext, userIds);
     type SummaryItem = { studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number>; status?: string };
-    const cached = readStudentSummaryCache<SummaryItem[]>(cacheKey);
+    const cached = force ? null : readStudentSummaryCache<SummaryItem[]>(cacheKey);
     const result = cached
       ? { ok: true, summaries: cached }
       : await callApi("/api/student-credits/summaries", "POST", undefined, { studentIds: userIds });
@@ -1733,8 +1738,8 @@ function App() {
         totals[studentId] = normalizeCredits(Number(item.totalCredits ?? 0));
         unitTotals[studentId] = normalizeCredits(Number(item.totalUnits ?? 0));
       }
-      setStudentCreditTotals(totals);
-      setStudentUnitTotals(unitTotals);
+      setStudentCreditTotals((prev) => ({ ...prev, ...totals }));
+      setStudentUnitTotals((prev) => ({ ...prev, ...unitTotals }));
       setStudentSummaryCatEarned((prev) => ({ ...prev, ...summaryCatEarned }));
       setCreditTotalsLoaded(true);
     }
@@ -1780,6 +1785,9 @@ function App() {
       }
     }
     const unitEntries: Array<{ categoryId: string; unitsEarned: number }> = [];
+    for (const [categoryId, unitsEarned] of Object.entries(draftUnits)) {
+      unitEntries.push({ categoryId, unitsEarned: normalizeCredits(Number(unitsEarned)) });
+    }
     setStudentCreditsSaving(true);
     try {
       const result = await callApi("/api/student-credits", "POST", undefined, {
@@ -1793,7 +1801,18 @@ function App() {
         setStudentSavedCreditsByUser((prev) => ({ ...prev, [userId]: draft }));
         setStudentSavedUnitsByUser((prev) => ({ ...prev, [userId]: draftUnits }));
         writeStudentCreditDetailCache(userId, { bySemester: draft, byUnitCategory: draftUnits });
-        invalidateAdminCache(["dashboard"]);
+        invalidateAdminCache(["dashboard", "students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first"]);
+        dashboardForceNextLoadRef.current = true;
+        const summaryUserIds = Array.from(
+          new Set(
+            studentsDirectorySourceRows
+              .map((student) => String(student.userId ?? "").trim())
+              .filter((id) => id.length > 0),
+          ),
+        );
+        if (summaryUserIds.length > 0) {
+          await loadStudentCreditSummaries(summaryUserIds, { force: true });
+        }
       }
     } finally {
       setStudentCreditsSaving(false);
@@ -6093,12 +6112,50 @@ function App() {
                     onImportStudentsCsv={isStudentOnlySession ? undefined : importStudentsFromCsvFile}
                     onImportCredits={isStudentOnlySession ? undefined : async (rows) => {
                       const result = await callApi("/api/student-credits/import-batch", "POST", undefined, {
-                        writeMode: "replace_all",
+                        writeMode: "patch",
                         allowClearAll: false,
                         rows,
                       });
                       if (result.ok) {
+                        const updatedStudentUserIds = Array.isArray(result.updatedStudentUserIds)
+                          ? result.updatedStudentUserIds
+                              .map((id: string) => String(id ?? "").trim())
+                              .filter((id: string) => id.length > 0)
+                          : [];
+                        const hasAnySuccessfulUpdate = Number(result.imported ?? 0) > 0 || updatedStudentUserIds.length > 0;
+                        if (hasAnySuccessfulUpdate) {
+                          // Auto re-evaluate session/local caches after partial/full successful import.
+                          invalidateStudentSummaryCache();
+                          invalidateStudentCreditDetailCache();
+                          setCreditTotalsLoaded(false);
+                          // Clear in-memory summary aggregates so freshly recomputed values fully replace stale snapshots.
+                          setStudentSummaryCatEarned({});
+                          setStudentCreditTotals({});
+                          setStudentUnitTotals({});
+                          dashboardForceNextLoadRef.current = true;
+                          const summaryUserIds = Array.from(
+                            new Set(
+                              studentsDirectorySourceRows
+                                .map((student) => String(student.userId ?? "").trim())
+                                .filter((id) => id.length > 0),
+                            ),
+                          );
+                          if (summaryUserIds.length > 0) {
+                            await loadStudentCreditSummaries(summaryUserIds, { force: true });
+                          }
+                          const selectedUserId = String(selectedStudentForCredits?.userId ?? "").trim();
+                          if (selectedUserId && (updatedStudentUserIds.length === 0 || updatedStudentUserIds.includes(selectedUserId))) {
+                            await loadStudentCredits(selectedUserId);
+                          }
+                        }
                         invalidateAdminCache(["dashboard", "students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first"]);
+                        if (hasAnySuccessfulUpdate) {
+                          if (isScopedStudentDashboardOnly) {
+                            await loadPrimaryScopedStudents({ force: true });
+                          } else if (!isStudentOnlySession) {
+                            await loadStudentsDirectory(undefined, { force: true });
+                          }
+                        }
                       }
                       return {
                         imported: Number(result.imported ?? 0),
