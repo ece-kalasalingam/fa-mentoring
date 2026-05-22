@@ -642,7 +642,7 @@ export const MIGRATIONS: Migration[] = [
     id: "0028_students_replace_programme_duration_with_graduated",
     description: "Replace programme_duration with graduated binary flag on students table",
     statements: [
-      "alter table students rename to students_old_v5",
+      "alter table students rename to students_stage_v5",
       `create table students (
         user_id text primary key,
         registration_number varchar(15) unique not null,
@@ -672,8 +672,8 @@ export const MIGRATIONS: Migration[] = [
          mentor_id,
          modified_by,
          coalesce(modified_at, current_timestamp)
-       from students_old_v5`,
-      "drop table students_old_v5"
+       from students_stage_v5`,
+      "drop table students_stage_v5"
     ]
   },
   {
@@ -900,3 +900,4 @@ export const MIGRATIONS: Migration[] = [
     ]
   }
 ];
+

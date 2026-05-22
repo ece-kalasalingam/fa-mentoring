@@ -214,6 +214,67 @@ type PlanMapEntry = {
 
 let planMapCache: Map<number, PlanMapEntry> | null = null;
 let measureMapCache: Map<string, Map<string, "credits" | "units">> | null = null;
+let schemaHealthCheckedAt = 0;
+const SCHEMA_HEALTH_TTL_MS = 10 * 60 * 1000;
+
+async function ensureStudentCreditDetailsSchemaHealthy(db: ReturnType<typeof getDb>): Promise<void> {
+  const now = Date.now();
+  if (now - schemaHealthCheckedAt < SCHEMA_HEALTH_TTL_MS) return;
+  const legacyRef = await db.execute({
+    sql: `select 1 as found
+          from sqlite_master
+          where sql is not null
+            and lower(sql) like '%students_old_v5%'
+          limit 1`
+  }).catch(() => ({ rows: [] as Array<Record<string, unknown>> }));
+  if (legacyRef.rows.length === 0) {
+    schemaHealthCheckedAt = now;
+    return;
+  }
+
+  await db.execute("begin");
+  try {
+    await db.execute("drop trigger if exists trg_student_credit_details_modified_at");
+    await db.execute("alter table student_credit_details rename to student_credit_details_repair_old");
+    await db.execute(`create table student_credit_details (
+      enrollment_id integer primary key autoincrement,
+      student_id text not null,
+      category_id text(10) not null,
+      semester_taken integer not null check (semester_taken > 0),
+      credits real not null check (credits >= 0),
+      status integer not null default 1 check (status in (0,1,2,3,4,5)),
+      modified_by text,
+      modified_at datetime not null default current_timestamp,
+      constraint fk_credit_student_id
+        foreign key (student_id) references students(user_id) on delete cascade,
+      constraint fk_credit_modified_by
+        foreign key (modified_by) references user_accounts(id) on delete set null,
+      constraint uq_student_semester_category
+        unique (student_id, category_id, semester_taken)
+    )`);
+    await db.execute(`insert into student_credit_details(enrollment_id, student_id, category_id, semester_taken, credits, status, modified_by, modified_at)
+      select enrollment_id, student_id, category_id, semester_taken, credits, status, modified_by, modified_at
+      from student_credit_details_repair_old`);
+    await db.execute("drop table student_credit_details_repair_old");
+    await db.execute("create index if not exists idx_credit_details_student on student_credit_details(student_id)");
+    await db.execute("create index if not exists idx_credit_details_student_sem on student_credit_details(student_id, semester_taken)");
+    await db.execute("create index if not exists idx_credit_details_student_category_status on student_credit_details(student_id, category_id, status)");
+    await db.execute(`create trigger if not exists trg_student_credit_details_modified_at
+      after update on student_credit_details
+      for each row
+      when new.modified_at = old.modified_at
+      begin
+        update student_credit_details
+        set modified_at = current_timestamp
+        where enrollment_id = new.enrollment_id;
+      end`);
+    await safeCommit(db);
+    schemaHealthCheckedAt = Date.now();
+  } catch (error) {
+    await safeRollback(db);
+    throw error;
+  }
+}
 
 async function ensureSummaryReferenceCaches(): Promise<{
   plansByCode: Map<number, PlanMapEntry>;
@@ -266,6 +327,7 @@ async function ensureSummaryReferenceCaches(): Promise<{
 
 export async function getStudentCredits(env: Env, studentId: string) {
   const db = getDb(env);
+  await ensureStudentCreditDetailsSchemaHealthy(db);
   const result = await db.execute({
     sql: `select category_id, semester_taken, credits
           from student_credit_details
@@ -282,6 +344,7 @@ export async function getStudentCredits(env: Env, studentId: string) {
 
 export async function getStudentUnits(env: Env, studentId: string) {
   const db = getDb(env);
+  await ensureStudentCreditDetailsSchemaHealthy(db);
   const result = await db.execute({
     sql: `select category_id, coalesce(sum(credits), 0) as units_earned
           from student_credit_details
@@ -558,11 +621,7 @@ export async function recomputeStudentCreditSummaries(env: Env, studentIds: stri
 async function recomputeBatchStatusSummaryByBatchWithDb(db: ReturnType<typeof getDb>, batch: number): Promise<void> {
   if (!Number.isFinite(batch)) return;
   await db.execute({
-    sql: `delete from batch_credit_status_summary where batch = ?`,
-    args: [batch],
-  });
-  await db.execute({
-    sql: `insert into batch_credit_status_summary(
+    sql: `insert or replace into batch_credit_status_summary(
             batch, scope_type, scope_key,
             total_active, in_progress_count, passed_out_count,
             complete_count, on_track_count, marginal_count, alarming_count, off_track_count,
@@ -864,8 +923,9 @@ export async function bulkImportStudentCredits(
   modifiedById: string | null,
   writeMode: CreditWriteMode,
   allowClearAll: boolean,
-): Promise<{ imported: number; failed: number; errors: string[] }> {
+): Promise<{ imported: number; failed: number; errors: string[]; updatedStudentUserIds: string[] }> {
   const db = getDb(env);
+  await ensureStudentCreditDetailsSchemaHealthy(db);
   const scoped = scopeWhere(scope);
 
   const studentsResult = await db.execute({
@@ -906,12 +966,18 @@ export async function bulkImportStudentCredits(
 
   const errors = Array.from(unknownRegs).map((r) => `Registration number not in your students: ${r}`);
   let imported = 0;
+  const updatedStudentUserIds: string[] = [];
   for (const [userId, entries] of byUser) {
-    await upsertStudentCredits(env, userId, entries, modifiedById, writeMode, allowClearAll);
+    await upsertStudentCredits(env, userId, entries, modifiedById, writeMode, allowClearAll, { recomputeSummary: false });
+    updatedStudentUserIds.push(userId);
     imported += 1;
   }
 
-  return { imported, failed: unknownRegs.size, errors };
+  if (updatedStudentUserIds.length > 0) {
+    await recomputeStudentCreditSummaries(env, updatedStudentUserIds);
+  }
+
+  return { imported, failed: unknownRegs.size, errors, updatedStudentUserIds };
 }
 
 export async function upsertStudentCredits(
@@ -921,8 +987,14 @@ export async function upsertStudentCredits(
   modifiedById: string | null,
   writeMode: CreditWriteMode,
   allowClearAll: boolean,
+  options?: { recomputeSummary?: boolean },
 ) {
   const db = getDb(env);
+  await ensureStudentCreditDetailsSchemaHealthy(db);
+  const normalizedStudentId = String(studentId ?? "").trim();
+  if (!normalizedStudentId) {
+    throw new Error("studentId is required");
+  }
   if (writeMode !== "replace_all" && writeMode !== "patch") {
     throw new Error("writeMode must be one of: replace_all, patch");
   }
@@ -937,12 +1009,36 @@ export async function upsertStudentCredits(
       if (positiveEntries.length === 0 && !allowClearAll) {
         throw new Error("replace_all with empty credits requires allowClearAll=true");
       }
-      await db.execute({ sql: `delete from student_credit_details where student_id = ?`, args: [studentId] });
       for (const { categoryId, semesterTaken, credits } of positiveEntries) {
         await db.execute({
           sql: `insert into student_credit_details (student_id, category_id, semester_taken, credits, modified_by)
-                values (?, ?, ?, ?, ?)`,
-          args: [studentId, categoryId, semesterTaken, credits, modifiedById],
+                values (?, ?, ?, ?, ?)
+                on conflict(student_id, category_id, semester_taken) do update set
+                  credits = excluded.credits,
+                  modified_by = excluded.modified_by,
+                  modified_at = current_timestamp`,
+          args: [normalizedStudentId, categoryId, semesterTaken, credits, modifiedById],
+        });
+      }
+      if (positiveEntries.length > 0) {
+        const valuePlaceholders = positiveEntries.map(() => "(?, ?)").join(", ");
+        const keepArgs: Array<string | number | null> = [];
+        for (const entry of positiveEntries) {
+          keepArgs.push(entry.categoryId, entry.semesterTaken);
+        }
+        await db.execute({
+          sql: `delete from student_credit_details
+                where student_id = ?
+                  and coalesce(status, 0) != 5
+                  and (category_id, semester_taken) not in (${valuePlaceholders})`,
+          args: [normalizedStudentId, ...keepArgs],
+        });
+      } else {
+        await db.execute({
+          sql: `delete from student_credit_details
+                where student_id = ?
+                  and coalesce(status, 0) != 5`,
+          args: [normalizedStudentId],
         });
       }
     } else {
@@ -954,7 +1050,7 @@ export async function upsertStudentCredits(
                   credits = excluded.credits,
                   modified_by = excluded.modified_by,
                   modified_at = current_timestamp`,
-          args: [studentId, categoryId, semesterTaken, credits, modifiedById],
+          args: [normalizedStudentId, categoryId, semesterTaken, credits, modifiedById],
         });
       }
     }
@@ -963,7 +1059,9 @@ export async function upsertStudentCredits(
     await safeRollback(db);
     throw error;
   }
-  await recomputeStudentCreditSummaryWithDb(db, studentId);
+  if (options?.recomputeSummary !== false) {
+    await recomputeStudentCreditSummaryWithDb(db, normalizedStudentId);
+  }
 }
 
 export async function upsertStudentUnits(
@@ -975,6 +1073,11 @@ export async function upsertStudentUnits(
   allowClearAll: boolean,
 ) {
   const db = getDb(env);
+  await ensureStudentCreditDetailsSchemaHealthy(db);
+  const normalizedStudentId = String(studentId ?? "").trim();
+  if (!normalizedStudentId) {
+    throw new Error("studentId is required");
+  }
   if (writeMode !== "replace_all" && writeMode !== "patch") {
     throw new Error("writeMode must be one of: replace_all, patch");
   }
@@ -989,17 +1092,34 @@ export async function upsertStudentUnits(
       if (positiveEntries.length === 0 && !allowClearAll) {
         throw new Error("replace_all with empty units requires allowClearAll=true");
       }
-      await db.execute({
-        sql: `delete from student_credit_details
-              where student_id = ?
-                and status = 5`,
-        args: [studentId]
-      });
       for (const { categoryId, unitsEarned } of positiveEntries) {
         await db.execute({
           sql: `insert into student_credit_details (student_id, category_id, semester_taken, credits, status, modified_by)
-                values (?, ?, 1, ?, 5, ?)`,
-          args: [studentId, categoryId, unitsEarned, modifiedById],
+                values (?, ?, 1, ?, 5, ?)
+                on conflict(student_id, category_id, semester_taken) do update set
+                  credits = excluded.credits,
+                  status = excluded.status,
+                  modified_by = excluded.modified_by,
+                  modified_at = current_timestamp`,
+          args: [normalizedStudentId, categoryId, unitsEarned, modifiedById],
+        });
+      }
+      if (positiveEntries.length > 0) {
+        const valuePlaceholders = positiveEntries.map(() => "(?)").join(", ");
+        const keepArgs = positiveEntries.map((entry) => entry.categoryId);
+        await db.execute({
+          sql: `delete from student_credit_details
+                where student_id = ?
+                  and status = 5
+                  and category_id not in (${valuePlaceholders})`,
+          args: [normalizedStudentId, ...keepArgs],
+        });
+      } else {
+        await db.execute({
+          sql: `delete from student_credit_details
+                where student_id = ?
+                  and status = 5`,
+          args: [normalizedStudentId],
         });
       }
     } else {
@@ -1012,7 +1132,7 @@ export async function upsertStudentUnits(
                   status = excluded.status,
                   modified_by = excluded.modified_by,
                   modified_at = current_timestamp`,
-          args: [studentId, categoryId, unitsEarned, modifiedById],
+          args: [normalizedStudentId, categoryId, unitsEarned, modifiedById],
         });
       }
     }
@@ -1021,5 +1141,5 @@ export async function upsertStudentUnits(
     await safeRollback(db);
     throw error;
   }
-  await recomputeStudentCreditSummaryWithDb(db, studentId);
+  await recomputeStudentCreditSummaryWithDb(db, normalizedStudentId);
 }

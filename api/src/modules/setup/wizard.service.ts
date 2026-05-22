@@ -185,6 +185,51 @@ export async function runRecentMitigations(env: Env) {
   }
   await db.execute("update students set current_semester = 1 where current_semester is null").catch(() => undefined);
   await db.execute("update students set modified_at = current_timestamp where modified_at is null or trim(modified_at) = ''").catch(() => undefined);
+
+  // Existing-db mitigation: repair legacy FK residue that still points to students_old_v5.
+  // This can happen if older rename/rebuild flows were interrupted.
+  const legacyStudentsRef = await db.execute({
+    sql: `select name, type
+          from sqlite_master
+          where sql is not null
+            and lower(sql) like '%students_old_v5%'`
+  }).catch(() => ({ rows: [] as Array<Record<string, unknown>> }));
+  if (legacyStudentsRef.rows.length > 0) {
+    await db.execute("drop trigger if exists trg_student_credit_details_modified_at").catch(() => undefined);
+    await db.execute("alter table student_credit_details rename to student_credit_details_repair_old").catch(() => undefined);
+    await db.execute(`create table if not exists student_credit_details (
+      enrollment_id integer primary key autoincrement,
+      student_id text not null,
+      category_id text(10) not null,
+      semester_taken integer not null check (semester_taken > 0),
+      credits real not null check (credits >= 0),
+      status integer not null default 1 check (status in (0,1,2,3,4,5)),
+      modified_by text,
+      modified_at datetime not null default current_timestamp,
+      constraint fk_credit_student_id
+        foreign key (student_id) references students(user_id) on delete cascade,
+      constraint fk_credit_modified_by
+        foreign key (modified_by) references user_accounts(id) on delete set null,
+      constraint uq_student_semester_category
+        unique (student_id, category_id, semester_taken)
+    )`);
+    await db.execute(`insert into student_credit_details(enrollment_id, student_id, category_id, semester_taken, credits, status, modified_by, modified_at)
+      select enrollment_id, student_id, category_id, semester_taken, credits, status, modified_by, modified_at
+      from student_credit_details_repair_old`).catch(() => undefined);
+    await db.execute("drop table if exists student_credit_details_repair_old").catch(() => undefined);
+    await db.execute("create index if not exists idx_credit_details_student on student_credit_details(student_id)");
+    await db.execute("create index if not exists idx_credit_details_student_sem on student_credit_details(student_id, semester_taken)");
+    await db.execute("create index if not exists idx_credit_details_student_category_status on student_credit_details(student_id, category_id, status)");
+    await db.execute(`create trigger if not exists trg_student_credit_details_modified_at
+      after update on student_credit_details
+      for each row
+      when new.modified_at = old.modified_at
+      begin
+        update student_credit_details
+        set modified_at = current_timestamp
+        where enrollment_id = new.enrollment_id;
+      end`);
+  }
   return {
     ok: true,
     migrations: migrationResult,

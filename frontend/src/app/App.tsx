@@ -2816,22 +2816,26 @@ function App() {
     }
     return [];
   }, [hasHeadRole, hasModeratorRole, hasFacultyRole, headStudentRows, moderatorStudentRows, facultyStudentRows, analysisBatchFilter]);
-  const facultyStudentsDirectoryRows: StudentDirectoryRow[] = scopedDashboardStudentRows
-    .filter((student) => student.studentActive)
-    .map((student) => ({
-      userId: student.userId,
-      fullName: student.fullName?.trim() || "Unnamed Student",
-      email: student.email?.trim() || "",
-      registrationNumber: student.registrationNumber?.trim() || "Not Allotted",
-      planOfStudyCode: student.planOfStudyCode,
-      currentSemester: student.currentSemester ?? 1,
-      batch: student.batch,
-      programme: student.programme,
-      graduated: student.graduated,
-      mentorName: scopedDashboardRoleContext === "moderator" ? "Assigned Mentor" : (principal?.fullName?.trim() || "Assigned Faculty"),
-      modifiedByName: "",
-      modifiedAt: null,
-    }));
+  const facultyStudentsDirectoryRows: StudentDirectoryRow[] = useMemo(
+    () =>
+      scopedDashboardStudentRows
+        .filter((student) => student.studentActive)
+        .map((student) => ({
+          userId: student.userId,
+          fullName: student.fullName?.trim() || "Unnamed Student",
+          email: student.email?.trim() || "",
+          registrationNumber: student.registrationNumber?.trim() || "Not Allotted",
+          planOfStudyCode: student.planOfStudyCode,
+          currentSemester: student.currentSemester ?? 1,
+          batch: student.batch,
+          programme: student.programme,
+          graduated: student.graduated,
+          mentorName: scopedDashboardRoleContext === "moderator" ? "Assigned Mentor" : (principal?.fullName?.trim() || "Assigned Faculty"),
+          modifiedByName: "",
+          modifiedAt: null,
+        })),
+    [scopedDashboardStudentRows, scopedDashboardRoleContext, principal?.fullName],
+  );
   const studentsDirectorySourceRows: StudentDirectoryRow[] = isStudentOnlySession
     ? studentSelfDirectoryRows
     : (isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows);
@@ -2839,11 +2843,54 @@ function App() {
     if (!selectedStudentForCredits?.userId) return;
     const sourceRows = studentsDirectorySourceRows;
     const updated = sourceRows.find((row) => row.userId === selectedStudentForCredits.userId);
-    if (updated) setSelectedStudentForCredits(updated);
-  }, [studentsDirectorySourceRows, selectedStudentForCredits]);
+    if (!updated) return;
+    setSelectedStudentForCredits((prev) => {
+      if (!prev) return updated;
+      const same =
+        prev.userId === updated.userId
+        && prev.fullName === updated.fullName
+        && prev.email === updated.email
+        && prev.registrationNumber === updated.registrationNumber
+        && prev.planOfStudyCode === updated.planOfStudyCode
+        && prev.currentSemester === updated.currentSemester
+        && prev.batch === updated.batch
+        && prev.programme === updated.programme
+        && prev.graduated === updated.graduated
+        && prev.mentorName === updated.mentorName
+        && prev.modifiedByName === updated.modifiedByName
+        && prev.modifiedAt === updated.modifiedAt;
+      return same ? prev : updated;
+    });
+  }, [studentsDirectorySourceRows, selectedStudentForCredits?.userId]);
 
   // Updated by StudentsDirectoryTable whenever the user sorts/filters — persists after the table unmounts
   const [creditNavRows, setCreditNavRows] = useState<StudentDirectoryRow[]>([]);
+  const handleVisibleCreditRowsChange = useCallback((rows: StudentDirectoryRow[]) => {
+    setCreditNavRows((prev) => {
+      if (prev.length === rows.length) {
+        let same = true;
+        for (let i = 0; i < prev.length; i += 1) {
+          const a = prev[i];
+          const b = rows[i];
+          if (
+            a.userId !== b.userId
+            || a.registrationNumber !== b.registrationNumber
+            || a.currentSemester !== b.currentSemester
+            || a.planOfStudyCode !== b.planOfStudyCode
+            || a.batch !== b.batch
+            || a.programme !== b.programme
+            || a.graduated !== b.graduated
+            || a.mentorName !== b.mentorName
+          ) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return rows;
+    });
+  }, []);
   const creditNavFallback = studentsDirectorySourceRows;
   // Use the table's sorted+filtered list when available; fall back to raw source on first load
   const effectiveCreditNavRows = creditNavRows.length > 0 ? creditNavRows : creditNavFallback;
@@ -6059,7 +6106,7 @@ function App() {
                         errors: Array.isArray(result.errors) ? result.errors.map(String) : [],
                       };
                     }}
-                    onVisibleRowsChange={setCreditNavRows}
+                    onVisibleRowsChange={handleVisibleCreditRowsChange}
                     creditSummaries={creditSummaries}
                   />
                 </Suspense>

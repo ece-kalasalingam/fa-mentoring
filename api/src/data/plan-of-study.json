@@ -18,7 +18,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 18,
           "totalUnits": 0
@@ -36,7 +37,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 24,
           "totalUnits": 0
@@ -54,7 +56,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 26,
           "totalUnits": 0
@@ -72,7 +75,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 24,
           "totalUnits": 0
@@ -90,7 +94,8 @@
             "MDM": 3,
             "CSC1": 0,
             "CSC2": 1,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 24,
           "totalUnits": 1
@@ -108,10 +113,11 @@
             "MDM": 3,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 1
+            "CSC3": 1,
+            "MAND": 3
           },
           "totalCredits": 24,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 7,
@@ -126,7 +132,8 @@
             "MDM": 0,
             "CSC1": 2,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 10,
           "totalUnits": 2
@@ -144,7 +151,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 10,
           "totalUnits": 0
@@ -169,7 +177,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 25,
           "totalUnits": 0
@@ -187,7 +196,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 27,
           "totalUnits": 0
@@ -205,7 +215,8 @@
             "MDM": 3,
             "CSC1": 0,
             "CSC2": 1,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 25,
           "totalUnits": 1
@@ -223,10 +234,11 @@
             "MDM": 3,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 1
+            "CSC3": 1,
+            "MAND": 3
           },
           "totalCredits": 24,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 7,
@@ -241,7 +253,8 @@
             "MDM": 0,
             "CSC1": 2,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 10,
           "totalUnits": 2
@@ -259,7 +272,8 @@
             "MDM": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 10,
           "totalUnits": 0
@@ -282,7 +296,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 19,
           "totalUnits": 0
@@ -298,7 +313,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 22,
           "totalUnits": 0
@@ -314,7 +330,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 22,
           "totalUnits": 0
@@ -330,7 +347,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 22,
           "totalUnits": 0
@@ -346,7 +364,8 @@
             "EE": 4,
             "CSC1": 0,
             "CSC2": 1,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 23,
           "totalUnits": 1
@@ -362,10 +381,11 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 1
+            "CSC3": 1,
+            "MAND": 3
           },
           "totalCredits": 23,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 7,
@@ -378,7 +398,8 @@
             "EE": 4,
             "CSC1": 2,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 19,
           "totalUnits": 2
@@ -394,7 +415,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 10,
           "totalUnits": 0
@@ -417,7 +439,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 22,
           "totalUnits": 0
@@ -433,7 +456,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 22,
           "totalUnits": 0
@@ -449,7 +473,8 @@
             "EE": 4,
             "CSC1": 0,
             "CSC2": 1,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 23,
           "totalUnits": 1
@@ -465,10 +490,11 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 1
+            "CSC3": 1,
+            "MAND": 3
           },
           "totalCredits": 24,
-          "totalUnits": 1
+          "totalUnits": 4
         },
         {
           "semester": 7,
@@ -481,7 +507,8 @@
             "EE": 4,
             "CSC1": 2,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 19,
           "totalUnits": 2
@@ -497,7 +524,8 @@
             "EE": 0,
             "CSC1": 0,
             "CSC2": 0,
-            "CSC3": 0
+            "CSC3": 0,
+            "MAND": 0
           },
           "totalCredits": 10,
           "totalUnits": 0

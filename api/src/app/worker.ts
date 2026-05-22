@@ -37,7 +37,7 @@ import { fetchRegulationsFromJson } from "../modules/regulations/regulations.ser
 import { getSetupStatus, setupSchema } from "../modules/setup/setup.service";
 import { checkConnections, getSetupState, getWizardState, hasSuperAdmin, markSetupComplete, resetSetupState, runMigrations, runRecentMitigations, seedInitialData } from "../modules/setup/wizard.service";
 import { assertStudentCanAccessOwnUserId, assertStudentCanAccessOwnUserIds, bulkImportStudentCredits, getStudentCreditSummaries, getStudentCredits, getStudentStatsByScope, getStudentUnits, listStudentCreditTableByScope, listStudentsByScope, readBatchStatusSummaryByScope, recomputeStudentCreditSummary, recomputeStudentCreditSummaries, upsertStudentCredits, upsertStudentUnits } from "../modules/students/students.service";
-import { assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
+import { assertFacultyCanAccessStudentUserIds, assertFacultyCanEditStudentUserIds, listStudentsDirectory, upsertStudentDirectoryRow } from "../modules/students/students-directory.service";
 
 const ROOT_ENDPOINTS = [
   "/api/health",
@@ -1303,7 +1303,7 @@ export const worker = {
           return respond({ ok: false, error: "Forbidden" }, 403);
         }
         if (scope.type === "mentor") {
-          await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, [studentId]);
+          await assertFacultyCanAccessStudentUserIds(env, scope.mentorEmail, [studentId]);
         } else if (scope.type === "self") {
           await assertStudentCanAccessOwnUserId(env, scope.studentEmail, studentId);
         }
@@ -1400,7 +1400,7 @@ export const worker = {
           return respond({ ok: false, error: "Forbidden" }, 403);
         }
         if (scope.type === "mentor") {
-          await assertFacultyCanEditStudentUserIds(env, scope.mentorEmail, studentIds);
+          await assertFacultyCanAccessStudentUserIds(env, scope.mentorEmail, studentIds);
         } else if (scope.type === "self") {
           await assertStudentCanAccessOwnUserIds(env, scope.studentEmail, studentIds);
         }

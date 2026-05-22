@@ -69,6 +69,15 @@
 - This rule applies to all credit displays (cards, chips, tables, tooltips, analytics, exports) unless an explicit exception is documented in this file.
 - Frontend credit rendering MUST use the shared formatter in `frontend/src/app/utils.ts` (single source of truth) and MUST NOT duplicate ad-hoc formatting logic.
 
+10. Database delete safety policy is mandatory.
+- `DELETE` queries in runtime application paths are disallowed by default.
+- A runtime `DELETE` may be used only when it is explicitly required for correctness, and then MUST be:
+  - narrowly scoped with deterministic predicates (for example, exact `student_id`, exact `batch`, exact status subset),
+  - protected against empty/invalid identifiers before query execution,
+  - documented in the task change summary/changelog with reason.
+- Never use broad or unbounded delete patterns in runtime code (for example, missing key predicates, weak dynamic conditions, or full-table deletes).
+- Setup/reset/migration/admin-maintenance paths may use broader deletes only when the endpoint/workflow is explicitly destructive by design.
+
 ### MRT Baseline Exceptions
 - None currently approved.
 

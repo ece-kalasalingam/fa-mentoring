@@ -5,6 +5,7 @@
       "name": "UG Regulation 2025 Lateral",
       "curriculumStructure": {
         "totalCreditsRequired": 120,
+        "totalUnitsRequired": 7,
         "categories": [
           {
             "code": "FCM",
@@ -108,9 +109,17 @@
               "value": 1
             },
             "measure": "units"
+          },
+          {
+            "code": "MAND",
+            "name": "Mandatory Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            },
+            "measure": "units"
           }
-        ],
-        "totalUnitsRequired": 4
+        ]
       }
     },
     {
@@ -118,6 +127,7 @@
       "name": "UG Regulation 2025 Regular",
       "curriculumStructure": {
         "totalCreditsRequired": 160,
+        "totalUnitsRequired": 7,
         "categories": [
           {
             "code": "FCM",
@@ -219,9 +229,17 @@
               "value": 1
             },
             "measure": "units"
+          },
+          {
+            "code": "MAND",
+            "name": "Mandatory Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            },
+            "measure": "units"
           }
-        ],
-        "totalUnitsRequired": 4
+        ]
       }
     },
     {
@@ -229,6 +247,7 @@
       "name": "UG Regulation 2021 Regular",
       "curriculumStructure": {
         "totalCreditsRequired": 160,
+        "totalUnitsRequired": 7,
         "categories": [
           {
             "code": "FC",
@@ -310,9 +329,17 @@
               "value": 1
             },
             "measure": "units"
+          },
+          {
+            "code": "MAND",
+            "name": "Mandatory Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            },
+            "measure": "units"
           }
-        ],
-        "totalUnitsRequired": 4
+        ]
       }
     },
     {
@@ -320,6 +347,7 @@
       "name": "UG Regulation 2021 Lateral",
       "curriculumStructure": {
         "totalCreditsRequired": 120,
+        "totalUnitsRequired": 7,
         "categories": [
           {
             "code": "FC",
@@ -401,9 +429,17 @@
               "value": 1
             },
             "measure": "units"
-          }
-        ],
-        "totalUnitsRequired": 4
+          },
+          {
+            "code": "MAND",
+            "name": "Mandatory Course",
+            "rule": {
+              "type": "fixed",
+              "value": 3
+            },
+            "measure": "units"
+           }
+        ]
       }
     }
   ]

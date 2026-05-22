@@ -4776,3 +4776,72 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Replaced unbounded all-users fetch loop with bounded prefetch (`MAX_INITIAL_PAGES = 3`) while retaining cache-first behavior.
   - Reduced non-user-triggered forced refresh usage after mutations by relying on explicit cache invalidation plus normal reload calls.
 - Revert: none
+## 2026-05-22 19:00 IST | codex-gpt-5 | change
+- Summary: Hardened delete-query safety for student credits and batch summaries; added mandatory runtime DELETE guardrail policy.
+- Files: api/src/modules/students/students.service.ts, AGENTS.md, CHANGELOG.md
+- Details:
+  - Replaced batch summary recompute pattern from `DELETE + INSERT` to `INSERT ... ON CONFLICT DO UPDATE` for `batch_credit_status_summary`.
+  - Added strict student-id normalization/validation guards in `upsertStudentCredits` and `upsertStudentUnits` to prevent unsafe operations when identity is missing.
+  - Narrowed replace-all cleanup logic to scoped subsets only:
+    - credits cleanup now targets non-unit rows for the specific student and preserves matching incoming keys,
+    - units cleanup now targets `status = 5` rows for the specific student and preserves matching incoming categories.
+  - Added explicit mandatory policy in `AGENTS.md`: runtime DELETE disallowed by default, allowed only when strictly scoped, validated, and documented.
+- Revert: none
+## 2026-05-22 19:10 IST | codex-gpt-5 | fix
+- Summary: Fixed batch-summary SQL parse failure and added mitigation for legacy `students_old_v5` schema residue.
+- Files: api/src/modules/students/students.service.ts, api/src/modules/setup/wizard.service.ts, api/src/modules/setup/migrations.ts, CHANGELOG.md
+- Details:
+  - Replaced batch summary recompute SQL from `INSERT ... SELECT ... ON CONFLICT` to parser-safe `INSERT OR REPLACE ... SELECT` for `batch_credit_status_summary`.
+  - Added setup mitigation to detect legacy `students_old_v5` references in `sqlite_master` and automatically rebuild `student_credit_details` to rebind foreign keys to current `students(user_id)`.
+  - Recreated required indexes and `trg_student_credit_details_modified_at` after mitigation rebuild.
+  - Renamed migration-internal staging alias `students_old_v5` to `students_stage_v5` in migration `0028` statements for consistency with current-table naming.
+- Revert: none
+## 2026-05-22 19:18 IST | codex-gpt-5 | fix
+- Summary: Fixed bulk/import replace-all conflict behavior so existing semester/category rows are updated instead of failing inserts.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Updated `upsertStudentCredits` replace-all path to use `INSERT ... ON CONFLICT(student_id, category_id, semester_taken) DO UPDATE` before stale-row cleanup.
+  - Updated `upsertStudentUnits` replace-all path with the same conflict-upsert pattern.
+  - This allows adding/updating category `Y` for a semester even when category `X` already exists in that semester, while still enforcing replace-all semantics via scoped cleanup.
+- Revert: none
+## 2026-05-22 19:28 IST | codex-gpt-5 | fix
+- Summary: Added runtime schema self-heal for lingering `students_old_v5` references in legacy DBs.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Added `ensureStudentCreditDetailsSchemaHealthy(...)` guard in student-credit service paths to detect legacy `sqlite_master` SQL containing `students_old_v5`.
+  - When detected, service now atomically rebuilds `student_credit_details` to bind FK to current `students(user_id)`, restores indexes, and recreates `trg_student_credit_details_modified_at`.
+  - Added TTL memoization for schema check to avoid repeated overhead in hot paths.
+- Revert: none
+## 2026-05-22 19:31 IST | codex-gpt-5 | fix
+- Summary: Fixed faculty summary read authorization so student summaries load without update-only active-student restriction.
+- Files: api/src/modules/students/students-directory.service.ts, api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Added `assertFacultyCanAccessStudentUserIds(...)` for read-scope validation (mentor ownership check without active-student update constraint).
+  - Updated `/api/student-credits` GET and `/api/student-credits/summaries` POST mentor checks to use read-scope assertion.
+  - Kept update/mutation endpoints on existing stricter `assertFacultyCanEditStudentUserIds(...)` behavior.
+- Revert: none
+## 2026-05-22 19:34 IST | codex-gpt-5 | fix
+- Summary: Fixed React maximum update depth loop caused by repeatedly re-setting selected student state from regenerated directory rows.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated selected-student synchronization effect to use functional `setSelectedStudentForCredits` with field-level equality guard.
+  - Narrowed effect dependencies to selected `userId` instead of full selected object, preventing feedback loops when row object references are regenerated.
+  - Prevented redundant state writes when selected student data is unchanged.
+- Revert: none
+## 2026-05-22 19:37 IST | codex-gpt-5 | fix
+- Summary: Fixed faculty students-directory render loop causing `Maximum update depth exceeded` and white-screen on load.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Memoized `facultyStudentsDirectoryRows` with `useMemo` to prevent fresh-row-array regeneration on every parent render.
+  - Replaced direct `setCreditNavRows` callback wiring with `handleVisibleCreditRowsChange` that performs row-level equality checks and skips redundant state updates.
+  - Prevents parent/child feedback loop between StudentsDirectoryTable visible-row emission and App state updates in faculty scoped view.
+- Revert: none
+## 2026-05-22 19:53 IST | codex-gpt-5 | fix
+- Summary: Made bulk credit import summary updates deterministic by batching recomputation after writes.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Updated `bulkImportStudentCredits(...)` to write all per-student credit rows with `recomputeSummary: false`, collect touched student IDs, and then run a single `recomputeStudentCreditSummaries(...)` pass.
+  - Added `updatedStudentUserIds` to bulk-import result payload for explicit traceability of recomputed principals.
+  - Added optional `recomputeSummary` control to `upsertStudentCredits(...)` (default remains `true` for non-bulk paths).
+  - Ensures `student_credit_status_summary` and `batch_credit_status_summary` are refreshed after bulk imports.
+- Revert: none

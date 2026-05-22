@@ -161,6 +161,37 @@ export async function assertFacultyCanEditStudentUserIds(
   }
 }
 
+export async function assertFacultyCanAccessStudentUserIds(
+  env: Env,
+  mentorEmailRaw: string,
+  userIds: string[]
+) {
+  const db = getDb(env);
+  const mentorEmail = String(mentorEmailRaw ?? "").trim().toLowerCase();
+  const scopedUserIds = Array.from(
+    new Set(
+      userIds
+        .map((id) => String(id ?? "").trim())
+        .filter((id) => id.length > 0)
+    )
+  );
+  if (!mentorEmail || scopedUserIds.length === 0) return;
+
+  const placeholders = scopedUserIds.map(() => "?").join(", ");
+  const result = await db.execute({
+    sql: `select distinct s.user_id
+          from students s
+          inner join user_accounts mentor_ua on mentor_ua.id = s.mentor_id
+          where s.user_id in (${placeholders})
+            and lower(trim(mentor_ua.email)) = ?`,
+    args: [...scopedUserIds, mentorEmail],
+  });
+  const allowedIds = new Set(result.rows.map((row) => String(row.user_id ?? "").trim()).filter((id) => id.length > 0));
+  if (allowedIds.size !== scopedUserIds.length) {
+    throw new Error("Faculty can only access students they are mentoring.");
+  }
+}
+
 export async function upsertStudentDirectoryRow(
   env: Env,
   input: {
