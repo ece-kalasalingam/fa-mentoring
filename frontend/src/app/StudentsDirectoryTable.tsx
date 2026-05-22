@@ -64,7 +64,7 @@ const MOBILE_HIDDEN_COLUMNS: Record<string, boolean> = {
 };
 
 const STATUS_ORDER: Record<CreditStatus, number> = {
-  "off-track": 0, "marginal": 1, "on-track": 2, "complete": 3,
+  "off-track": 0, "alarming": 1, "marginal": 2, "on-track": 3, "complete": 4,
 };
 
 export default function StudentsDirectoryTable(props: Props) {
@@ -738,6 +738,17 @@ export default function StudentsDirectoryTable(props: Props) {
             return (
               <Chip
                 label="Marginal"
+                size="small"
+                color="primary"
+                variant="outlined"
+                sx={{ height: 20, fontSize: "0.65rem", "& .MuiChip-label": { px: 0.75 } }}
+              />
+            );
+          }
+          if (s.status === "alarming") {
+            return (
+              <Chip
+                label="Alarming"
                 size="small"
                 color="warning"
                 variant="outlined"

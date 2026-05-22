@@ -28,6 +28,23 @@ Allowed `<type>` values:
 
 ---
 
+## 2026-05-22 IST | claude-sonnet-4-6 | change
+- Summary: Replaced 4-status credit classification with a new 5-status percentage-based system and extracted it as a shared canonical module.
+- Files: shared/src/creditStatus.ts, frontend/src/app/utils.ts, frontend/src/app/constants.ts, frontend/src/app/types.ts, frontend/src/app/App.tsx, frontend/src/app/FacultyAnalyticsReport.tsx, frontend/src/app/StudentsDirectoryTable.tsx, frontend/src/app/StudentCreditsView.tsx, frontend/tsconfig.app.json, frontend/vite.config.ts, api/tsconfig.json, CHANGELOG.md
+- Details:
+  - Added `shared/src/creditStatus.ts` as the single canonical source of truth for `CreditStatus`, `CREDIT_STATUSES`, `CREDIT_STATUS_LABELS`, and `computeCreditStatus`; all frontends and backends import from `#shared/creditStatus`.
+  - Wired `#shared` path alias in `frontend/vite.config.ts`, `frontend/tsconfig.app.json`, and `api/tsconfig.json`.
+  - Introduced fifth status **Alarming** between Marginal and Off-Track, redefining all five bands: Complete (earned ≥ total AND all categories satisfied), On-Track (no per-category deficit in any category, cumulative), Marginal (total deficit ≤ 3 % of target), Alarming (3 %–10 %), Off-Track (> 10 %).
+  - `computeCreditStatus` now accepts `categories?: Array<{ earned, required, expected }>` instead of the old `allPastSemestersComplete` flag; on-track is determined by cumulative per-category earned vs expected, eliminating false Marginal classifications caused by semester-level compensation.
+  - Removed `studentEarnedBySemCat` map and all per-semester completeness checks from `FacultyAnalyticsReport`; per-category `expected` values are now stored on `categoryStatuses` entries and passed directly to `computeCreditStatus`.
+  - Updated `App.tsx` `studentSelfCreditSummary` and `creditSummaries` computations to build per-category `{ earned, required, expected }` arrays and drop `allPastSemestersComplete` logic; added `categoryExpected` map and `studentSummaryCatEarned` state for summary-API category data.
+  - Fixed per-category deficit computation in `creditSummaries` to sum per-category shortfalls instead of total-vs-earned, so students with category violations but sufficient overall credits show a non-zero deficit.
+  - Updated all color mappings, chip colors, bar-chart series, and legend entries throughout `FacultyAnalyticsReport` and `App.tsx` for the five-status palette (complete/on-track = success, marginal = primary, alarming = warning, off-track = error).
+  - Fixed category detail table cells: off-track cells now show the actual earned value instead of "—".
+  - `atRisk` counter in category cards changed from `marginal + off-track` to `alarming + off-track`.
+  - Re-exported `CreditStatus`, `CREDIT_STATUSES`, `CREDIT_STATUS_LABELS`, and `computeCreditStatus` from `frontend/src/app/types.ts`, `constants.ts`, and `utils.ts` so existing import paths remain unchanged.
+- Revert: none
+
 ## 2026-05-21 20:56 IST | codex | fix
 - Summary: Fixed first-load Students Directory emptiness when opening from dashboard batch-analytics status chips.
 - Files: frontend/src/app/App.tsx, CHANGELOG.md

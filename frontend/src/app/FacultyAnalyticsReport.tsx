@@ -34,10 +34,6 @@ import { computeCreditStatus, formatCredits, normalizeCredits } from "./utils";
 // ── Internal status types ─────────────────────────────────────────────────────
 type OverallStatus = CreditStatus;
 
-function catStatus(earned: number, required: number, expected: number): CreditStatus {
-  return computeCreditStatus(required, earned, expected);
-}
-
 const OVERALL_STATUS_ORDER: readonly OverallStatus[] = CREDIT_STATUSES;
 const OVERALL_LABELS = CREDIT_STATUS_LABELS;
 
@@ -68,7 +64,7 @@ type StudentAnalytic = {
   totalEarned: number;
   completionPct: number;
   overallStatus: OverallStatus;
-  categoryStatuses: Record<string, { earned: number; required: number; status: CreditStatus }>;
+  categoryStatuses: Record<string, { earned: number; required: number; expected: number; status: CreditStatus }>;
 };
 
 type Props = {
@@ -86,16 +82,18 @@ type Props = {
 function overallStatusColor(status: OverallStatus, theme: ReturnType<typeof useTheme>): string {
   switch (status) {
     case "complete":  return theme.palette.success.main;
-    case "on-track":  return theme.palette.primary.main;
-    case "marginal":  return theme.palette.warning.main;
+    case "on-track":  return theme.palette.success.light;
+    case "marginal":  return theme.palette.primary.main;
+    case "alarming":  return theme.palette.warning.main;
     case "off-track": return theme.palette.error.main;
   }
 }
 function overallChipColor(status: OverallStatus): "success" | "primary" | "warning" | "error" {
   switch (status) {
     case "complete":  return "success";
-    case "on-track":  return "primary";
-    case "marginal":  return "warning";
+    case "on-track":  return "success";
+    case "marginal":  return "primary";
+    case "alarming":  return "warning";
     case "off-track": return "error";
   }
 }
@@ -111,7 +109,7 @@ function buildCategoryAnalytics(
 
   return Array.from(allCodes)
     .map((code) => {
-      const counts: Record<CreditStatus, number> = { complete: 0, "on-track": 0, marginal: 0, "off-track": 0 };
+      const counts: Record<CreditStatus, number> = { complete: 0, "on-track": 0, marginal: 0, alarming: 0, "off-track": 0 };
       let totalRequired = 0, totalEarned = 0;
       for (const sa of students) {
         const info = sa.categoryStatuses[code];
@@ -180,7 +178,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
   }, []);
 
   const { statusCounts, categoryAnalytics, grandRequired, grandEarned, grandPct } = useMemo(() => {
-    const statusCounts: Record<OverallStatus, number> = { complete: 0, "on-track": 0, marginal: 0, "off-track": 0 };
+    const statusCounts: Record<OverallStatus, number> = { complete: 0, "on-track": 0, marginal: 0, alarming: 0, "off-track": 0 };
     for (const sa of students) statusCounts[sa.overallStatus]++;
     const categoryAnalytics = buildCategoryAnalytics(students, catNameMap, catMeasureMap);
     const grandRequired = students.reduce((s, a) => s + a.totalRequired, 0);
@@ -228,8 +226,9 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
     const series = (
       [
         { name: "Complete",  key: "complete"  as CreditStatus, color: theme.palette.success.main,      labelColor: "#fff" },
-        { name: "On Track",  key: "on-track"  as CreditStatus, color: theme.palette.primary.main,      labelColor: "#fff" },
-        { name: "Marginal",  key: "marginal"  as CreditStatus, color: theme.palette.warning.main,      labelColor: isDark ? "#fff" : "#333" },
+        { name: "On Track",  key: "on-track"  as CreditStatus, color: theme.palette.success.light,     labelColor: "#fff" },
+        { name: "Marginal",  key: "marginal"  as CreditStatus, color: theme.palette.primary.main,      labelColor: "#fff" },
+        { name: "Alarming",  key: "alarming"  as CreditStatus, color: theme.palette.warning.main,      labelColor: isDark ? "#fff" : "#333" },
         { name: "Off Track", key: "off-track" as CreditStatus, color: theme.palette.error.main,        labelColor: "#fff" },
       ] as const
     ).map(({ name, key, color, labelColor }) => ({
@@ -270,7 +269,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
         },
       },
       legend: {
-        data: ["Complete", "On Track", "Marginal", "Off Track"],
+        data: ["Complete", "On Track", "Marginal", "Alarming", "Off Track"],
         textStyle: { color: textColor, fontSize: isMobile ? 10 : 11 },
         itemGap: isMobile ? 8 : 14,
         top: 4,
@@ -441,7 +440,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
           <Typography variant="caption" sx={{ display: "block", mb: 0.75, color: "primary.main", fontWeight: 700 }}>Credits</Typography>
           <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 1.5, mb: 1.5 }}>
             {categoryAnalytics.filter((cat) => cat.measure === "credits").map((cat) => {
-              const atRisk = cat.counts.marginal + cat.counts["off-track"];
+              const atRisk = cat.counts.alarming + cat.counts["off-track"];
               const isHighlighted = categoryFilter?.code === cat.code;
               const highlightColor = isHighlighted ? overallStatusColor(categoryFilter!.status, theme) : undefined;
               return (
@@ -526,7 +525,7 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
               <Typography variant="caption" sx={{ display: "block", mb: 0.75, color: "secondary.main", fontWeight: 700 }}>Non-credits</Typography>
               <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(300px, 100%), 1fr))", gap: 1.5 }}>
                 {categoryAnalytics.filter((cat) => cat.measure === "units").map((cat) => {
-                  const atRisk = cat.counts.marginal + cat.counts["off-track"];
+                  const atRisk = cat.counts.alarming + cat.counts["off-track"];
                   const isHighlighted = categoryFilter?.code === cat.code;
                   const highlightColor = isHighlighted ? overallStatusColor(categoryFilter!.status, theme) : undefined;
                   return (
@@ -688,17 +687,19 @@ function BatchPanel({ batch, batchLabel, students, catNameMap, catMeasureMap, on
                     const info = sa.categoryStatuses[cat.code];
                     if (!info) return <TableCell key={cat.code} align="center" sx={{ color: "text.disabled", fontSize: "0.7rem" }}>—</TableCell>;
                     const cellBg = info.status === "complete" ? alpha(theme.palette.success.main, 0.1)
-                      : info.status === "on-track" ? alpha(theme.palette.primary.main, 0.08)
-                      : info.status === "marginal" ? alpha(theme.palette.warning.main, 0.1)
+                      : info.status === "on-track"  ? alpha(theme.palette.success.main, 0.07)
+                      : info.status === "marginal"  ? alpha(theme.palette.primary.main, 0.08)
+                      : info.status === "alarming"  ? alpha(theme.palette.warning.main, 0.1)
                       : alpha(theme.palette.error.main, 0.08);
                     const cellColor = info.status === "complete" ? theme.palette.success.main
-                      : info.status === "on-track" ? theme.palette.primary.main
-                      : info.status === "marginal" ? theme.palette.warning.main
+                      : info.status === "on-track"  ? theme.palette.success.main
+                      : info.status === "marginal"  ? theme.palette.primary.main
+                      : info.status === "alarming"  ? theme.palette.warning.main
                       : theme.palette.error.main;
                     return (
                       <Tooltip key={cat.code} title={`${cat.code}: ${formatCredits(info.earned)} / ${formatCredits(info.required)} cr — ${OVERALL_LABELS[info.status]}`} placement="top" arrow>
                         <TableCell align="center" sx={{ bgcolor: cellBg, fontSize: "0.72rem", fontWeight: 600, color: cellColor }}>
-                          {info.status === "complete" ? "✓" : info.status === "off-track" ? "—" : `${formatCredits(info.earned)}`}
+                          {info.status === "complete" ? "✓" : formatCredits(info.earned)}
                         </TableCell>
                       </Tooltip>
                     );
@@ -819,12 +820,18 @@ export default function FacultyAnalyticsReport({
       const completionPct = totalRequired > 0 ? Math.round((totalEarned / totalRequired) * 100) : 0;
       const expected = expectedCredits + expectedUnits;
 
-      const categoryStatuses: Record<string, { earned: number; required: number; status: CreditStatus }> = {};
+      const categoryStatuses: Record<string, { earned: number; required: number; expected: number; status: CreditStatus }> = {};
       for (const code of allCategoryCodes) {
         const req = categoryRequired[code] ?? 0;
         if (req > 0) {
           const earned = categoryEarned[code] ?? 0;
-          categoryStatuses[code] = { earned, required: req, status: catStatus(earned, req, categoryExpected[code] ?? 0) };
+          const exp = categoryExpected[code] ?? 0;
+          categoryStatuses[code] = {
+            earned,
+            required: req,
+            expected: exp,
+            status: computeCreditStatus(req, earned, exp),
+          };
         }
       }
 
@@ -843,7 +850,7 @@ export default function FacultyAnalyticsReport({
         totalRequired,
         totalEarned,
         completionPct,
-        overallStatus: computeCreditStatus(totalRequired, totalEarned, expected),
+        overallStatus: computeCreditStatus(totalRequired, totalEarned, expected, Object.values(categoryStatuses)),
         categoryStatuses,
       });
     }
@@ -884,9 +891,10 @@ export default function FacultyAnalyticsReport({
       return counts.map((count) => Number(((count / total) * 100).toFixed(2)));
     });
     const statusColors: Record<CreditStatus, string> = {
-      complete: theme.palette.success.main,
-      "on-track": theme.palette.primary.main,
-      marginal: theme.palette.warning.main,
+      complete:   theme.palette.success.main,
+      "on-track": theme.palette.success.light,
+      marginal:   theme.palette.primary.main,
+      alarming:   theme.palette.warning.main,
       "off-track": theme.palette.error.main,
     };
     const stackedSeries = CREDIT_STATUSES.map((status, statusIdx) => ({
@@ -999,7 +1007,7 @@ export default function FacultyAnalyticsReport({
         </Paper>
       ) : null}
       {!chartOnly ? batchGroups.map(({ batch, label, students: batchStudents }, idx) => {
-        const batchStatusCounts: Record<CreditStatus, number> = { complete: 0, "on-track": 0, marginal: 0, "off-track": 0 };
+        const batchStatusCounts: Record<CreditStatus, number> = { complete: 0, "on-track": 0, marginal: 0, alarming: 0, "off-track": 0 };
         for (const sa of batchStudents) batchStatusCounts[sa.overallStatus]++;
         const batchTotal = batchStudents.length;
         return (

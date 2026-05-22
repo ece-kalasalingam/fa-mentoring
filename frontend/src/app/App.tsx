@@ -170,6 +170,9 @@ function App() {
   const [studentCreditsSaving, setStudentCreditsSaving] = useState(false);
   const [studentCreditTotals, setStudentCreditTotals] = useState<Record<string, number>>({});
   const [studentUnitTotals, setStudentUnitTotals] = useState<Record<string, number>>({});
+  // Per-category earned totals returned by the summary API — used for the Complete category
+  // check in creditSummaries when detailed per-semester saves are not yet loaded.
+  const [studentSummaryCatEarned, setStudentSummaryCatEarned] = useState<Record<string, Record<string, number>>>({});
   const [creditTotalsLoaded, setCreditTotalsLoaded] = useState(false);
   const [facultyStudentRows, setFacultyStudentRows] = useState<FacultyStudentRow[]>([]);
   const [facultyCreditTableRows, setFacultyCreditTableRows] = useState<FacultyCreditTableRow[]>([]);
@@ -579,16 +582,28 @@ function App() {
     const normRequired = normalizeCredits(totalRequired);
     const normEarned = normalizeCredits(totalEarned);
     const completionPct = normRequired > 0 ? Math.round((normEarned / normRequired) * 100) : 0;
-    const overallStatus = computeCreditStatus(totalRequired, totalEarned, totalExpected);
 
-    const categories = Object.keys(categoryRequired)
+    const categoryList = Object.keys(categoryRequired)
+      .filter((code) => (categoryRequired[code] ?? 0) > 0)
       .map((code) => ({
         code,
         required: normalizeCredits(categoryRequired[code] ?? 0),
         earned: normalizeCredits(categoryEarned[code] ?? 0),
-        status: computeCreditStatus(categoryRequired[code] ?? 0, categoryEarned[code] ?? 0, categoryExpected[code] ?? 0),
+        expected: normalizeCredits(categoryExpected[code] ?? 0),
+      }));
+
+    const overallStatus = computeCreditStatus(
+      totalRequired,
+      totalEarned,
+      totalExpected,
+      categoryList,
+    );
+
+    const categories = categoryList
+      .map((c) => ({
+        ...c,
+        status: computeCreditStatus(c.required, c.earned, c.expected),
       }))
-      .filter((c) => c.required > 0)
       .sort((a, b) => a.code.localeCompare(b.code));
 
     return { totalRequired: normRequired, totalEarned: normEarned, completionPct, overallStatus, categories, creditsLoaded };
@@ -1508,6 +1523,7 @@ function App() {
       const studentById = new Map(studentsDirectorySourceRows.map((student) => [student.userId, student]));
       const totals: Record<string, number> = {};
       const unitTotals: Record<string, number> = {};
+      const summaryCatEarned: Record<string, Record<string, number>> = {};
       for (const item of result.summaries as Array<{ studentId: string; totalCredits: number; totalUnits?: number; byCategory?: Record<string, number> }>) {
         const studentId = String(item.studentId ?? "");
         if (!studentId) continue;
@@ -1523,9 +1539,11 @@ function App() {
         if (hasByCategory) {
           let creditSum = 0;
           let unitSum = 0;
+          const catMap: Record<string, number> = {};
           for (const [categoryCode, rawValue] of Object.entries(byCategory)) {
             const value = Number(rawValue ?? 0);
             if (!Number.isFinite(value) || value <= 0) continue;
+            catMap[categoryCode] = normalizeCredits(value);
             if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
               unitSum += value;
             } else {
@@ -1534,6 +1552,7 @@ function App() {
           }
           totals[studentId] = normalizeCredits(creditSum);
           unitTotals[studentId] = normalizeCredits(unitSum);
+          summaryCatEarned[studentId] = catMap;
           continue;
         }
 
@@ -1542,6 +1561,7 @@ function App() {
       }
       setStudentCreditTotals(totals);
       setStudentUnitTotals(unitTotals);
+      setStudentSummaryCatEarned((prev) => ({ ...prev, ...summaryCatEarned }));
       setCreditTotalsLoaded(true);
     }
   }
@@ -2581,14 +2601,17 @@ function App() {
       let earnedCredits = 0;
       let earnedUnits = 0;
       const earnedUnitCategoriesFromCredits = new Set<string>();
+      const categoryEarned: Record<string, number> = {};
       if (hasDetailedCredits) {
         for (const semData of Object.values(detailedCreditBuckets)) {
           for (const [categoryCode, value] of Object.entries(semData)) {
+            const num = Number(value ?? 0);
+            categoryEarned[categoryCode] = (categoryEarned[categoryCode] ?? 0) + num;
             if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
-              earnedUnits += Number(value ?? 0);
+              earnedUnits += num;
               earnedUnitCategoriesFromCredits.add(categoryCode);
             } else {
-              earnedCredits += Number(value ?? 0);
+              earnedCredits += num;
             }
           }
         }
@@ -2599,7 +2622,9 @@ function App() {
         for (const [categoryCode, value] of Object.entries(studentSavedUnitsByUser[student.userId] ?? {})) {
           // Avoid double counting when the same unit category is already present in credit detail rows.
           if (earnedUnitCategoriesFromCredits.has(categoryCode)) continue;
-          earnedUnits += Number(value ?? 0);
+          const num = Number(value ?? 0);
+          categoryEarned[categoryCode] = (categoryEarned[categoryCode] ?? 0) + num;
+          earnedUnits += num;
         }
       } else {
         earnedUnits += Number(studentUnitTotals[student.userId] ?? 0);
@@ -2608,11 +2633,15 @@ function App() {
       const currentSem = student.currentSemester ?? 1;
       let expectedCredits = 0;
       let expectedUnits = 0;
+      const categoryRequired: Record<string, number> = {};
+      const categoryExpected: Record<string, number> = {};
       for (const semester of plan.semesters) {
-        if (semester.semester >= currentSem) continue;
         for (const [categoryCode, value] of Object.entries(semester.categories ?? {})) {
           const numeric = Number(value ?? 0);
           if (numeric <= 0) continue;
+          categoryRequired[categoryCode] = (categoryRequired[categoryCode] ?? 0) + numeric;
+          if (semester.semester >= currentSem) continue;
+          categoryExpected[categoryCode] = (categoryExpected[categoryCode] ?? 0) + numeric;
           if ((measureByCategory.get(categoryCode) ?? "credits") === "units") {
             expectedUnits += numeric;
           } else {
@@ -2621,10 +2650,48 @@ function App() {
         }
       }
       const expected = expectedCredits + expectedUnits;
-      const deficitCredits = Math.max(0, expectedCredits - earnedCredits);
-      const deficitUnits = Math.max(0, expectedUnits - earnedUnits);
-      const deficit = Math.max(0, expected - earned);
-      const status = computeCreditStatus(target, earned, expected);
+
+      // Effective per-category earned: detailed saves take priority; fall back to the
+      // per-category totals returned by the summary API when detailed saves are absent.
+      const summaryCat = studentSummaryCatEarned[student.userId];
+      const effectiveCategoryEarned: Record<string, number> = summaryCat ? { ...summaryCat } : {};
+      for (const [code, val] of Object.entries(categoryEarned)) effectiveCategoryEarned[code] = val;
+      const hasCategoryData = hasDetailedCredits || hasDetailedUnits || summaryCat !== undefined;
+
+      // Deficit columns: cumulative sum of per-category shortfalls so that a student who has
+      // earned enough total credits but missed specific category requirements shows a non-zero
+      // deficit. Falls back to target-vs-earned when only bulk totals are available.
+      let deficitCredits: number;
+      let deficitUnits: number;
+      if (hasCategoryData) {
+        deficitCredits = 0;
+        deficitUnits = 0;
+        for (const [code, req] of Object.entries(categoryRequired)) {
+          if (req <= 0) continue;
+          const shortage = Math.max(0, req - (effectiveCategoryEarned[code] ?? 0));
+          if ((measureByCategory.get(code) ?? "credits") === "units") {
+            deficitUnits += shortage;
+          } else {
+            deficitCredits += shortage;
+          }
+        }
+      } else {
+        deficitCredits = Math.max(0, targetCredits - earnedCredits);
+        deficitUnits = Math.max(0, targetUnits - earnedUnits);
+      }
+      const deficit = deficitCredits + deficitUnits;
+      // Category-level breakdown for the Complete check — available whenever we have
+      // per-category data from either detailed saves or the summary API.
+      const allCategoryStatuses = hasCategoryData
+        ? Object.keys(categoryRequired)
+            .filter((code) => categoryRequired[code] > 0)
+            .map((code) => ({
+              earned: effectiveCategoryEarned[code] ?? 0,
+              required: categoryRequired[code],
+              expected: categoryExpected[code] ?? 0,
+            }))
+        : undefined;
+      const status = computeCreditStatus(target, earned, expected, allCategoryStatuses);
       result[student.userId] = {
         target,
         earned,
@@ -2640,7 +2707,7 @@ function App() {
       };
     }
     return result;
-  }, [studentSavedCreditsByUser, studentSavedUnitsByUser, studentCreditTotals, studentUnitTotals, creditTotalsLoaded, studentsDirectorySourceRows, plansOfStudy, regulations]);
+  }, [studentSavedCreditsByUser, studentSavedUnitsByUser, studentCreditTotals, studentUnitTotals, studentSummaryCatEarned, creditTotalsLoaded, studentsDirectorySourceRows, plansOfStudy, regulations]);
   const selectedStudentIndex = selectedStudentForCredits
     ? effectiveCreditNavRows.findIndex((r) => r.userId === selectedStudentForCredits.userId)
     : -1;
@@ -4726,8 +4793,9 @@ function App() {
                                     size="small"
                                     color={
                                       studentSelfCreditSummary.overallStatus === "complete" ? "success" :
-                                      studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
-                                      studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
+                                      studentSelfCreditSummary.overallStatus === "on-track" ? "success" :
+                                      studentSelfCreditSummary.overallStatus === "marginal" ? "primary" :
+                                      studentSelfCreditSummary.overallStatus === "alarming" ? "warning" : "error"
                                     }
                                     sx={{ height: 20, fontSize: "0.65rem", borderRadius: 1 }}
                                   />
@@ -4740,8 +4808,9 @@ function App() {
                                       fontWeight: 700,
                                       lineHeight: 1,
                                       color: studentSelfCreditSummary.overallStatus === "complete" ? "success.main" :
-                                        studentSelfCreditSummary.overallStatus === "on-track" ? "primary.main" :
-                                        studentSelfCreditSummary.overallStatus === "marginal" ? "warning.main" : "error.main",
+                                        studentSelfCreditSummary.overallStatus === "on-track" ? "success.main" :
+                                        studentSelfCreditSummary.overallStatus === "marginal" ? "primary.main" :
+                                        studentSelfCreditSummary.overallStatus === "alarming" ? "warning.main" : "error.main",
                                     }}
                                   >
                                     {formatCredits(studentSelfCreditSummary.totalEarned)}
@@ -4759,8 +4828,9 @@ function App() {
                                   value={Math.min(100, studentSelfCreditSummary.completionPct)}
                                   color={
                                     studentSelfCreditSummary.overallStatus === "complete" ? "success" :
-                                    studentSelfCreditSummary.overallStatus === "on-track" ? "primary" :
-                                    studentSelfCreditSummary.overallStatus === "marginal" ? "warning" : "error"
+                                    studentSelfCreditSummary.overallStatus === "on-track" ? "success" :
+                                    studentSelfCreditSummary.overallStatus === "marginal" ? "primary" :
+                                    studentSelfCreditSummary.overallStatus === "alarming" ? "warning" : "error"
                                   }
                                   sx={{ height: 6, borderRadius: 1 }}
                                 />
@@ -4772,8 +4842,8 @@ function App() {
                                       {studentSelfCreditSummary.categories.map((cat) => {
                                         const catName = visibleRegulations[0]?.curriculumStructure?.categories?.find((c) => c.code === cat.code)?.name ?? cat.code;
                                         const catPct = cat.required > 0 ? Math.round((cat.earned / cat.required) * 100) : 0;
-                                        const catColor = cat.status === "complete" ? "success" : cat.status === "on-track" ? "primary" : cat.status === "marginal" ? "warning" : "error";
-                                        const catColorMain = cat.status === "complete" ? "success.main" : cat.status === "on-track" ? "primary.main" : cat.status === "marginal" ? "warning.main" : "error.main";
+                                        const catColor = cat.status === "complete" ? "success" : cat.status === "on-track" ? "success" : cat.status === "marginal" ? "primary" : cat.status === "alarming" ? "warning" : "error";
+                                        const catColorMain = cat.status === "complete" ? "success.main" : cat.status === "on-track" ? "success.main" : cat.status === "marginal" ? "primary.main" : cat.status === "alarming" ? "warning.main" : "error.main";
                                         return (
                                           <Stack key={cat.code} direction="row" sx={{ alignItems: "center", gap: 1.5 }}>
                                             <Typography variant="caption" sx={{ fontFamily: "monospace", fontWeight: 700, fontSize: "0.72rem", color: catColorMain, flexShrink: 0, minWidth: 32 }}>

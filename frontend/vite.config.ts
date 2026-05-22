@@ -36,6 +36,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    resolve: {
+      alias: {
+        "#shared": path.resolve(__dirname, "../shared/src"),
+      },
+    },
     define: {
       'import.meta.env.VITE_GOOGLE_CLIENT_ID': JSON.stringify(viteGoogleClientId)
     },

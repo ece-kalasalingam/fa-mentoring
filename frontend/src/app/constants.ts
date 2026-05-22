@@ -7,13 +7,7 @@ export const SESSION_FACULTY_MENTORED_MINIMAL_KEY = "fa_session_faculty_mentored
 export const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
 export const GOOGLE_IDP_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 
-export const CREDIT_STATUSES = ["complete", "on-track", "marginal", "off-track"] as const;
-export const CREDIT_STATUS_LABELS: Record<string, string> = {
-  "complete": "Complete",
-  "on-track": "On Track",
-  "marginal": "Marginal",
-  "off-track": "Off Track",
-};
+export { CREDIT_STATUSES, CREDIT_STATUS_LABELS } from "#shared/creditStatus";
 
 export const ACTIVITY_LOGS_PAGE_SIZE = 25;
 export const ADMIN_DRAWER_WIDTH = 240;

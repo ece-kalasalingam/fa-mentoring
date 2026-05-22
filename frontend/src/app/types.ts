@@ -227,7 +227,8 @@ export type PlansValidationReport = {
   }>;
 };
 
-export type CreditStatus = "complete" | "on-track" | "marginal" | "off-track";
+import type { CreditStatus } from "#shared/creditStatus";
+export type { CreditStatus };
 
 export type StudentCreditSummary = {
   target: number;

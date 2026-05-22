@@ -167,13 +167,17 @@ export default function StudentCreditsView(props: Props) {
     [categoryOrder, categoryMeasureByCode, sortedSemesters, props.earnedCreditsBySemester, categoryNameByCode],
   );
 
-  const totalOnStudy = useMemo(
+  const creditsOnStudy = useMemo(
+    () => analyticsData.reduce((s, r) => s + r.onStudy, 0),
+    [analyticsData],
+  );
+
+  const unitsOnStudy = useMemo(
     () =>
-      Object.values(props.earnedCreditsBySemester[currentSemesterBoundary] ?? {}).reduce(
-        (s, v) => s + Number(v),
-        0,
-      ),
-    [props.earnedCreditsBySemester, currentSemesterBoundary],
+      Object.entries(props.earnedCreditsBySemester[currentSemesterBoundary] ?? {})
+        .filter(([code]) => (categoryMeasureByCode[code] ?? "credits") === "units")
+        .reduce((s, [, v]) => s + Number(v), 0),
+    [props.earnedCreditsBySemester, currentSemesterBoundary, categoryMeasureByCode],
   );
 
   const isDirty = useMemo(() => {
@@ -226,7 +230,8 @@ export default function StudentCreditsView(props: Props) {
   const unitDeficit = unitRows.reduce((sum, row) => sum + Math.max(0, row.required - row.earned), 0);
   const isComplete   = overallEarned >= overallRequired && overallRequired > 0 && categoryDeficit === 0 && unitDeficit === 0;
   const remaining    = Math.max(Math.max(0, overallRequired - overallEarned), categoryDeficit);
-  const pastEarned   = Math.max(0, overallEarned - totalOnStudy);
+  const pastEarned      = Math.max(0, overallEarned - creditsOnStudy);
+  const pastEarnedUnits = Math.max(0, overallEarnedUnits - unitsOnStudy);
   const semesterLabel =
     maxPlanSemester != null
       ? `Semester ${currentSemesterBoundary} of ${maxPlanSemester}`
@@ -839,9 +844,9 @@ export default function StudentCreditsView(props: Props) {
               >
                 {([
                   { label: "Required",  value: `${formatCredits(overallRequired)}+${formatCredits(overallRequiredUnits)}`,  sub: "cr+ut",          color: "text.primary"  },
-                  { label: "Earned",    value: `${formatCredits(pastEarned)}+${formatCredits(overallEarnedUnits)}`,        sub: "cr+ut",         color: isComplete ? "success.main" : "text.primary" },
-                  { label: "On Study",  value: totalOnStudy,      sub: `sem ${currentSemesterBoundary}`, color: "info.main" },
-                  { label: "Remaining", value: remaining,         sub: remaining === 0 ? "done!" : "credits needed", color: remaining === 0 ? "success.main" : "error.main" },
+                  { label: "Earned",    value: `${formatCredits(pastEarned)}+${formatCredits(pastEarnedUnits)}`,        sub: "cr+ut",         color: isComplete ? "success.main" : "text.primary" },
+                  { label: "On Study",  value: `${formatCredits(creditsOnStudy)}+${formatCredits(unitsOnStudy)}`,      sub: `cr+ut · sem ${currentSemesterBoundary}`, color: "info.main" },
+                  { label: "Remaining", value: `${formatCredits(remaining)}+${formatCredits(unitDeficit)}`, sub: remaining === 0 && unitDeficit === 0 ? "done!" : "cr+ut needed", color: remaining === 0 && unitDeficit === 0 ? "success.main" : "error.main" },
                 ] as const).map(({ label, value, sub, color }) => (
                   <Box
                     key={label}
@@ -867,6 +872,11 @@ export default function StudentCreditsView(props: Props) {
 
               {/* Mobile: stacked cards */}
               <Stack spacing={1} aria-label="Per-category credit breakdown" sx={{ display: { xs: "flex", md: "none" }, flexDirection: "column" }}>
+                {analyticsData.length > 0 && (
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", letterSpacing: 0.2, px: 0.5 }}>
+                    Credits
+                  </Typography>
+                )}
                 {analyticsData.map(({ code, name, planTotal, earnedTotal, onStudy }) => {
                   const complete = planTotal > 0 && earnedTotal >= planTotal;
                   const deficit  = Math.max(0, planTotal - earnedTotal - onStudy);
@@ -994,6 +1004,98 @@ export default function StudentCreditsView(props: Props) {
                     </Box>
                   );
                 })}
+
+                {unitRows.length > 0 && (
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: "secondary.main", letterSpacing: 0.2, px: 0.5 }}>
+                    Non-credits
+                  </Typography>
+                )}
+                {unitRows.map(({ code, name, required, earned }) => {
+                  const complete = required > 0 && earned >= required;
+                  const deficit  = Math.max(0, required - earned);
+                  const pct      = required > 0 ? Math.min(100, (earned / required) * 100) : 0;
+
+                  return (
+                    <Box
+                      key={code}
+                      sx={(theme) => ({
+                        border: "1px solid",
+                        borderColor: complete ? theme.palette.success.main : "divider",
+                        borderRadius: 1.5,
+                        overflow: "hidden",
+                      })}
+                    >
+                      <Box
+                        sx={(theme) => ({
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          px: 1.5,
+                          py: 0.875,
+                          bgcolor: complete ? alpha(theme.palette.success.main, 0.06) : "action.hover",
+                        })}
+                      >
+                        <Box sx={{ minWidth: 0, mr: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }} noWrap>
+                            {name}
+                          </Typography>
+                          <Typography variant="caption" color="text.disabled" sx={{ fontFamily: "monospace", fontSize: "0.65rem" }}>
+                            {code} · ut
+                          </Typography>
+                        </Box>
+                        <Box sx={{ flexShrink: 0 }}>
+                          {complete ? (
+                            <Chip
+                              icon={<CheckCircleIcon sx={{ fontSize: "0.75rem !important" }} />}
+                              label="Done"
+                              size="small"
+                              color="success"
+                              sx={{ height: 20, fontSize: "0.68rem", "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                          ) : deficit > 0 ? (
+                            <Chip
+                              label={`−${formatCredits(deficit)} ut`}
+                              size="small"
+                              color="error"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.68rem", "& .MuiChip-label": { px: 0.75 } }}
+                            />
+                          ) : (
+                            <Chip
+                              label="Planned"
+                              size="small"
+                              variant="outlined"
+                              sx={{ height: 20, fontSize: "0.68rem", "& .MuiChip-label": { px: 0.75 }, color: "text.disabled", borderColor: "divider" }}
+                            />
+                          )}
+                        </Box>
+                      </Box>
+                      <LinearProgress
+                        variant="determinate"
+                        value={pct}
+                        color={complete ? "success" : earned > 0 ? "secondary" : "inherit"}
+                        sx={{ height: 3 }}
+                        aria-label={`${name}: ${Math.round(pct)}%`}
+                      />
+                      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", px: 1.5, py: 0.875 }}>
+                        {(([
+                          { label: "Plan",   value: required, color: "text.secondary"                                                               },
+                          { label: "Earned", value: earned,   color: complete ? "success.main" : earned > 0 ? "text.primary" : "text.disabled"      },
+                          { label: "Need",   value: deficit,  color: deficit > 0 ? "error.main" : "text.disabled"                                   },
+                        ]) as Array<{ label: string; value: number; color: string }>).map(({ label, value, color }) => (
+                          <Box key={label} sx={{ textAlign: "center" }}>
+                            <Typography variant="caption" color="text.disabled" sx={{ display: "block", fontSize: "0.6rem", lineHeight: 1.2, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                              {label}
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }} color={color}>
+                              {value > 0 ? formatCredits(value) : "—"}
+                            </Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  );
+                })}
               </Stack>
 
               {/* Desktop: table view */}
@@ -1019,6 +1121,15 @@ export default function StudentCreditsView(props: Props) {
                     </TableRow>
                   </TableHead>
                   <TableBody>
+                    {analyticsData.length > 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} sx={{ py: 0.5, bgcolor: "action.hover" }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main", letterSpacing: 0.2 }}>
+                            Credits
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
                     {analyticsData.map(({ code, name, planTotal, earnedTotal, onStudy }) => {
                       const complete = planTotal > 0 && earnedTotal >= planTotal;
                       const deficit  = Math.max(0, planTotal - earnedTotal - onStudy);
@@ -1072,6 +1183,64 @@ export default function StudentCreditsView(props: Props) {
                               </Box>
                             ) : deficit > 0 ? (
                               <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{formatCredits(deficit)}</Typography>
+                            ) : (
+                              <Typography variant="body2" color="text.disabled">—</Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    {unitRows.length > 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} sx={{ py: 0.5, bgcolor: "action.hover" }}>
+                          <Typography variant="caption" sx={{ fontWeight: 700, color: "secondary.main", letterSpacing: 0.2 }}>
+                            Non-credits
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {unitRows.map(({ code, name, required, earned }) => {
+                      const complete = required > 0 && earned >= required;
+                      const deficit  = Math.max(0, required - earned);
+                      const pct      = required > 0 ? Math.min(100, (earned / required) * 100) : 0;
+                      return (
+                        <TableRow key={code}>
+                          <TableCell>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>{name}</Typography>
+                            <Typography variant="caption" color="text.disabled" sx={{ fontFamily: "monospace", fontSize: "0.7rem" }}>{code} · ut</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>{formatCredits(required)}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: complete ? 700 : 400, fontVariantNumeric: "tabular-nums" }}
+                              color={complete ? "success.main" : earned > 0 ? "text.primary" : "text.secondary"}
+                            >
+                              {formatCredits(earned)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="text.disabled">—</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <LinearProgress
+                              variant="determinate"
+                              value={pct}
+                              color={complete ? "success" : earned > 0 ? "secondary" : "inherit"}
+                              aria-label={`${name}: ${Math.round(pct)}%`}
+                              sx={{ borderRadius: 3, height: 5 }}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            {complete ? (
+                              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.25 }} aria-label="Complete">
+                                <CheckCircleIcon sx={{ fontSize: "0.875rem", color: "success.main" }} aria-hidden="true" />
+                                <Typography variant="body2" color="success.main" sx={{ fontWeight: 700 }}>Done</Typography>
+                              </Box>
+                            ) : deficit > 0 ? (
+                              <Typography variant="body2" color="error.main" sx={{ fontVariantNumeric: "tabular-nums" }}>−{formatCredits(deficit)} ut</Typography>
                             ) : (
                               <Typography variant="body2" color="text.disabled">—</Typography>
                             )}
