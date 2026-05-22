@@ -265,7 +265,6 @@ function incrementAndLogEstimatedDbReads(path: string, method: "GET" | "POST", b
   const safePrev = Number.isFinite(previous) ? previous : 0;
   const total = safePrev + delta;
   window.sessionStorage.setItem(DB_READ_ESTIMATE_SESSION_KEY, String(total));
-  console.info(`[DB READ ESTIMATE] +${delta} | total=${total} | ${method} ${path}`);
 }
 
 export function setCsrfToken(token: string) {

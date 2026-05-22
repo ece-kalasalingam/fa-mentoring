@@ -4758,3 +4758,10 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added write-through cache updates after successful detail fetches and after successful save operations, keeping cached detail state in sync within the session.
   - Added session-bound invalidation hooks so cached student credit detail keys are cleared on principal/session scope changes and general session data cache resets.
 - Revert: none
+## 2026-05-22 17:56 IST | codex-gpt-5 | fix
+- Summary: Removed DB read estimate debug logs from browser console output.
+- Files: frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Removed `console.info(...)` emission from `incrementAndLogEstimatedDbReads(...)`.
+  - Kept session-scoped DB read estimate accumulation logic unchanged in `sessionStorage`.
+- Revert: none
