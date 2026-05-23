@@ -5181,3 +5181,11 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Import now returns success for saved rows even when recompute exceeds Worker limits, with a `warning` message instead of failing request with 400.
   - Preserves cache invalidation so subsequent reads can refresh as expected.
 - Revert: none
+## 2026-05-23 13:26 IST | codex-gpt-5 | fix
+- Summary: Fixed false mentor-email CSV validation error when opening Students page directly before mentor reference data loads.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated mentor-email pre-validation guard to run only when mentor reference set is populated.
+  - Prevents incorrect `Mentor account not found as active faculty in loaded data` errors caused by empty local mentor cache/state on initial navigation.
+  - Backend validation still enforces mentor correctness when local mentor data is unavailable.
+- Revert: none

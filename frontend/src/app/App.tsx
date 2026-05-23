@@ -2064,7 +2064,7 @@ function App() {
     if (principalEmail && principalRoles.has("faculty")) {
       knownMentorEmails.add(principalEmail);
     }
-    if (hasHeader("mentor_email") || hasHeader("mentorEmail")) {
+    if ((hasHeader("mentor_email") || hasHeader("mentorEmail")) && knownMentorEmails.size > 0) {
       const unknownMentorEmails = Array.from(
         new Set(
           payloadRows
