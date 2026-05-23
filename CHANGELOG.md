@@ -5149,3 +5149,10 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Updated scoped helper text to reflect only `mentor_email` restriction.
   - Enabled Programme column visibility in Students Directory table for scoped faculty dashboards to allow editing.
 - Revert: none
+## 2026-05-23 12:10 IST | codex-gpt-5 | fix
+- Summary: Fixed frontend TypeScript build error by adding missing `details` field to shared API result type.
+- Files: frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Added optional `details?: string` to `ApiResult` so `res.details` access in student import flow type-checks.
+  - Restores successful `tsc` build for frontend pipeline.
+- Revert: none

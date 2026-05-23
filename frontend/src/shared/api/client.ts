@@ -1,6 +1,7 @@
 export type ApiResult = {
   ok: boolean;
   error?: string;
+  details?: string;
   message?: string;
   token?: string;
   expiresInHours?: number;
