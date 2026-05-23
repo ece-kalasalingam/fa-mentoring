@@ -5189,3 +5189,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Prevents incorrect `Mentor account not found as active faculty in loaded data` errors caused by empty local mentor cache/state on initial navigation.
   - Backend validation still enforces mentor correctness when local mentor data is unavailable.
 - Revert: none
+## 2026-05-23 13:35 IST | codex-gpt-5 | change
+- Summary: Batched Student Credits CSV import requests to support large (3000+) row uploads reliably.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Updated `onImportCredits` flow to split upload rows into sequential batches of 200.
+  - Added per-batch progress status (`Importing credits CSV... (batch X/Y)`).
+  - Aggregates imported/failed counts and error messages across all batches.
+  - Keeps existing post-import cache invalidation and summary reload behavior after any successful batch.
+- Revert: none

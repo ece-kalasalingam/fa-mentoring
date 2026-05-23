@@ -6199,56 +6199,84 @@ function App() {
                     }}
                     onImportStudentsCsv={isStudentOnlySession ? undefined : importStudentsFromCsvFile}
                     onImportCredits={isStudentOnlySession ? undefined : async (rows) => {
-                      const result = await callApi("/api/student-credits/import-batch", "POST", undefined, {
-                        writeMode: "patch",
-                        allowClearAll: false,
-                        rows,
-                      });
-                      if (result.ok) {
+                      const importBatchSize = 200;
+                      const rowChunks: Array<typeof rows> = [];
+                      for (let i = 0; i < rows.length; i += importBatchSize) {
+                        rowChunks.push(rows.slice(i, i + importBatchSize));
+                      }
+
+                      let importedTotal = 0;
+                      let failedTotal = 0;
+                      const errorsTotal: string[] = [];
+                      const updatedStudentUserIdsSet = new Set<string>();
+
+                      for (let i = 0; i < rowChunks.length; i += 1) {
+                        setStatus(`Importing credits CSV... (batch ${i + 1}/${rowChunks.length})`);
+                        const chunk = rowChunks[i];
+                        const result = await callApi("/api/student-credits/import-batch", "POST", undefined, {
+                          writeMode: "patch",
+                          allowClearAll: false,
+                          rows: chunk,
+                        });
+                        if (!result.ok) {
+                          const details = String(result.details ?? "").trim();
+                          const message = details.length > 0 ? `${result.error ?? "Unknown error"} (${details})` : (result.error ?? "Unknown error");
+                          errorsTotal.push(`Batch ${i + 1}/${rowChunks.length}: ${message}`);
+                          failedTotal += chunk.length;
+                          continue;
+                        }
+                        importedTotal += Number(result.imported ?? 0);
+                        failedTotal += Number(result.failed ?? 0);
+                        const chunkErrors = Array.isArray(result.errors) ? result.errors.map(String) : [];
+                        if (chunkErrors.length > 0) errorsTotal.push(...chunkErrors);
                         const updatedStudentUserIds = Array.isArray(result.updatedStudentUserIds)
                           ? result.updatedStudentUserIds
                               .map((id: string) => String(id ?? "").trim())
                               .filter((id: string) => id.length > 0)
                           : [];
-                        const hasAnySuccessfulUpdate = Number(result.imported ?? 0) > 0 || updatedStudentUserIds.length > 0;
-                        if (hasAnySuccessfulUpdate) {
-                          // Auto re-evaluate session/local caches after partial/full successful import.
-                          invalidateStudentSummaryCache();
-                          invalidateStudentCreditDetailCache();
-                          setCreditTotalsLoaded(false);
-                          // Clear in-memory summary aggregates so freshly recomputed values fully replace stale snapshots.
-                          setStudentSummaryCatEarned({});
-                          setStudentCreditTotals({});
-                          setStudentUnitTotals({});
-                          dashboardForceNextLoadRef.current = true;
-                          const summaryUserIds = Array.from(
-                            new Set(
-                              studentsDirectorySourceRows
-                                .map((student) => String(student.userId ?? "").trim())
-                                .filter((id) => id.length > 0),
-                            ),
-                          );
-                          if (summaryUserIds.length > 0) {
-                            await loadStudentCreditSummaries(summaryUserIds, { force: true });
-                          }
-                          const selectedUserId = String(selectedStudentForCredits?.userId ?? "").trim();
-                          if (selectedUserId && (updatedStudentUserIds.length === 0 || updatedStudentUserIds.includes(selectedUserId))) {
-                            await loadStudentCredits(selectedUserId);
-                          }
+                        for (const id of updatedStudentUserIds) updatedStudentUserIdsSet.add(id);
+                      }
+
+                      const updatedStudentUserIds = Array.from(updatedStudentUserIdsSet);
+                      const hasAnySuccessfulUpdate = importedTotal > 0 || updatedStudentUserIds.length > 0;
+                      if (hasAnySuccessfulUpdate) {
+                        // Auto re-evaluate session/local caches after partial/full successful import.
+                        invalidateStudentSummaryCache();
+                        invalidateStudentCreditDetailCache();
+                        setCreditTotalsLoaded(false);
+                        // Clear in-memory summary aggregates so freshly recomputed values fully replace stale snapshots.
+                        setStudentSummaryCatEarned({});
+                        setStudentCreditTotals({});
+                        setStudentUnitTotals({});
+                        dashboardForceNextLoadRef.current = true;
+                        const summaryUserIds = Array.from(
+                          new Set(
+                            studentsDirectorySourceRows
+                              .map((student) => String(student.userId ?? "").trim())
+                              .filter((id) => id.length > 0),
+                          ),
+                        );
+                        if (summaryUserIds.length > 0) {
+                          await loadStudentCreditSummaries(summaryUserIds, { force: true });
                         }
-                        invalidateAdminCache(["dashboard", "students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first"]);
-                        if (hasAnySuccessfulUpdate) {
-                          if (isScopedStudentDashboardOnly) {
-                            await loadPrimaryScopedStudents({ force: true });
-                          } else if (!isStudentOnlySession) {
-                            await loadStudentsDirectory(undefined, { force: true });
-                          }
+                        const selectedUserId = String(selectedStudentForCredits?.userId ?? "").trim();
+                        if (selectedUserId && (updatedStudentUserIds.length === 0 || updatedStudentUserIds.includes(selectedUserId))) {
+                          await loadStudentCredits(selectedUserId);
                         }
                       }
+                      invalidateAdminCache(["dashboard", "students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first"]);
+                      if (hasAnySuccessfulUpdate) {
+                        if (isScopedStudentDashboardOnly) {
+                          await loadPrimaryScopedStudents({ force: true });
+                        } else if (!isStudentOnlySession) {
+                          await loadStudentsDirectory(undefined, { force: true });
+                        }
+                      }
+                      setStatus(`Credits import complete. Imported: ${importedTotal}, Failed: ${failedTotal}.`);
                       return {
-                        imported: Number(result.imported ?? 0),
-                        failed: Number(result.failed ?? 0),
-                        errors: Array.isArray(result.errors) ? result.errors.map(String) : [],
+                        imported: importedTotal,
+                        failed: failedTotal,
+                        errors: errorsTotal,
                       };
                     }}
                     onVisibleRowsChange={handleVisibleCreditRowsChange}
