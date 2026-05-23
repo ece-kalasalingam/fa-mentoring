@@ -1580,12 +1580,24 @@ export const worker = {
           const facultyScope = resolveStudentScope(principal);
           facultyRestrictedEmail = facultyScope.type === "mentor" ? facultyScope.mentorEmail : "";
         }
-        const modifierUserId = await resolveUserAccountIdByPrincipal(env, principal);
+        let modifierUserId: string | null = null;
+        try {
+          modifierUserId = await resolveUserAccountIdByPrincipal(env, principal);
+        } catch {
+          // Keep student import non-blocking even if audit-identity resolution fails.
+          modifierUserId = null;
+        }
         const result = await importStudents(env, body.rows as CsvImportRow[], {
           restrictToActiveMentorEmail: facultyRestrictedEmail,
           modifiedByUserId: modifierUserId,
         });
-        await recomputeStudentCreditSummaries(env, (result.updatedStudentUserIds ?? []) as string[]);
+        let warning: string | null = null;
+        try {
+          await recomputeStudentCreditSummaries(env, (result.updatedStudentUserIds ?? []) as string[]);
+        } catch (recomputeError) {
+          const recomputeMessage = recomputeError instanceof Error ? recomputeError.message : "Unknown recompute error";
+          warning = `Imported rows saved, but summary recompute was deferred: ${recomputeMessage}`;
+        }
         invalidateAllAdminDashboardCaches();
         invalidateAllStudentCreditDetailsCaches();
         statusCode = 200;
@@ -1595,6 +1607,7 @@ export const worker = {
           failed: result.failed,
           errors: result.errors,
           total: result.total,
+          warning,
         });
       }
 

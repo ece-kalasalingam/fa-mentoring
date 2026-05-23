@@ -5172,3 +5172,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Reverted `limits.subrequests` from Wrangler config because current Cloudflare plan rejects Worker limit settings at deploy time.
   - Keeps frontend import batching mitigation in place to reduce per-invocation subrequest pressure without requiring plan-specific Worker limits.
 - Revert: partial revert of prior config-only change (`limits` block) due platform constraint.
+## 2026-05-23 13:07 IST | codex-gpt-5 | fix
+- Summary: Made student CSV import resilient to Worker subrequest-limit failures during post-import summary recomputation.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Wrapped modifier identity resolution (`resolveUserAccountIdByPrincipal`) in a safe fallback so import is not blocked if audit identity lookup fails.
+  - Wrapped `recomputeStudentCreditSummaries(...)` in try/catch inside `/api/import/students`.
+  - Import now returns success for saved rows even when recompute exceeds Worker limits, with a `warning` message instead of failing request with 400.
+  - Preserves cache invalidation so subsequent reads can refresh as expected.
+- Revert: none
