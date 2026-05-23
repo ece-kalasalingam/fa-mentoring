@@ -1,3 +1,12 @@
+## 2026-05-23 11:25 IST | codex | fix
+- Summary: Added frontend API base guard to prevent production pages from calling localhost APIs.
+- Files: frontend/src/shared/api/client.ts, CHANGELOG.md
+- Details:
+  - Added `resolveApiBase()` to centralize API base selection and preserve existing local-vs-production fallback behavior.
+  - Added a non-localhost safety check that blocks configured localhost API bases (`localhost`/`127.0.0.1`) when the app is loaded from a non-local host.
+  - On guard activation, frontend now warns in console and automatically falls back to `https://spris-api.eceklu.in`.
+- Revert: none
+
 ## 2026-05-23 11:15 IST | codex | fix
 - Summary: Added auth credential FK cascade migration and existing-db orphan auth-row mitigations.
 - Files: api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, CHANGELOG.md

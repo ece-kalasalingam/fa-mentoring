@@ -228,10 +228,28 @@ export type ApiResult = {
   summaries?: Array<{ studentId: string; totalCredits: number }>;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL
-  ?? ((typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"))
-    ? "http://localhost:8787"
-    : "https://spris-api.eceklu.in");
+function resolveApiBase(): string {
+  const productionApiBase = "https://spris-api.eceklu.in";
+  const configured = String(import.meta.env.VITE_API_BASE_URL ?? "").trim();
+  const isBrowser = typeof window !== "undefined";
+  const host = isBrowser ? window.location.hostname : "";
+  const isLocalHost = host === "localhost" || host === "127.0.0.1";
+  const fallback = isLocalHost ? "http://localhost:8787" : productionApiBase;
+  const candidate = configured || fallback;
+
+  // Safety rail: never allow a non-local page to call localhost APIs.
+  if (!isLocalHost && /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(candidate)) {
+    if (isBrowser) {
+      // eslint-disable-next-line no-console
+      console.warn(`Blocked localhost API base on non-local host (${host}); using ${productionApiBase} instead.`);
+    }
+    return productionApiBase;
+  }
+
+  return candidate;
+}
+
+const API_BASE = resolveApiBase();
 export function toApiUrl(path: string): string {
   return `${API_BASE}${path}`;
 }
