@@ -898,6 +898,39 @@ export const MIGRATIONS: Migration[] = [
       "create index if not exists idx_students_plan_of_study_code on students(plan_of_study_code)",
       "create index if not exists idx_students_batch_mentor on students(batch, mentor_id)"
     ]
+  },
+  {
+    id: "0034_auth_credentials_fk_cascade",
+    description: "Rebuild auth_credentials with FK to user_accounts(id) and ON DELETE CASCADE",
+    statements: [
+      "alter table auth_credentials rename to auth_credentials_old_fkfix",
+      `create table auth_credentials (
+        user_account_id text primary key,
+        username text not null unique,
+        password_hash text not null,
+        password_salt text not null,
+        password_algo text not null default 'pbkdf2_sha256',
+        password_iterations integer not null,
+        failed_attempts integer not null default 0,
+        locked_until text,
+        active integer not null default 1 check(active in (0, 1)),
+        created_at text not null default current_timestamp,
+        updated_at text not null default current_timestamp,
+        password_changed_at text not null default current_timestamp,
+        foreign key (user_account_id) references user_accounts(id) on delete cascade
+      )`,
+      `insert into auth_credentials(
+         user_account_id, username, password_hash, password_salt, password_algo, password_iterations,
+         failed_attempts, locked_until, active, created_at, updated_at, password_changed_at
+       )
+       select
+         c.user_account_id, c.username, c.password_hash, c.password_salt, c.password_algo, c.password_iterations,
+         c.failed_attempts, c.locked_until, c.active, c.created_at, c.updated_at, c.password_changed_at
+       from auth_credentials_old_fkfix c
+       inner join user_accounts ua on ua.id = c.user_account_id`,
+      "drop table auth_credentials_old_fkfix",
+      "create index if not exists idx_auth_credentials_username on auth_credentials(username)"
+    ]
   }
 ];
 

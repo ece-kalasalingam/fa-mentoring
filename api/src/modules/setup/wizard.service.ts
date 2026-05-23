@@ -146,6 +146,44 @@ function inferFullName(subject: string, email: string | null): string {
 export async function runRecentMitigations(env: Env) {
   const migrationResult = await runMigrations(env);
   const db = getDb(env);
+  const orphanCredentialsBeforeRes = await db.execute(
+    `select count(*) as c
+     from auth_credentials ac
+     where not exists (
+       select 1 from user_accounts ua where ua.id = ac.user_account_id
+     )`
+  ).catch(() => ({ rows: [{ c: 0 }] }));
+  const orphanCredentialsBefore = Number(orphanCredentialsBeforeRes.rows[0]?.c ?? 0);
+  if (orphanCredentialsBefore > 0) {
+    await db.execute(
+      `delete from auth_credentials
+       where user_account_id in (
+         select ac.user_account_id
+         from auth_credentials ac
+         left join user_accounts ua on ua.id = ac.user_account_id
+         where ua.id is null
+       )`
+    );
+  }
+  const orphanSessionsBeforeRes = await db.execute(
+    `select count(*) as c
+     from auth_sessions s
+     where not exists (
+       select 1 from user_accounts ua where ua.id = s.user_account_id
+     )`
+  ).catch(() => ({ rows: [{ c: 0 }] }));
+  const orphanSessionsBefore = Number(orphanSessionsBeforeRes.rows[0]?.c ?? 0);
+  if (orphanSessionsBefore > 0) {
+    await db.execute(
+      `delete from auth_sessions
+       where user_account_id in (
+         select s.user_account_id
+         from auth_sessions s
+         left join user_accounts ua on ua.id = s.user_account_id
+         where ua.id is null
+       )`
+    );
+  }
   // Existing-db mitigation: aggressively remove retired credit-tracking tables.
   await db.execute("drop table if exists student_credit_snapshots");
   await db.execute("drop table if exists credit_import_batches");
@@ -233,6 +271,8 @@ export async function runRecentMitigations(env: Env) {
   return {
     ok: true,
     migrations: migrationResult,
-    fullNameBackfilledUsers: backfilled
+    fullNameBackfilledUsers: backfilled,
+    orphanCredentialsRemoved: orphanCredentialsBefore,
+    orphanSessionsRemoved: orphanSessionsBefore
   };
 }

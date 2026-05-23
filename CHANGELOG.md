@@ -1,3 +1,12 @@
+## 2026-05-23 11:15 IST | codex | fix
+- Summary: Added auth credential FK cascade migration and existing-db orphan auth-row mitigations.
+- Files: api/src/modules/setup/migrations.ts, api/src/modules/setup/wizard.service.ts, CHANGELOG.md
+- Details:
+  - Added migration `0034_auth_credentials_fk_cascade` to rebuild `auth_credentials` with `foreign key (user_account_id) references user_accounts(id) on delete cascade`.
+  - Migration backfill copies only rows with a valid `user_accounts` parent, preventing reintroduction of orphan credentials during table rebuild.
+  - Added mitigation cleanup in `runRecentMitigations` to remove orphan `auth_credentials` and orphan `auth_sessions` rows in existing databases, returning removed-row counts in the API response.
+- Revert: none
+
 ## 2026-05-23 11:07 IST | codex | fix
 - Summary: Improved admin user-create duplicate error messages to include the exact conflicting username.
 - Files: api/src/modules/auth/password-auth.service.ts, CHANGELOG.md
