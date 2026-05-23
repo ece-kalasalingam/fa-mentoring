@@ -5198,3 +5198,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Aggregates imported/failed counts and error messages across all batches.
   - Keeps existing post-import cache invalidation and summary reload behavior after any successful batch.
 - Revert: none
+## 2026-05-23 12:59 IST | codex-gpt-5 | fix
+- Summary: Reduced Worker subrequests during credits CSV batch import by replacing per-student patch upserts with chunked multi-row SQL upserts.
+- Files: api/src/modules/students/students.service.ts, CHANGELOG.md
+- Details:
+  - Added a fast path in `bulkImportStudentCredits` for `writeMode: "patch"` that performs one transaction with chunked multi-row `INSERT ... ON CONFLICT DO UPDATE` statements.
+  - Removed per-student `upsertStudentCredits(...)` calls for patch mode, significantly lowering DB execute/subrequest count for large import batches.
+  - Preserved existing behavior for `replace_all` mode and existing summary recompute/consistency checks.
+  - Added `BULK_UPSERT_CHUNK_SIZE` constant to keep SQL argument size bounded while minimizing invocation-level subrequests.
+- Revert: none

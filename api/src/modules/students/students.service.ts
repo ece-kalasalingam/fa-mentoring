@@ -899,6 +899,7 @@ export async function listStudentCreditTableByScope(
 type CreditEntry = { categoryId: string; semesterTaken: number; credits: number };
 type UnitEntry = { categoryId: string; unitsEarned: number };
 type CreditWriteMode = "replace_all" | "patch";
+const BULK_UPSERT_CHUNK_SIZE = 120;
 
 async function safeRollback(db: ReturnType<typeof getDb>): Promise<void> {
   try {
@@ -972,11 +973,53 @@ export async function bulkImportStudentCredits(
 
   const errors = Array.from(unknownRegs).map((r) => `Registration number not in your students: ${r}`);
   let imported = 0;
-  const updatedStudentUserIds: string[] = [];
-  for (const [userId, entries] of byUser) {
-    await upsertStudentCredits(env, userId, entries, modifiedById, writeMode, allowClearAll, { recomputeSummary: false });
-    updatedStudentUserIds.push(userId);
-    imported += 1;
+  const updatedStudentUserIds = Array.from(byUser.keys());
+
+  if (writeMode === "patch") {
+    const upsertRows: Array<{ studentId: string; categoryId: string; semesterTaken: number; credits: number }> = [];
+    for (const [studentId, entries] of byUser) {
+      imported += 1;
+      for (const entry of entries) {
+        upsertRows.push({
+          studentId,
+          categoryId: entry.categoryId,
+          semesterTaken: entry.semesterTaken,
+          credits: entry.credits,
+        });
+      }
+    }
+
+    if (upsertRows.length > 0) {
+      await db.execute("begin");
+      try {
+        for (let i = 0; i < upsertRows.length; i += BULK_UPSERT_CHUNK_SIZE) {
+          const chunk = upsertRows.slice(i, i + BULK_UPSERT_CHUNK_SIZE);
+          const placeholders = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
+          const args: Array<string | number | null> = [];
+          for (const row of chunk) {
+            args.push(row.studentId, row.categoryId, row.semesterTaken, row.credits, modifiedById);
+          }
+          await db.execute({
+            sql: `insert into student_credit_details (student_id, category_id, semester_taken, credits, modified_by)
+                  values ${placeholders}
+                  on conflict(student_id, category_id, semester_taken) do update set
+                    credits = excluded.credits,
+                    modified_by = excluded.modified_by,
+                    modified_at = current_timestamp`,
+            args,
+          });
+        }
+        await safeCommit(db);
+      } catch (error) {
+        await safeRollback(db);
+        throw error;
+      }
+    }
+  } else {
+    for (const [userId, entries] of byUser) {
+      await upsertStudentCredits(env, userId, entries, modifiedById, writeMode, allowClearAll, { recomputeSummary: false });
+      imported += 1;
+    }
   }
 
   if (updatedStudentUserIds.length > 0) {
