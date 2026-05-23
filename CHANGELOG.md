@@ -1,3 +1,12 @@
+## 2026-05-23 11:07 IST | codex | fix
+- Summary: Improved admin user-create duplicate error messages to include the exact conflicting username.
+- Files: api/src/modules/auth/password-auth.service.ts, CHANGELOG.md
+- Details:
+  - Updated `createLocalUserByAdmin` duplicate username errors to include `Username already exists: <username>`.
+  - Updated super-admin-owned username conflict message to include the same concrete username while preserving the hidden-super-admin context.
+  - This improves bulk CSV import diagnostics without changing auth, role, or account-linking behavior.
+- Revert: none
+
 ## 2026-05-23 10:59 IST | codex | fix
 - Summary: Fixed Manage Users bulk import crash path and added CSV pre-validation for email requirements to prevent repeated 400 failures.
 - Files: frontend/src/app/ManageUsersTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md

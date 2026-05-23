@@ -698,9 +698,9 @@ export async function createLocalUserByAdmin(
   if (existing.rows.length > 0) {
     const isSuperuserOwner = Number(existing.rows[0]?.is_superuser ?? 0) === 1;
     if (isSuperuserOwner) {
-      throw new Error("Username is already used by a super admin account (not shown in Manage Users).");
+      throw new Error(`Username already exists: ${username} (owned by a super admin account not shown in Manage Users).`);
     }
-    throw new Error("Username already exists.");
+    throw new Error(`Username already exists: ${username}`);
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16));
