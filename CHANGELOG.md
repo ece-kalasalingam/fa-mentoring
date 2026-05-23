@@ -5156,3 +5156,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added optional `details?: string` to `ApiResult` so `res.details` access in student import flow type-checks.
   - Restores successful `tsc` build for frontend pipeline.
 - Revert: none
+## 2026-05-23 12:47 IST | codex-gpt-5 | fix
+- Summary: Prevented student CSV import failures from Worker subrequest limits by batching frontend imports and raising Worker subrequest limit.
+- Files: frontend/src/app/App.tsx, api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Updated student CSV import flow to split payload into batches of 20 rows and submit sequentially.
+  - Added per-batch status progress and precise batch-failure message when a chunk fails.
+  - Aggregates imported/failed counts and row errors across all chunks for final result dialog.
+  - Added Wrangler limits config with `subrequests: 1000` for the API Worker.
+- Revert: none

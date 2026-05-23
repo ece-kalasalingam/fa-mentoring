@@ -2090,23 +2090,39 @@ function App() {
       return next;
     });
 
+    const importBatchSize = 20;
+    const rowChunks: Array<Array<Record<string, string>>> = [];
+    for (let i = 0; i < normalizedRows.length; i += importBatchSize) {
+      rowChunks.push(normalizedRows.slice(i, i + importBatchSize));
+    }
+
     setBusy(true);
-    setStatus("Importing students from CSV...");
+    setStatus(`Importing students from CSV... (batch 1/${rowChunks.length})`);
     try {
-      const res = await callApi("/api/import/students", "POST", undefined, { rows: normalizedRows });
-      if (!res.ok) {
-        const details = String(res.details ?? "").trim();
-        const message = details.length > 0 ? `${res.error ?? "Unknown error"} (${details})` : (res.error ?? "Unknown error");
-        setStatus(`Student import failed: ${message}`);
-        return;
+      let importedTotal = 0;
+      let failedTotal = 0;
+      const errorsTotal: string[] = [];
+
+      for (let i = 0; i < rowChunks.length; i += 1) {
+        const chunk = rowChunks[i];
+        setStatus(`Importing students from CSV... (batch ${i + 1}/${rowChunks.length})`);
+        const res = await callApi("/api/import/students", "POST", undefined, { rows: chunk });
+        if (!res.ok) {
+          const details = String(res.details ?? "").trim();
+          const message = details.length > 0 ? `${res.error ?? "Unknown error"} (${details})` : (res.error ?? "Unknown error");
+          setStatus(`Student import failed at batch ${i + 1}/${rowChunks.length}: ${message}`);
+          return;
+        }
+        importedTotal += Number(res.imported ?? 0);
+        failedTotal += Number(res.failed ?? 0);
+        const errors = Array.isArray(res.errors) ? res.errors.map((item) => String(item)) : [];
+        if (errors.length > 0) errorsTotal.push(...errors);
       }
-      const imported = Number(res.imported ?? 0);
-      const failed = Number(res.failed ?? 0);
-      const errors = Array.isArray(res.errors) ? res.errors.map((item) => String(item)) : [];
-      setStatus(`Student import complete. Imported: ${imported}, Failed: ${failed}.`);
-      if (failed > 0) {
+
+      setStatus(`Student import complete. Imported: ${importedTotal}, Failed: ${failedTotal}.`);
+      if (failedTotal > 0) {
         blurActiveElement();
-        setStudentCsvImportResult({ imported, failed, errors });
+        setStudentCsvImportResult({ imported: importedTotal, failed: failedTotal, errors: errorsTotal });
       }
       invalidateAdminCache(["students-directory:first", "faculty-students:first", "moderator-students:first", "head-students:first", "dashboard"]);
       if (isScopedStudentDashboardOnly) {
