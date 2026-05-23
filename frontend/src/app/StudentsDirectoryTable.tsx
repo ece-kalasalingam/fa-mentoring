@@ -339,6 +339,18 @@ export default function StudentsDirectoryTable(props: Props) {
     [],
   );
 
+  const getPlanLabel = (row: StudentDirectoryRow): string =>
+    row.planOfStudyCode == null || row.planOfStudyCode === 0
+      ? "Not Allotted"
+      : (props.planOfStudyOptions.find((item) => item.code === row.planOfStudyCode)?.name ?? `Code ${row.planOfStudyCode}`);
+
+  const getProgrammeLabel = (row: StudentDirectoryRow): string =>
+    row.programme == null || row.programme === 0
+      ? "Not Allotted"
+      : (props.programmeOptions.find((item) => item.id === row.programme)?.name ?? `Code ${row.programme}`);
+
+  const getSummary = (row: StudentDirectoryRow) => props.creditSummaries?.[row.userId];
+
   const columns = useMemo<MRT_ColumnDef<StudentDirectoryRow>[]>(
     () => [
       {
@@ -868,53 +880,107 @@ export default function StudentsDirectoryTable(props: Props) {
               fullName: r.fullName,
               email: r.email,
               registrationNumber: r.registrationNumber,
-              planOfStudyCode:
-                r.planOfStudyCode == null || r.planOfStudyCode === 0
-                  ? "Not Allotted"
-                  : (props.planOfStudyOptions.find((item) => item.code === r.planOfStudyCode)?.name ?? `Code ${r.planOfStudyCode}`),
+              planOfStudy: getPlanLabel(r),
               batch: r.batch ?? "",
               currentSemester: r.currentSemester ?? 1,
+              targetCrUt: (() => {
+                const s = getSummary(r);
+                return s ? `${formatCredits(s.targetCredits)}+${formatCredits(s.targetUnits)}` : "";
+              })(),
+              earnedCrUt: (() => {
+                const s = getSummary(r);
+                return s ? `${formatCredits(s.earnedCredits)}+${formatCredits(s.earnedUnits)}` : "";
+              })(),
+              percent: (() => {
+                const s = getSummary(r);
+                if (!s || s.target <= 0) return "";
+                return `${((s.earned / s.target) * 100).toFixed(1)}%`;
+              })(),
+              deficientCredits: (() => {
+                const s = getSummary(r);
+                return s && s.deficitCredits > 0 ? formatCredits(s.deficitCredits) : "";
+              })(),
+              deficientUnits: (() => {
+                const s = getSummary(r);
+                return s && s.deficitUnits > 0 ? formatCredits(s.deficitUnits) : "";
+              })(),
+              status: (() => {
+                const s = getSummary(r);
+                return s ? CREDIT_STATUS_LABELS[s.status] : "";
+              })(),
               ...(showProgramme
                 ? {
-                    programme:
-                      r.programme == null || r.programme === 0
-                        ? "Not Allotted"
-                        : (props.programmeOptions.find((item) => item.id === r.programme)?.name ?? `Code ${r.programme}`),
+                    programme: getProgrammeLabel(r),
                   }
                 : {}),
               graduated: r.graduated,
               ...(showMentorName ? { mentorName: r.mentorName || "Not Allotted" } : {}),
+              ...(showModifiedAudit ? { modifiedBy: r.modifiedByName || "" } : {}),
+              ...(showModifiedAudit ? { modifiedAtIst: formatIst(r.modifiedAt) } : {}),
             }))
           }
           pdfFilename="students-directory-export.pdf"
           pdfHeaders={
-            showProgramme && showMentorName
-              ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Programme", "Passed Out", "Mentor"]
-              : showProgramme
-                ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Programme", "Passed Out"]
-                : showMentorName
-                  ? ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Passed Out", "Mentor"]
-                  : ["Full Name", "Email", "Reg. No.", "Plan", "Batch", "Semester", "Passed Out"]
+            [
+              "Full Name",
+              "Email",
+              "Reg. No.",
+              "Plan",
+              "Batch",
+              "Semester",
+              "Target (Cr+Ut)",
+              "Earned (Cr+Ut)",
+              "%",
+              "Cr. Deficient",
+              "Ut. Deficient",
+              "Status",
+              ...(showProgramme ? ["Programme"] : []),
+              "Passed Out",
+              ...(showMentorName ? ["Mentor"] : []),
+              ...(showModifiedAudit ? ["Modified By", "Modified At (IST)"] : []),
+            ]
           }
           getPdfBody={(rows) =>
             rows.map((r) => [
               r.fullName,
               r.email,
               r.registrationNumber,
-              r.planOfStudyCode == null || r.planOfStudyCode === 0
-                ? "Not Allotted"
-                : (props.planOfStudyOptions.find((item) => item.code === r.planOfStudyCode)?.name ?? `Code ${r.planOfStudyCode}`),
+              getPlanLabel(r),
               String(r.batch ?? ""),
               String(r.currentSemester ?? 1),
+              (() => {
+                const s = getSummary(r);
+                return s ? `${formatCredits(s.targetCredits)}+${formatCredits(s.targetUnits)}` : "";
+              })(),
+              (() => {
+                const s = getSummary(r);
+                return s ? `${formatCredits(s.earnedCredits)}+${formatCredits(s.earnedUnits)}` : "";
+              })(),
+              (() => {
+                const s = getSummary(r);
+                if (!s || s.target <= 0) return "";
+                return `${((s.earned / s.target) * 100).toFixed(1)}%`;
+              })(),
+              (() => {
+                const s = getSummary(r);
+                return s && s.deficitCredits > 0 ? formatCredits(s.deficitCredits) : "";
+              })(),
+              (() => {
+                const s = getSummary(r);
+                return s && s.deficitUnits > 0 ? formatCredits(s.deficitUnits) : "";
+              })(),
+              (() => {
+                const s = getSummary(r);
+                return s ? CREDIT_STATUS_LABELS[s.status] : "";
+              })(),
               ...(showProgramme
                 ? [
-                    r.programme == null || r.programme === 0
-                      ? "Not Allotted"
-                      : (props.programmeOptions.find((item) => item.id === r.programme)?.name ?? `Code ${r.programme}`),
+                    getProgrammeLabel(r),
                   ]
                 : []),
               r.graduated,
               ...(showMentorName ? [r.mentorName || "Not Allotted"] : []),
+              ...(showModifiedAudit ? [r.modifiedByName || "", formatIst(r.modifiedAt)] : []),
             ])
           }
         >

@@ -5045,3 +5045,21 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Restored `muiTableContainerProps` to shared default (`MUI_TABLE_CONTAINER_PROPS`) without busy-state overflow override.
   - Keeps `state.isLoading`/`showSkeletons` intact so MRT handles the busy UI natively.
 - Revert: none
+
+## 2026-05-23 10:33 IST | codex-gpt-5 | fix
+- Summary: Expanded Students Directory MRT CSV/PDF exports to include derived credit/status and audit columns shown in the table.
+- Files: frontend/src/app/StudentsDirectoryTable.tsx, CHANGELOG.md
+- Details:
+  - Updated export row mapping to include computed summary-backed fields (Target (Cr+Ut), Earned (Cr+Ut), %, Cr. Deficient, Ut. Deficient, and Status) instead of exporting only base student columns.
+  - Added optional export fields for Programme, Mentor, and modified-audit columns so export output matches the rendered table configuration.
+  - Kept native MRT export behavior intact: selected rows export when selected; otherwise all current table rows export.
+- Revert: none
+
+## 2026-05-23 10:38 IST | codex-gpt-5 | change
+- Summary: Added a confirmation warning dialog before Student Credit Table CSV export to highlight high Turso read usage impact.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added a dedicated confirm dialog for Export Credit Details CSV instead of triggering export immediately on button click.
+  - Added warning copy explaining that full credit export can consume many Turso reads and may exhaust free-plan quota quickly if repeated.
+  - Kept export behavior unchanged after confirmation: cancel aborts; continue proceeds with existing export flow.
+- Revert: none

@@ -243,6 +243,7 @@ function App() {
   const [apiError, setApiError] = useState<{ message: string; retryFn: (() => Promise<void>) | null } | null>(null);
   const [csvImportResult, setCsvImportResult] = useState<{ created: number; failed: number; errors: string[] } | null>(null);
   const [studentCsvImportResult, setStudentCsvImportResult] = useState<{ imported: number; failed: number; errors: string[] } | null>(null);
+  const [creditExportConfirmOpen, setCreditExportConfirmOpen] = useState(false);
   const [prevSuperView, setPrevSuperView] = useState<typeof superView | null>(null);
   const [resetPasswordTarget, setResetPasswordTarget] = useState<UserRow | null>(null);
   const [resetPasswordValue, setResetPasswordValue] = useState("");
@@ -6244,7 +6245,7 @@ function App() {
                     variant="contained"
                     startIcon={<DownloadIcon />}
                     disabled={busy}
-                    onClick={() => { void exportPrimaryScopedCreditTableCsv(); }}
+                    onClick={() => { setCreditExportConfirmOpen(true); }}
                   >
                     Export Credit Details CSV
                   </Button>
@@ -6856,6 +6857,35 @@ function App() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStudentCsvImportResult(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={creditExportConfirmOpen}
+        onClose={() => setCreditExportConfirmOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        aria-labelledby="credit-export-confirm-dialog-title"
+      >
+        <DialogTitle id="credit-export-confirm-dialog-title">Export Credit Details CSV?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" icon={<WarningAmberIcon fontSize="inherit" />} sx={{ mt: 0.5 }}>
+            This export compiles full credit details across many records and can consume a high number of Turso reads.
+            On the free plan, repeated exports may reach the read quota quickly.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreditExportConfirmOpen(false)} disabled={busy}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setCreditExportConfirmOpen(false);
+              void exportPrimaryScopedCreditTableCsv();
+            }}
+            disabled={busy}
+          >
+            Continue Export
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
