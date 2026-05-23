@@ -5115,3 +5115,12 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Reworked fallback layout to MUI components (`Box`, `Paper`, `Typography`, `Button`) with theme tokens (`background.default`, `text.primary`, `divider`, primary button styling).
   - Preserved existing crash behavior and console diagnostics while making the page visually consistent with current app styling.
 - Revert: none
+## 2026-05-23 11:52 IST | codex-gpt-5 | change
+- Summary: Added visible CSV constants mapping for `plan_of_study_code` and `programme` on Students Directory.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added dynamic constants text below the existing "Update student details CSV columns" helper line.
+  - `plan_of_study_code` constants now render as `code = name` from `planOfStudyOptions`.
+  - `programme` constants now render as `id = name` from `programmeOptions`.
+  - Added fallback text when either constants list is unavailable.
+- Revert: none

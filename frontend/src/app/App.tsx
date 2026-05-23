@@ -719,6 +719,20 @@ function App() {
         .sort((a, b) => a.code - b.code),
     [plansOfStudy]
   );
+  const studentCsvPlanConstants = useMemo(
+    () =>
+      planOfStudyOptions.length > 0
+        ? planOfStudyOptions.map((item) => `${item.code} = ${item.name}`).join("; ")
+        : "No plan of study constants available.",
+    [planOfStudyOptions]
+  );
+  const studentCsvProgrammeConstants = useMemo(
+    () =>
+      programmeOptions.length > 0
+        ? programmeOptions.map((item) => `${item.id} = ${item.name}`).join("; ")
+        : "No programme constants available.",
+    [programmeOptions]
+  );
   const planSemesterBounds = useMemo<Record<number, { min: number; max: number }>>(
     () =>
       plansOfStudy.reduce<Record<number, { min: number; max: number }>>((acc, plan) => {
@@ -6057,6 +6071,21 @@ function App() {
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
                         Update student details CSV columns: required <code>email</code>; optional <code>registration_number</code>, <code>plan_of_study_code</code>, <code>programme</code>, <code>current_semester</code>, <code>batch</code>, <code>graduated</code>, <code>mentor_email</code>.
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                        Constants for CSV fields:
+                        {" "}
+                        <code>plan_of_study_code</code>
+                        {" "}
+                        (
+                        {studentCsvPlanConstants}
+                        );
+                        {" "}
+                        <code>programme</code>
+                        {" "}
+                        (
+                        {studentCsvProgrammeConstants}
+                        ).
                       </Typography>
                     </>
                   ) : null}
