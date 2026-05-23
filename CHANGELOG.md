@@ -1,3 +1,12 @@
+## 2026-05-23 10:59 IST | codex | fix
+- Summary: Fixed Manage Users bulk import crash path and added CSV pre-validation for email requirements to prevent repeated 400 failures.
+- Files: frontend/src/app/ManageUsersTable.tsx, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added a safe local-provider guard helper in `ManageUsersTable` and used it in editability/visibility checks so table rows without `source` do not throw `Cannot read properties of undefined (reading 'provider')`.
+  - Updated bulk CSV user import validation to fail fast per row when `username` is not an email and `email` is blank, matching backend identity rules before calling `/api/admin/users`.
+  - Kept existing backend authorization and role behavior unchanged; fix is scoped to frontend crash-proofing and input hygiene.
+- Revert: none
+
 ## 2026-05-23 10:29 IST | codex | fix
 - Summary: Fixed frontend build EPERM by switching Vite output from `dist` to writable `build` and aligned Pages deploy path.
 - Files: frontend/vite.config.ts, package.json, CHANGELOG.md

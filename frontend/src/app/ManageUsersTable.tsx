@@ -81,6 +81,10 @@ type TableRow = {
   source: UserRow;
 };
 
+function isLocalProviderRow(row: { original?: { source?: { provider?: string } } }): boolean {
+  return String(row?.original?.source?.provider ?? "") === "local";
+}
+
 const ROLE_OPTIONS = ["admin", "moderator", "head", "faculty", "student", "guest"] as const;
 const PROVIDER_OPTIONS = ["local", "google"] as const;
 
@@ -263,7 +267,7 @@ export default function ManageUsersTable(props: Props) {
               defaultValue={row.original.email ?? ""}
               size="small"
               variant="standard"
-              disabled={row.original.source.provider !== "local"}
+              disabled={!isLocalProviderRow(row)}
               slotProps={{ htmlInput: { autoComplete: "off" } }}
               onBlur={(e) => {
                 const value = e.currentTarget.value.trim().toLowerCase();
@@ -315,7 +319,7 @@ export default function ManageUsersTable(props: Props) {
         header: "Username",
         size: 130,
         enableColumnFilterModes: true,
-        enableEditing: (row) => row.original.source.provider === "local",
+        enableEditing: (row) => isLocalProviderRow(row),
         Edit: ({ row, table }) => (
           <TextField
             autoFocus
@@ -499,7 +503,7 @@ export default function ManageUsersTable(props: Props) {
             </IconButton>
           </span>
         </Tooltip>
-        {row.original.source.provider === "local" && (
+        {isLocalProviderRow(row) && (
           <Tooltip title="Reset password" arrow>
             <span>
               <IconButton

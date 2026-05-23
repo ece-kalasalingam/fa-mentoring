@@ -2162,9 +2162,16 @@ function App() {
         const password = String(row[headerIndex.get("password") ?? -1] ?? "");
         const email = String(row[headerIndex.get("email") ?? -1] ?? "").trim();
         const role = String(row[headerIndex.get("role") ?? -1] ?? "student").trim() || "student";
+        const normalizedUsername = username.toLowerCase();
+        const isEmailUsername = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedUsername);
         if (!fullName || !username || !password) {
           failedCount += 1;
           errors.push(`Row ${i + 1}: missing fullName/username/password`);
+          continue;
+        }
+        if (!email && !isEmailUsername) {
+          failedCount += 1;
+          errors.push(`Row ${i + 1}: email is required when username is not an email`);
           continue;
         }
         const payload = { fullName, username, password, email, role };
