@@ -5165,3 +5165,10 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Aggregates imported/failed counts and row errors across all chunks for final result dialog.
   - Added Wrangler limits config with `subrequests: 1000` for the API Worker.
 - Revert: none
+## 2026-05-23 12:49 IST | codex-gpt-5 | fix
+- Summary: Removed unsupported Worker `limits` config after Cloudflare Free-plan deploy rejection.
+- Files: api/wrangler.jsonc, CHANGELOG.md
+- Details:
+  - Reverted `limits.subrequests` from Wrangler config because current Cloudflare plan rejects Worker limit settings at deploy time.
+  - Keeps frontend import batching mitigation in place to reduce per-invocation subrequest pressure without requiring plan-specific Worker limits.
+- Revert: partial revert of prior config-only change (`limits` block) due platform constraint.
