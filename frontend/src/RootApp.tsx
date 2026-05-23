@@ -4,6 +4,7 @@ import { createTheme } from "@mui/material/styles";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import App from "./app/App";
+import AppErrorBoundary from "./app/AppErrorBoundary";
 
 export default function RootApp() {
   const mediaQuery = "(prefers-color-scheme: dark)";
@@ -50,7 +51,9 @@ export default function RootApp() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <LocalizationProvider dateAdapter={AdapterDateFns}>
-        <App />
+        <AppErrorBoundary>
+          <App />
+        </AppErrorBoundary>
       </LocalizationProvider>
     </ThemeProvider>
   );

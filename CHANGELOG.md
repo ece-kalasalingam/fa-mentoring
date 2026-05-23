@@ -5063,3 +5063,19 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Added warning copy explaining that full credit export can consume many Turso reads and may exhaust free-plan quota quickly if repeated.
   - Kept export behavior unchanged after confirmation: cancel aborts; continue proceeds with existing export flow.
 - Revert: none
+## 2026-05-23 10:51 IST | codex-gpt-5 | feature
+- Summary: Added a global React error boundary fallback page to prevent blank-screen crashes.
+- Files: frontend/src/app/AppErrorBoundary.tsx, frontend/src/main.tsx, CHANGELOG.md
+- Details:
+  - Created `AppErrorBoundary` class component to catch uncaught React render/lifecycle errors and log diagnostics to console.
+  - Added a simple full-page fallback UI with a short message and `Reload Page` action.
+  - Wrapped `RootApp` in `AppErrorBoundary` at the root render in `frontend/src/main.tsx` so app-level crashes show the fallback page instead of a white screen.
+- Revert: none
+## 2026-05-23 10:54 IST | codex-gpt-5 | polish
+- Summary: Updated global crash fallback page to inherit existing app branding/theme via MUI theme context.
+- Files: frontend/src/main.tsx, frontend/src/RootApp.tsx, frontend/src/app/AppErrorBoundary.tsx, CHANGELOG.md
+- Details:
+  - Moved `AppErrorBoundary` from `frontend/src/main.tsx` to inside `RootApp` under `ThemeProvider` so fallback UI uses the same palette/typography as the app.
+  - Reworked fallback layout to MUI components (`Box`, `Paper`, `Typography`, `Button`) with theme tokens (`background.default`, `text.primary`, `divider`, primary button styling).
+  - Preserved existing crash behavior and console diagnostics while making the page visually consistent with current app styling.
+- Revert: none
