@@ -45,6 +45,7 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_GOOGLE_CLIENT_ID': JSON.stringify(viteGoogleClientId)
     },
     build: {
+      outDir: 'build',
       chunkSizeWarningLimit: 1800,
       rollupOptions: {
         output: {

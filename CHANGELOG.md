@@ -1,3 +1,12 @@
+## 2026-05-23 10:29 IST | codex | fix
+- Summary: Fixed frontend build EPERM by switching Vite output from `dist` to writable `build` and aligned Pages deploy path.
+- Files: frontend/vite.config.ts, package.json, CHANGELOG.md
+- Details:
+  - Set `build.outDir` to `build` in Vite config to avoid denied writes in `frontend/dist` during public asset copy.
+  - Updated root `deploy:pages` script to deploy `frontend/build` so production deployment matches the new output directory.
+  - Verified `npm run --prefix frontend build` now completes successfully.
+- Revert: none
+
 ## 2026-05-23 10:27 IST | codex | change
 - Summary: Updated Manage Users exports so CSV/PDF include separate Full Name and Email columns while UI keeps a single combined User column.
 - Files: frontend/src/app/ManageUsersTable.tsx, CHANGELOG.md
