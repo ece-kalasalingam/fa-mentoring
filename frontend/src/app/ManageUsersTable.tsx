@@ -537,7 +537,8 @@ export default function ManageUsersTable(props: Props) {
         csvConfig={csvConfig}
         getCsvRows={(rows) =>
           rows.map((r) => ({
-            user: `${r.fullName} (${r.email ?? "—"})`,
+            fullName: r.fullName,
+            email: r.email ?? "—",
             username: r.username,
             roles: r.roles.join(", "),
             active: r.active ? "Active" : "Disabled",
@@ -546,10 +547,11 @@ export default function ManageUsersTable(props: Props) {
           }))
         }
         pdfFilename="manage-users-export.pdf"
-        pdfHeaders={["User", "Username", "Roles", "Status", "Provider", "Last Login"]}
+        pdfHeaders={["Full Name", "Email", "Username", "Roles", "Status", "Provider", "Last Login"]}
         getPdfBody={(rows) =>
           rows.map((r) => [
-            `${r.fullName} (${r.email ?? "—"})`,
+            r.fullName,
+            r.email ?? "—",
             r.username,
             r.roles.join(", "),
             r.active ? "Active" : "Disabled",
