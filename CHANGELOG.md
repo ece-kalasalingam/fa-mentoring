@@ -5207,3 +5207,13 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - Preserved existing behavior for `replace_all` mode and existing summary recompute/consistency checks.
   - Added `BULK_UPSERT_CHUNK_SIZE` constant to keep SQL argument size bounded while minimizing invocation-level subrequests.
 - Revert: none
+## 2026-05-23 16:35 IST | codex | fix
+- Summary: Expanded login activity and dashboard login curves to include all account providers (local and Google/SSO session logins).
+- Files: api/src/modules/auth/password-auth.service.ts, api/src/modules/auth/google-auth.service.ts, api/src/app/worker.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added shared `recordLoginAttempt(...)` helper in password auth service to centralize writes into `auth_login_attempts`.
+  - Updated Google login flow to record successful and failed login attempts into `auth_login_attempts`, using request client IP from Worker.
+  - Updated `/api/auth/google` handler to pass resolved client IP into the Google auth login service.
+  - Updated Login Activity UI helper text from local-only wording to provider-agnostic wording.
+  - This ensures `/api/admin/login-attempts` and admin dashboard 48h login timeline/metrics reflect all account providers that create sessions.
+- Revert: none

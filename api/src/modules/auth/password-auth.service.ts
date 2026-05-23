@@ -121,6 +121,13 @@ async function recordAttempt(env: Env, username: string, ipHash: string, ipAddre
   });
 }
 
+export async function recordLoginAttempt(env: Env, username: string, ipAddress: string, success: boolean): Promise<void> {
+  const normalizedUsername = String(username ?? "").trim().toLowerCase() || "unknown";
+  const normalizedIp = String(ipAddress ?? "").trim() || "unknown";
+  const ipHash = await sha256(normalizedIp);
+  await recordAttempt(env, normalizedUsername, ipHash, normalizedIp, success);
+}
+
 async function enforceRateLimits(env: Env, username: string, ipHash: string): Promise<void> {
   const db = getDb(env);
   const ipRes = await db.execute({

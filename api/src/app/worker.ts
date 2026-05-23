@@ -911,7 +911,8 @@ export const worker = {
           event = "request.validation_failed";
           return respond({ ok: false, error: "idToken is required" }, 400);
         }
-        const loginResult = await loginWithGoogleIdToken(env, idToken);
+        const ipAddress = resolveClientIp(request);
+        const loginResult = await loginWithGoogleIdToken(env, idToken, ipAddress);
         invalidateAllAdminDashboardCaches();
         statusCode = 200;
         event = "auth.login_success";

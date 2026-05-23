@@ -1,6 +1,7 @@
 import { getDb } from "../../core/db";
 import type { Env } from "../../core/types";
 import type { AuthPrincipal } from "./identity";
+import { recordLoginAttempt } from "./password-auth.service";
 
 const SESSION_HOURS = 12;
 const PROVIDER_SUBJECT_SCHEMA_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -249,14 +250,21 @@ async function createSessionForAccount(env: Env, userAccountId: string): Promise
   return tokenRaw;
 }
 
-export async function loginWithGoogleIdToken(env: Env, idToken: string): Promise<{ token: string; expiresInHours: number; principal: AuthPrincipal }> {
+export async function loginWithGoogleIdToken(env: Env, idToken: string, ipAddress: string): Promise<{ token: string; expiresInHours: number; principal: AuthPrincipal }> {
   const normalizedToken = normalize(idToken);
   if (!normalizedToken) {
     throw new Error("Google ID token is required.");
   }
-  const { sub, email, fullName } = await verifyGoogleIdToken(env, normalizedToken);
-  const accountId = await upsertGoogleAccount(env, sub, email, fullName);
-  const principal = await loadPrincipalForAccount(env, accountId);
-  const token = await createSessionForAccount(env, accountId);
-  return { token, expiresInHours: SESSION_HOURS, principal };
+  const fallbackUsername = "google";
+  try {
+    const { sub, email, fullName } = await verifyGoogleIdToken(env, normalizedToken);
+    const accountId = await upsertGoogleAccount(env, sub, email, fullName);
+    const principal = await loadPrincipalForAccount(env, accountId);
+    const token = await createSessionForAccount(env, accountId);
+    await recordLoginAttempt(env, email || fallbackUsername, ipAddress, true);
+    return { token, expiresInHours: SESSION_HOURS, principal };
+  } catch (error) {
+    await recordLoginAttempt(env, fallbackUsername, ipAddress, false);
+    throw error;
+  }
 }

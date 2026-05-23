@@ -5799,7 +5799,7 @@ function App() {
                   <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "flex-start", gap: 1 }}>
                     <Box>
                       <Typography variant="h6">Login Activity (48h)</Typography>
-                      <Typography variant="body2" color="text.secondary">Recent successful and failed local login attempts.</Typography>
+                      <Typography variant="body2" color="text.secondary">Recent successful and failed login attempts across all account providers.</Typography>
                     </Box>
                     <Tooltip title="Refresh" arrow>
                       <span>
