@@ -18,6 +18,8 @@
     "AUTH_PROVIDER": "password-session",
     "ALLOW_INSECURE_AUTH_NONE": "false",
     "FRONTEND_ORIGIN": "https://spris.eceklu.in",
+    "FACULTY_JSON_URL": "https://raw.githubusercontent.com/ece-kalasalingam/ece-kalasalingam.github.io/master/faculty.json",
+    "FACULTY_PROFILE_BASE_URL": "https://eceklu.in/faculty/?faculty=",
     "LOG_DISABLE_SUCCESS_REQUESTS": "true",
     "LOG_INFO_SAMPLE_RATE": "0.05",
     "LOG_PRUNE_EVERY_N_WRITES": "200",

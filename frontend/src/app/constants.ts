@@ -4,6 +4,7 @@ export const SESSION_PLAN_OF_STUDY_CACHE_KEY = "fa_session_plan_of_study";
 export const SESSION_PLAN_VALIDATION_CACHE_KEY = "fa_session_plan_validation";
 export const SESSION_PROGRAMMES_CACHE_KEY = "fa_session_programmes";
 export const SESSION_FACULTY_MENTORED_MINIMAL_KEY = "fa_session_faculty_mentored_minimal";
+export const SESSION_DASHBOARD_RANDOM_FACULTY_KEY = "fa_session_dashboard_random_faculty";
 export const GOOGLE_CLIENT_ID = String(import.meta.env.VITE_GOOGLE_CLIENT_ID ?? "").trim();
 export const GOOGLE_IDP_SCRIPT_SRC = "https://accounts.google.com/gsi/client";
 

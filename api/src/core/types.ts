@@ -19,6 +19,8 @@ export type Env = {
   LOG_INFO_SAMPLE_RATE?: string;
   LOG_PRUNE_EVERY_N_WRITES?: string;
   ALLOW_DEBUG_ENDPOINTS?: string;
+  FACULTY_JSON_URL?: string;
+  FACULTY_PROFILE_BASE_URL?: string;
 };
 
 export type CsvImportRow = Record<string, string | number | null | undefined>;

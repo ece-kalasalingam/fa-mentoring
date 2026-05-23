@@ -49,6 +49,7 @@ import {
   SESSION_PLAN_VALIDATION_CACHE_KEY,
   SESSION_PROGRAMMES_CACHE_KEY,
   SESSION_FACULTY_MENTORED_MINIMAL_KEY,
+  SESSION_DASHBOARD_RANDOM_FACULTY_KEY,
 } from "./constants";
 import { formatIst, formatIstHourMinute } from "./dateTime";
 import { parseCsvRecords } from "./csv";
@@ -109,6 +110,14 @@ const ADMIN_CACHE_KEYS: AdminCacheKey[] = [
   "moderator-students:first",
   "head-students:first",
 ];
+
+type FacultyDirectoryView = {
+  name: string;
+  slug: string;
+  email: string;
+  designation?: string | null;
+  profileUrl: string;
+};
 function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Loading...");
@@ -221,6 +230,8 @@ function App() {
   const [regulations, setRegulations] = useState<Regulation[]>([]);
   const [studentSelfPlanOfStudyCode, setStudentSelfPlanOfStudyCode] = useState<number | null>(null);
   const [studentSelfDirectoryRows, setStudentSelfDirectoryRows] = useState<StudentDirectoryRow[]>([]);
+  const [studentMentorFaculty, setStudentMentorFaculty] = useState<FacultyDirectoryView | null>(null);
+  const [dashboardRandomFaculty, setDashboardRandomFaculty] = useState<FacultyDirectoryView | null>(null);
   const [regulationTab, setRegulationTab] = useState(0);
   const [plansOfStudy, setPlansOfStudy] = useState<PlanOfStudy[]>([]);
   const [plansValidationReport, setPlansValidationReport] = useState<PlansValidationReport | null>(null);
@@ -565,6 +576,7 @@ function App() {
     removeLocalScopedCache(SESSION_PLAN_OF_STUDY_CACHE_KEY, resolvedSessionKey);
     removeLocalScopedCache(SESSION_PLAN_VALIDATION_CACHE_KEY, resolvedSessionKey);
     removeLocalScopedCache(SESSION_PROGRAMMES_CACHE_KEY, resolvedSessionKey);
+    removeLocalScopedCache(SESSION_DASHBOARD_RANDOM_FACULTY_KEY, resolvedSessionKey);
     for (const cacheKey of studentCreditDetailCacheKeysRef.current) {
       removeLocalScopedCache(cacheKey, resolvedSessionKey);
     }
@@ -1546,12 +1558,48 @@ function App() {
         programme: row.programme == null ? null : Number(row.programme),
         graduated: String(row.graduated ?? "").trim().toLowerCase() === "yes" ? "Yes" : "No",
         mentorName: String(row.mentor_name ?? row.mentor_full_name ?? row.mentor_email ?? "").trim(),
+        mentorEmail: String(row.mentor_email ?? "").trim() || null,
         modifiedByName: "",
         modifiedAt: null,
       }]);
     } else {
       setStudentSelfDirectoryRows([]);
     }
+  }
+
+  async function loadDashboardRandomFaculty(options?: { force?: boolean }) {
+    const force = Boolean(options?.force);
+    if (!force) {
+      const cached = readSessionJson<FacultyDirectoryView>(SESSION_DASHBOARD_RANDOM_FACULTY_KEY);
+      if (cached?.name && cached?.profileUrl) {
+        setDashboardRandomFaculty(cached);
+        return;
+      }
+    }
+    const res = await callApi("/api/faculty-directory/random", "GET");
+    const faculty = (res.faculty ?? null) as FacultyDirectoryView | null;
+    if (!res.ok || !faculty?.name || !faculty.profileUrl) {
+      setDashboardRandomFaculty(null);
+      return;
+    }
+    setDashboardRandomFaculty(faculty);
+    writeSessionJson(SESSION_DASHBOARD_RANDOM_FACULTY_KEY, faculty);
+  }
+
+  async function loadStudentMentorFacultyByEmail(mentorEmailRaw: string | null | undefined) {
+    const mentorEmail = String(mentorEmailRaw ?? "").trim();
+    if (!mentorEmail) {
+      setStudentMentorFaculty(null);
+      return;
+    }
+    const res = await callApi(`/api/faculty-directory/lookup?email=${encodeURIComponent(mentorEmail)}`, "GET");
+    const matched = Boolean(res.ok && res.matched);
+    const faculty = (res.faculty ?? null) as FacultyDirectoryView | null;
+    if (!matched || !faculty?.profileUrl || !faculty.name) {
+      setStudentMentorFaculty(null);
+      return;
+    }
+    setStudentMentorFaculty(faculty);
   }
 
   async function loadFacultyStudents(options?: { force?: boolean }) {
@@ -2702,6 +2750,27 @@ function App() {
   }, [principalStableKey, superView, isStudentOnlySession]);
 
   useEffect(() => {
+    if (!principal || superView !== "dashboard" || !(hasStudentRole || hasFacultyRole || hasHeadRole || hasModeratorRole || hasGuestRole)) {
+      return;
+    }
+    void loadDashboardRandomFaculty();
+  }, [principalStableKey, superView, hasStudentRole, hasFacultyRole, hasHeadRole, hasModeratorRole, hasGuestRole]);
+
+  useEffect(() => {
+    if (!isStudentOnlySession) {
+      setStudentMentorFaculty(null);
+      return;
+    }
+    const row = studentSelfDirectoryRows[0];
+    const mentorEmail = String(row?.mentorEmail ?? "").trim();
+    if (!mentorEmail) {
+      setStudentMentorFaculty(null);
+      return;
+    }
+    void loadStudentMentorFacultyByEmail(mentorEmail);
+  }, [isStudentOnlySession, studentSelfDirectoryRows]);
+
+  useEffect(() => {
     if (!isStudentOnlySession || studentSelfDirectoryRows.length === 0) return;
     const userId = studentSelfDirectoryRows[0].userId;
     if (!userId || studentEarnedCreditsByUser[userId] !== undefined) return;
@@ -2723,6 +2792,8 @@ function App() {
     if (!principal) {
       setStudentSelfPlanOfStudyCode(null);
       setStudentSelfDirectoryRows([]);
+      setStudentMentorFaculty(null);
+      setDashboardRandomFaculty(null);
     }
   }, [principalStableKey]);
 
@@ -4318,6 +4389,20 @@ function App() {
                 ))}
                 {isSuperAdmin ? <Chip size="small" color="error" label="superadmin" /> : null}
               </Box>
+              {dashboardRandomFaculty?.name && dashboardRandomFaculty.profileUrl ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1.75 }}>
+                  Know your department faculty{" - "}
+                  <Link
+                    href={dashboardRandomFaculty.profileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    underline="hover"
+                    sx={{ fontWeight: 600 }}
+                  >
+                    {dashboardRandomFaculty.name}
+                  </Link>
+                </Typography>
+              ) : null}
             </Box>
 
             {isAdmin ? (
@@ -5010,7 +5095,22 @@ function App() {
                                       { label: "Batch", value: studentSelf.batch != null ? String(studentSelf.batch) : "—" },
                                       { label: "Semester", value: studentSelf.currentSemester != null ? `Sem ${studentSelf.currentSemester}` : "—" },
                                       { label: "Programme", value: programmeOptions.find((p) => p.id === studentSelf.programme)?.name ?? "—" },
-                                      { label: "Mentor", value: studentSelf.mentorName || "—" },
+                                      {
+                                        label: "Mentor",
+                                        value: studentMentorFaculty?.profileUrl && studentMentorFaculty?.name
+                                          ? (
+                                            <Link
+                                              href={studentMentorFaculty.profileUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              underline="hover"
+                                              sx={{ fontWeight: 600 }}
+                                            >
+                                              {studentMentorFaculty.name}
+                                            </Link>
+                                          )
+                                          : (studentSelf.mentorName || "—"),
+                                      },
                                       { label: "Plan of Study", value: activeStudentPlan?.planName ?? "—" },
                                     ].map(({ label, value }, idx) => (
                                       <Box key={`${label}-${idx}`}>

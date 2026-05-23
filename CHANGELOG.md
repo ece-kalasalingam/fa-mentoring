@@ -1,3 +1,33 @@
+## 2026-05-23 12:26 IST | codex | change
+- Summary: Repositioned faculty spotlight line into the top welcome header below role chips, with added vertical spacing.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Moved `Know your department faculty - <name>` from per-card dashboard sections into the main top dashboard header panel.
+  - Placed the line after the role chips section with additional top margin so it appears as a separated final header line.
+  - Removed duplicate faculty-line render blocks from Head/Moderator, Faculty, Student, and Guest cards.
+- Revert: none
+
+## 2026-05-23 12:18 IST | codex | change
+- Summary: Moved the shared faculty spotlight text from a standalone card into existing dashboard headers, preserving the same link behavior.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Removed the separate spotlight `Paper` card that appeared above role dashboards.
+  - Added the `Know your department faculty - <name>` line as the last line inside existing header content for Head/Moderator, Faculty, Student, and Guest dashboard sections.
+  - Kept external-link safety unchanged (`target="_blank"` + `rel="noopener noreferrer"`).
+- Revert: none
+
+## 2026-05-23 12:05 IST | codex | change
+- Summary: Added cross-site faculty directory integration using GitHub raw JSON, shared dashboard faculty spotlight for all roles, and linked student mentor profiles.
+- Files: api/src/core/types.ts, api/src/modules/faculty-directory/faculty-directory.service.ts, api/src/app/worker.ts, api/wrangler.jsonc, api/.dev.vars, frontend/src/app/constants.ts, frontend/src/app/types.ts, frontend/src/shared/api/client.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added Worker env vars `FACULTY_JSON_URL` and `FACULTY_PROFILE_BASE_URL` with defaults targeting `raw.githubusercontent.com` data and `eceklu.in` faculty profile routes.
+  - Implemented cached faculty directory fetch/normalize service (10-minute TTL), plus new endpoints `GET /api/faculty-directory/random` and `GET /api/faculty-directory/lookup`.
+  - Added safe fallback responses for faculty-source outages so dashboard rendering does not fail.
+  - Added a shared dashboard line for all dashboard roles (including guest): `Know your department faculty - <name>` linking externally with `target=\"_blank\"` and `rel=\"noopener noreferrer\"`.
+  - Added student-profile mentor linking by deterministic mentor-email lookup; unmatched/no-email cases keep plain text mentor display.
+  - Added session-scoped frontend cache key for random faculty spotlight and invalidation through existing session cache-clearing flow.
+- Revert: none
+
 ## 2026-05-23 11:25 IST | codex | fix
 - Summary: Added frontend API base guard to prevent production pages from calling localhost APIs.
 - Files: frontend/src/shared/api/client.ts, CHANGELOG.md

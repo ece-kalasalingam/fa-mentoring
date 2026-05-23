@@ -128,6 +128,7 @@ export type StudentDirectoryRow = {
   programme: number | null;
   graduated: "Yes" | "No";
   mentorName: string;
+  mentorEmail?: string | null;
   modifiedByName: string;
   modifiedAt: string | null;
 };

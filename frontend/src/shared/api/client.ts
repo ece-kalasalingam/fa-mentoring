@@ -227,6 +227,15 @@ export type ApiResult = {
   errors?: string[];
   updatedStudentUserIds?: string[];
   summaries?: Array<{ studentId: string; totalCredits: number }>;
+  matched?: boolean;
+  faculty?: {
+    name: string;
+    slug: string;
+    email: string;
+    designation?: string | null;
+    profileUrl: string;
+  } | null;
+  warning?: string;
 }
 
 function resolveApiBase(): string {

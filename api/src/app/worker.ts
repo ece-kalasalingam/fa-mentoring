@@ -30,6 +30,7 @@ import {
 import { getAccountProfileByPrincipal, getPrincipalAccountFlags, resolveUserAccountIdByPrincipal, setUserActiveByAdmin, updateOwnFullName, updateUserByAdmin } from "../modules/auth/user-accounts.service";
 import { importStudents } from "../modules/imports/imports.service";
 import { clearAllLogs, readRecentLogs, writeLog } from "../modules/logging/logger.service";
+import { lookupFacultyByEmail, pickRandomFaculty } from "../modules/faculty-directory/faculty-directory.service";
 import { fetchPlansOfStudyFromJson } from "../modules/plan-of-study/plan-of-study.service";
 import { validatePlansOfStudyAgainstRegulations } from "../modules/plan-of-study/plan-of-study-validation.service";
 import { fetchProgrammesFromJson } from "../modules/programmes/programmes.service";
@@ -76,6 +77,8 @@ const ROOT_ENDPOINTS = [
   "/api/regulations",
   "/api/plans-of-study",
   "/api/programmes",
+  "/api/faculty-directory/random",
+  "/api/faculty-directory/lookup",
   "/api/students",
   "/api/students-directory",
   "/api/students-directory/update",
@@ -1086,6 +1089,46 @@ export const worker = {
         const data = await fetchProgrammesFromJson();
         statusCode = 200;
         return respond({ ok: true, ...data }, 200, undefined, false);
+      }
+
+      if (pathname === "/api/faculty-directory/random" && request.method === "GET") {
+        if (!principal) {
+          statusCode = 401;
+          event = "request.unauthorized";
+          return respond({ ok: false, error: "Unauthorized" }, 401);
+        }
+        try {
+          const faculty = await pickRandomFaculty(env);
+          statusCode = 200;
+          return respond({ ok: true, faculty });
+        } catch (err) {
+          statusCode = 200;
+          event = "faculty.directory.unavailable";
+          return respond({ ok: true, faculty: null, warning: err instanceof Error ? err.message : "Faculty directory unavailable" });
+        }
+      }
+
+      if (pathname === "/api/faculty-directory/lookup" && request.method === "GET") {
+        if (!principal) {
+          statusCode = 401;
+          event = "request.unauthorized";
+          return respond({ ok: false, error: "Unauthorized" }, 401);
+        }
+        const email = new URL(request.url).searchParams.get("email");
+        try {
+          const result = await lookupFacultyByEmail(env, email);
+          statusCode = 200;
+          return respond({ ok: true, ...result });
+        } catch (err) {
+          statusCode = 200;
+          event = "faculty.directory.unavailable";
+          return respond({
+            ok: true,
+            matched: false,
+            faculty: null,
+            warning: err instanceof Error ? err.message : "Faculty directory unavailable",
+          });
+        }
       }
 
       if (pathname === "/api/students" && request.method === "GET") {
