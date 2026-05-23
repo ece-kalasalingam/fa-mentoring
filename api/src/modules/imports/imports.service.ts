@@ -224,10 +224,6 @@ export async function importStudents(
     if (restrictedMentorEmail && hasMentorEmail) {
       throw new Error("Faculty cannot update mentor assignment via CSV.");
     }
-    if (restrictedMentorEmail && hasProgramme) {
-      throw new Error("Faculty cannot update programme via CSV.");
-    }
-
     const userId = String(studentAccountByEmail.get(email) ?? "").trim();
     if (!userId) {
       throw new Error(`Student account not found in user_accounts: ${email}`);

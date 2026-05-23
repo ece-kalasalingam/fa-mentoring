@@ -5124,3 +5124,28 @@ one => 403, mentor => faculty ownership assertion, self => strict self-only stud
   - `programme` constants now render as `id = name` from `programmeOptions`.
   - Added fallback text when either constants list is unavailable.
 - Revert: none
+## 2026-05-23 12:06 IST | codex-gpt-5 | fix
+- Summary: Added backend error details field for failed API responses to unblock debugging of `/api/import/students` 400 errors.
+- Files: api/src/app/worker.ts, CHANGELOG.md
+- Details:
+  - Updated top-level worker catch response to include `details` with the concrete exception message.
+  - Keeps existing generic `error` text unchanged while exposing actionable diagnostics to the frontend/client.
+- Revert: none
+## 2026-05-23 12:20 IST | codex-gpt-5 | fix
+- Summary: Added client-side CSV pre-validation for student import to show actionable errors before backend call.
+- Files: frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Added pre-check for faculty-only sessions to block CSVs containing `programme` or `mentor_email` before API call.
+  - Added pre-check for unknown student emails against loaded active Students Directory data and shows explicit error immediately.
+  - Added pre-check for unknown mentor emails against loaded active faculty/mentor data and shows explicit error immediately.
+  - Enhanced import failure status to include backend `details` text when available.
+- Revert: none
+## 2026-05-23 12:29 IST | codex-gpt-5 | change
+- Summary: Removed faculty programme-update guards so faculty can update `programme` in Students Directory flows.
+- Files: api/src/modules/imports/imports.service.ts, frontend/src/app/App.tsx, CHANGELOG.md
+- Details:
+  - Backend CSV import: removed faculty-restricted check that rejected `programme` updates when scoped by mentor.
+  - Frontend CSV pre-validation: faculty-only restriction now blocks only `mentor_email` (no longer blocks `programme`).
+  - Updated scoped helper text to reflect only `mentor_email` restriction.
+  - Enabled Programme column visibility in Students Directory table for scoped faculty dashboards to allow editing.
+- Revert: none

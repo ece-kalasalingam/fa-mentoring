@@ -1992,9 +1992,14 @@ function App() {
     }
 
     const hasHeader = (key: string) => headerIndex.has(key);
-    const isFacultyOnly = isScopedStudentDashboardOnly;
-    if (isFacultyOnly && (hasHeader("programme") || hasHeader("mentor_email") || hasHeader("mentorEmail"))) {
-      setStatus("Faculty CSV cannot include programme or mentor_email columns.");
+    const principalRoles = new Set((principal?.roles ?? []).map((role) => String(role ?? "").trim().toLowerCase()));
+    const isFacultyOnly =
+      principalRoles.has("faculty")
+      && !principalRoles.has("admin")
+      && !principalRoles.has("moderator")
+      && !principalRoles.has("head");
+    if (isFacultyOnly && (hasHeader("mentor_email") || hasHeader("mentorEmail"))) {
+      setStatus("Faculty CSV cannot include mentor_email columns.");
       return;
     }
     const readCell = (row: string[], key: string) => {
@@ -2018,6 +2023,61 @@ function App() {
       return;
     }
 
+    // Client-side pre-validation before any import API call.
+    const visibleStudentRows = isScopedStudentDashboardOnly ? facultyStudentsDirectoryRows : studentDirectoryRows;
+    const knownActiveStudentEmails = new Set(
+      visibleStudentRows
+        .map((row) => String(row.email ?? "").trim().toLowerCase())
+        .filter((email) => email.length > 0)
+    );
+    const unknownStudentEmails = Array.from(
+      new Set(
+        payloadRows
+          .map((row) => row.email)
+          .filter((email) => email.length > 0 && !knownActiveStudentEmails.has(email))
+      )
+    );
+    if (unknownStudentEmails.length > 0) {
+      setStatus(`Student account not found in loaded active student directory: ${unknownStudentEmails[0]}`);
+      return;
+    }
+
+    const knownMentorEmails = new Set<string>();
+    for (const row of facultyStudentRows) {
+      const mentorEmail = String(row.mentorEmail ?? "").trim().toLowerCase();
+      if (mentorEmail) knownMentorEmails.add(mentorEmail);
+    }
+    for (const row of moderatorStudentRows) {
+      const mentorEmail = String(row.mentorEmail ?? "").trim().toLowerCase();
+      if (mentorEmail) knownMentorEmails.add(mentorEmail);
+    }
+    for (const row of headStudentRows) {
+      const mentorEmail = String(row.mentorEmail ?? "").trim().toLowerCase();
+      if (mentorEmail) knownMentorEmails.add(mentorEmail);
+    }
+    for (const row of userRows) {
+      const email = String(row.email ?? "").trim().toLowerCase();
+      const isActiveFaculty = Boolean(row.active) && row.roles.some((role) => String(role ?? "").trim().toLowerCase() === "faculty");
+      if (email && isActiveFaculty) knownMentorEmails.add(email);
+    }
+    const principalEmail = String(principal?.email ?? "").trim().toLowerCase();
+    if (principalEmail && principalRoles.has("faculty")) {
+      knownMentorEmails.add(principalEmail);
+    }
+    if (hasHeader("mentor_email") || hasHeader("mentorEmail")) {
+      const unknownMentorEmails = Array.from(
+        new Set(
+          payloadRows
+            .map((row) => String(row.mentor_email ?? "").trim().toLowerCase())
+            .filter((email) => email.length > 0 && !knownMentorEmails.has(email))
+        )
+      );
+      if (unknownMentorEmails.length > 0) {
+        setStatus(`Mentor account not found as active faculty in loaded data: ${unknownMentorEmails[0]}`);
+        return;
+      }
+    }
+
     const normalizedRows = payloadRows.map((row) => {
       const next: Record<string, string> = { email: row.email };
       if (hasHeader("registration_number")) next.registration_number = row.registration_number;
@@ -2035,7 +2095,9 @@ function App() {
     try {
       const res = await callApi("/api/import/students", "POST", undefined, { rows: normalizedRows });
       if (!res.ok) {
-        setStatus(`Student import failed: ${res.error ?? "Unknown error"}`);
+        const details = String(res.details ?? "").trim();
+        const message = details.length > 0 ? `${res.error ?? "Unknown error"} (${details})` : (res.error ?? "Unknown error");
+        setStatus(`Student import failed: ${message}`);
         return;
       }
       const imported = Number(res.imported ?? 0);
@@ -6093,7 +6155,7 @@ function App() {
                     <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
                       {scopedDashboardRoleContext === "moderator"
                         ? "Showing all active students."
-                        : "Showing only your active mentoring students. Faculty CSV cannot include programme or mentor_email."}
+                        : "Showing only your active mentoring students. Faculty CSV cannot include mentor_email."}
                     </Typography>
                   ) : null}
                 </Box>
@@ -6110,7 +6172,7 @@ function App() {
                     mentorNameOptions={mentorNameOptions}
                     programmeOptions={programmeOptions}
                     showMentorName={!isScopedStudentDashboardOnly}
-                    showProgramme={!isScopedStudentDashboardOnly}
+                    showProgramme
                     showModifiedAudit={(isAdmin || hasHeadRole || hasModeratorRole)}
                     canEdit={!isStudentOnlySession}
                     onOpenStudentCredits={(row) => openStudentCredits(row)}

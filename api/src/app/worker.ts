@@ -1608,7 +1608,8 @@ export const worker = {
       return respond(
         {
           ok: false,
-          error: "Request failed. See server logs for details."
+          error: "Request failed. See server logs for details.",
+          details: errorMessage,
         },
         400
       );
